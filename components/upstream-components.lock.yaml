@@ -1,0 +1,83 @@
+version: 1
+retrieved_at: "2026-08-12T15:16:00Z"
+policy:
+  open_source_first: true
+  deployment_status: source_locked_not_deployed
+  non_fabrication_rule: >-
+    A locked upstream source is not evidence of a deployed, configured, healthy,
+    integrated or production-ready component. Environment-specific manifests and
+    secret references are created only after the authorised hybrid target is supplied.
+components:
+  - name: apache-apisix
+    purpose: API edge, route policy, authentication and rate controls
+    upstream:
+      type: helm_chart
+      repository: https://apache.github.io/apisix-helm-chart
+      chart: apisix/apisix
+      chart_version: 2.16.0
+      app_version: 3.17.0
+      artifact_sha256: 9998326a7f72d41b3475aabfbcab0522b88e62698cb150ac28eea2245832c6c3
+      official_documentation: https://apisix.apache.org/docs/helm-chart/apisix/
+    deployment_gate:
+      - Approved ingress and public/private exposure model.
+      - Authorised Keycloak/OIDC and mTLS configuration.
+      - Real upstream-service and route contract inventory.
+      - Approved TLS certificate and secret-management references.
+  - name: opensearch
+    purpose: Search and segregated security/audit/operations analytics indexes
+    upstream:
+      type: helm_chart
+      repository: https://opensearch-project.github.io/helm-charts/
+      chart: opensearch/opensearch
+      chart_version: 3.8.0
+      app_version: 3.8.0
+      artifact_sha256: cad6c77d04ec2389be6f61b5422ce61e7264eb7145e42b4c78dbc00e9d7dbe4d
+      official_documentation: https://docs.opensearch.org/latest/install-and-configure/install-opensearch/helm/
+    deployment_gate:
+      - Approved storage class, encryption, backup and retention model.
+      - Real index tenancy, access-control and audit requirements.
+      - Resource, shard and availability-zone sizing from measured telemetry volume.
+  - name: opencti
+    purpose: Curated cyber-threat intelligence and enrichment context
+    upstream:
+      type: helm_chart
+      repository: https://devops-ia.github.io/helm-opencti/
+      chart: opencti/opencti
+      chart_version: 2.4.12
+      app_version: 7.260807.0
+      artifact_sha256: 107b6f7703ee687903b97d45a1e41ca75dab6feef29f87ded31ad8b60f9e77eb
+      official_documentation: https://docs.opencti.io/latest/deployment/installation/
+      maintenance_note: >-
+        The OpenCTI documentation references this Helm chart. It is a community-maintained
+        upstream and must pass source, licence, vulnerability and operational review before
+        any production approval.
+    deployment_gate:
+      - Approved source/feed licences, sharing markings, confidence/expiry policy and data retention.
+      - Approved WebSocket/ingress/base-path configuration.
+      - Real dependency, secrets and connector configuration supplied through secret management.
+  - name: keycloak-operator
+    purpose: Kubernetes-native lifecycle management for Keycloak identity service
+    upstream:
+      type: kustomize_manifest
+      repository: https://github.com/keycloak/keycloak-k8s-resources
+      ref: 103ea5041e4ff31b4123a6c31032c4fd3c07dc12
+      version_tag: 26.7.1
+      path: kubernetes
+      official_documentation: https://www.keycloak.org/operator/installation
+    deployment_gate:
+      - Ministry decision on OLM versus kubectl/Kustomize operator installation.
+      - Approved Keycloak database, hostname, TLS, bootstrap and federation design.
+      - Actual realm/client/role configuration and integration test tenant.
+  - name: wazuh-kubernetes
+    purpose: Endpoint/workload/configuration telemetry and detection platform
+    upstream:
+      type: kustomize_manifest
+      repository: https://github.com/wazuh/wazuh-kubernetes
+      ref: 14f78b70ba553db2e3c0b3d1c013bde4d306a911
+      version_tag: v4.14.7
+      path: envs/local-env
+      official_documentation: https://documentation.wazuh.com/current/deployment-options/deploying-with-kubernetes/kubernetes-deployment.html
+    deployment_gate:
+      - Approved CA/certificate design and password/secret-management references.
+      - Approved storage class and capacity policy.
+      - Real agent enrolment, OpenSearch security tenancy, Keycloak SSO and SOC runbook validation.
