@@ -1,0 +1,19 @@
+tigerbeetle:
+  enabled: false
+  # Values are passed to the local TigerBeetle dependency only after production formation approval.
+
+sedonaSparkJobs:
+  enabled: false
+  # Values are passed to the local Sedona Spark jobs dependency only after Spark Operator/data access approval.
+
+mojaloop:
+  separatelyManaged: true
+  # Remains empty until an exact upstream release is approved in an environment repository.
+  requiredUpstreamRelease: ""
+  requiredNamespace: blueeco-mojaloop-prod
+
+releaseControls:
+  requireGitOps: true
+  requireExternalSecrets: true
+  requireImageDigestPinning: true
+  requireProductionApprovals: true

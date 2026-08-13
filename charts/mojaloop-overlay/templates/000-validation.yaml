@@ -1,0 +1,24 @@
+{{- $requiredValues := dict
+  "upstream.chartName" .Values.upstream.chartName
+  "upstream.chartVersion" .Values.upstream.chartVersion
+  "upstream.repository" .Values.upstream.repository
+  "identity.keycloak.issuerURL" .Values.identity.keycloak.issuerURL
+  "identity.keycloak.clientSecretRef.name" .Values.identity.keycloak.clientSecretRef.name
+  "identity.mTLS.certificateSecretRef.name" .Values.identity.mTLS.certificateSecretRef.name
+  "backingServices.mysql.host" .Values.backingServices.mysql.host
+  "backingServices.redis.host" .Values.backingServices.redis.host
+  "operations.auditExport.kafkaTopic" .Values.operations.auditExport.kafkaTopic
+  "operations.settlementAuthority" .Values.operations.settlementAuthority
+-}}
+{{- range $name, $value := $requiredValues -}}
+{{- if or (empty $value) (contains "REPLACE_WITH" $value) (contains "REQUIRED_APPROVED" $value) -}}
+{{- fail (printf "%s must contain an approved non-placeholder value" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- range $index, $route := .Values.apiGateway.partnerRoutes -}}
+{{- range $name, $value := dict "name" $route.name "hostname" $route.hostname "rateLimitPolicy" $route.rateLimitPolicy -}}
+{{- if or (empty $value) (contains "REPLACE_WITH" $value) -}}
+{{- fail (printf "apiGateway.partnerRoutes[%d].%s must contain an approved non-placeholder value" $index $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

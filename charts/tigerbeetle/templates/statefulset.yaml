@@ -1,0 +1,139 @@
+{{- $fullName := include "tigerbeetle.fullname" . -}}
+{{- $replicas := required "tigerbeetle.replicaCount must be explicitly set" .Values.tigerbeetle.replicaCount -}}
+{{- $clusterID := required "tigerbeetle.clusterID is required" .Values.tigerbeetle.clusterID -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "tigerbeetle.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ $fullName }}-headless
+  replicas: {{ $replicas }}
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Production upgrades require an explicit reviewed partition value.
+      partition: {{ $replicas }}
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: {{ ternary "Retain" "Delete" .Values.persistence.retainOnDelete }}
+    whenScaled: {{ ternary "Retain" "Delete" .Values.persistence.retainOnScale }}
+  selector:
+    matchLabels:
+      {{- include "tigerbeetle.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "tigerbeetle.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "tigerbeetle.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      priorityClassName: {{ .Values.priorityClassName | quote }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.tigerbeetle.initialize }}
+      initContainers:
+        - name: format-data-file
+          image: {{ include "tigerbeetle.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "/scripts/format.sh"]
+          env:
+            - name: TIGERBEETLE_CLUSTER_ID
+              value: {{ $clusterID | quote }}
+            - name: TIGERBEETLE_REPLICA_COUNT
+              value: {{ $replicas | quote }}
+            - name: TIGERBEETLE_DATA_PATH
+              value: {{ .Values.tigerbeetle.dataPath | quote }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/tigerbeetle
+            - name: init-script
+              mountPath: /scripts
+              readOnly: true
+      {{- end }}
+      containers:
+        - name: tigerbeetle
+          image: {{ include "tigerbeetle.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - start
+            - "--addresses={{ range $i, $_ := until (int $replicas) }}{{ if $i }},{{ end }}{{ printf (tpl $.Values.tigerbeetle.peerAddressTemplate $) $i }}{{ end }}"
+            - {{ .Values.tigerbeetle.dataPath | quote }}
+          ports:
+            - name: tigerbeetle
+              containerPort: {{ .Values.tigerbeetle.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          startupProbe:
+            tcpSocket:
+              port: tigerbeetle
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: tigerbeetle
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: tigerbeetle
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/tigerbeetle
+      volumes:
+        {{- if .Values.tigerbeetle.initialize }}
+        - name: init-script
+          configMap:
+            name: {{ $fullName }}-init
+            defaultMode: 0550
+        {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        {{- with .Values.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.accessModes | nindent 10 }}
+        storageClassName: {{ .Values.persistence.storageClass | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size | quote }}

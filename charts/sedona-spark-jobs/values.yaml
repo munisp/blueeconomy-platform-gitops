@@ -1,0 +1,119 @@
+nameOverride: ""
+fullnameOverride: ""
+
+sparkOperator:
+  # CRD/operator is a platform prerequisite and is not installed by this chart.
+  apiVersion: sparkoperator.k8s.io/v1beta2
+  kind: SparkApplication
+  required: true
+
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # Required by the Spark driver to create and manage executors under the namespace Role.
+  automountServiceAccountToken: true
+
+rbac:
+  create: true
+
+job:
+  enabled: true
+  name: "vessel-trajectory-silver"
+  schedule: "0 3 * * *"
+  # A deployment pipeline may convert this to a scheduled SparkApplication or create CronJob submitter.
+  mainApplicationFile: "local:///opt/blueeco/jobs/vessel_trajectory_silver.py"
+  mainClass: ""
+  arguments: []
+  dataProduct:
+    name: "vessel-trajectory-silver"
+    classification: restricted
+    inputTable: "bronze.vessel_observations"
+    outputTable: "silver.vessel_trajectories"
+    qualityContract: ""
+    crs: "EPSG:4326"
+
+spark:
+  type: Python
+  mode: cluster
+  sparkVersion: ""
+  restartPolicy:
+    type: Never
+  dynamicAllocation:
+    enabled: false
+  sparkConf:
+    "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension"
+    "spark.sql.catalog.spark_catalog": "org.apache.spark.sql.delta.catalog.DeltaCatalog"
+    "spark.sql.session.timeZone": "UTC"
+    "spark.kubernetes.allocation.batch.size": "5"
+    "spark.sql.adaptive.enabled": "true"
+  hadoopConf:
+    # Supply object-store endpoint, catalog and auth via workload identity/external secret integration.
+    "fs.s3a.path.style.access": "false"
+
+driver:
+  cores: 1
+  coreLimit: "1500m"
+  memory: "4g"
+  serviceAccount: ""
+  labels:
+    blueeconomy.platform/workload: geospatial-driver
+  # Optional references to approved ConfigMaps or ExternalSecret-produced Secrets.
+  envFrom: []
+  securityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+executor:
+  instances: 3
+  cores: 2
+  coreLimit: "2500m"
+  memory: "8g"
+  labels:
+    blueeconomy.platform/workload: geospatial-executor
+  # Optional references to approved ConfigMaps or ExternalSecret-produced Secrets.
+  envFrom: []
+  securityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+nodeSelector:
+  blueeconomy.platform/node-pool: geospatial-batch
+tolerations: []
+
+networkPolicy:
+  enabled: true
+  # Environment values must provide the real private/API service CIDRs before rendering.
+  kubernetesAPIServerCIDRs: []
+  kubernetesAPIServerPorts: [443]
+  objectStoreCIDRs: []
+  objectStorePorts: [443]
+  kafkaNamespace: blueeco-kafka-prod
+  kafkaPorts: [9093]
+  catalogNamespace: blueeco-data-catalog
+  catalogPorts: [443]
+
+observability:
+  logFormat: json
+  otelEnabled: true
+  kubecostLabels:
+    blueeconomy.platform/domain: S2-S5-S6
+    blueeconomy.platform/cost-center: geospatial-analytics
+
+qualityGate:
+  enabled: true
+  # The job code writes validation/quarantine status; this chart only supplies the identity and configuration.
+  failOnInvalidGeometry: true
+  failOnUnexpectedSchema: true
+  maximumRejectedRecordPercent: "0.5"

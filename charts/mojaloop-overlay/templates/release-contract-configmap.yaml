@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ default (printf "%s-mojaloop-overlay" .Release.Name) .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+  labels:
+    app.kubernetes.io/name: mojaloop-overlay
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    blueeconomy.platform/criticality: regulated-payment-integration
+data:
+  upstream-chart-name: {{ required "upstream.chartName must be set" .Values.upstream.chartName | quote }}
+  upstream-chart-version: {{ required "upstream.chartVersion must be set" .Values.upstream.chartVersion | quote }}
+  upstream-repository: {{ required "upstream.repository must be set" .Values.upstream.repository | quote }}
+  private-administration: {{ .Values.namespacePolicy.enforcePrivateAdministration | quote }}
+  ingress-controller: {{ .Values.namespacePolicy.permittedIngressController | quote }}
+  settlement-authority: {{ required "operations.settlementAuthority must be set" .Values.operations.settlementAuthority | quote }}
+  production-gate-approvals: {{ join "," .Values.productionGate.requiredApprovals | quote }}
+  production-gate-tests: {{ join "," .Values.productionGate.requiredTests | quote }}

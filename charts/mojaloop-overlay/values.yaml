@@ -1,0 +1,92 @@
+# This is an overlay contract, not a substitute for the selected upstream Mojaloop values schema.
+# Copy the selected upstream chart values into an approved environment repository and map the fields below.
+nameOverride: ""
+fullnameOverride: ""
+
+upstream:
+  chartName: ""
+  chartVersion: ""
+  repository: ""
+  imagePolicy:
+    requireDigestPinning: true
+    requireSignedArtifacts: true
+    requireSBOM: true
+
+namespacePolicy:
+  enforcePrivateAdministration: true
+  permittedIngressController: apisix
+  requireNetworkPolicies: true
+  requirePodSecurityStandard: restricted
+
+identity:
+  keycloak:
+    enabled: true
+    issuerURL: ""
+    clientSecretRef:
+      name: ""
+      key: "client-secret"
+  mTLS:
+    enabled: true
+    certificateSecretRef:
+      name: ""
+      key: "tls.crt"
+
+secrets:
+  provider: external-secrets
+  # ExternalSecret resources must be created in the platform secret integration layer.
+  requiredRefs:
+    - mojaloop-database
+    - mojaloop-redis
+    - mojaloop-participant-certificates
+    - mojaloop-operator-credentials
+
+backingServices:
+  # An implementation must explicitly declare whether each backing service is managed externally
+  # or installed from its own approved/HA chart. Development defaults are prohibited in production.
+  mysql:
+    mode: external-managed
+    host: ""
+    secretRef: mojaloop-database
+  redis:
+    mode: external-managed
+    host: ""
+    secretRef: mojaloop-redis
+
+apiGateway:
+  publicRoutes: []
+  partnerRoutes: []
+  adminRoutesPrivate: true
+  requireCorrelationID: true
+  requireSchemaValidation: true
+  requireOpenAppSec: true
+
+operations:
+  serviceMonitor:
+    enabled: true
+    labels: {}
+  auditExport:
+    enabled: true
+    kafkaTopic: ""
+  backup:
+    required: true
+  dailyReconciliation:
+    required: true
+  # Values are evidence controls, not a claim that settlement has occurred.
+  settlementAuthority: ""
+
+productionGate:
+  requiredApprovals:
+    - financial-operations
+    - settlement-owner
+    - compliance-aml-fraud
+    - security-operations
+    - site-reliability-engineering
+    - legal-regulatory-owner
+  requiredTests:
+    - participant-onboarding
+    - end-to-end-simulator-flow
+    - duplicate-and-timeout-recovery
+    - ingress-and-certificate-rotation
+    - backup-restore
+    - reconciliation
+    - incident-exercise

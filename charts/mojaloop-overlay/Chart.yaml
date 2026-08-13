@@ -1,0 +1,16 @@
+apiVersion: v2
+name: mojaloop-overlay
+description: Ministry overlay and release contract for a pinned upstream Mojaloop Helm deployment
+type: application
+version: 0.1.0
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - mojaloop
+  - payments
+  - financial-interoperability
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "regulated-payment-integration"
+  blueeconomy.platform/upstream-policy: "Pin verified upstream chart/image digests; do not deploy unreviewed defaults"
+# The approved upstream Mojaloop dependency is intentionally absent until Design Authority
+# selects and source-locks an exact official chart release.

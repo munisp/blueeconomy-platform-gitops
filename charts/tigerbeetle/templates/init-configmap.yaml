@@ -1,0 +1,26 @@
+{{- if .Values.tigerbeetle.initialize }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tigerbeetle.fullname" . }}-init
+  labels:
+    {{- include "tigerbeetle.labels" . | nindent 4 }}
+data:
+  format.sh: |
+    #!/bin/sh
+    set -eu
+    ordinal="${HOSTNAME##*-}"
+    data_file="${TIGERBEETLE_DATA_PATH}"
+
+    if [ -s "${data_file}" ]; then
+      echo "Existing TigerBeetle data detected for replica ${ordinal}; refusing to format."
+      exit 0
+    fi
+
+    echo "Formatting replica ${ordinal}; cluster ${TIGERBEETLE_CLUSTER_ID}; replicas ${TIGERBEETLE_REPLICA_COUNT}."
+    exec tigerbeetle format \
+      --cluster="${TIGERBEETLE_CLUSTER_ID}" \
+      --replica-count="${TIGERBEETLE_REPLICA_COUNT}" \
+      --replica="${ordinal}" \
+      "${data_file}"
+{{- end }}

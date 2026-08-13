@@ -1,0 +1,18 @@
+apiVersion: v2
+name: tigerbeetle
+description: Ministry-controlled StatefulSet deployment pattern for a TigerBeetle financial sub-ledger cluster
+type: application
+version: 0.1.0
+appVersion: "REQUIRED_PINNED_TIGERBEETLE_VERSION"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - tigerbeetle
+  - financial-ledger
+  - stateful
+  - blue-economy
+maintainers:
+  - name: Blue Economy Platform Engineering
+    email: platform-engineering@example.invalid
+annotations:
+  blueeconomy.platform/criticality: "financial-high-integrity"
+  blueeconomy.platform/immutable-parameters: "clusterID,replicaCount,ordered-peer-addresses"

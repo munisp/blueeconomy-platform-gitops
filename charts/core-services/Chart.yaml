@@ -1,0 +1,18 @@
+apiVersion: v2
+name: core-services
+description: Optional umbrella chart for coordinated Blue Economy Platform core service releases
+type: application
+version: 0.1.0
+kubeVersion: ">=1.28.0-0"
+dependencies:
+  - name: tigerbeetle
+    version: 0.1.0
+    repository: "file://../tigerbeetle"
+    condition: tigerbeetle.enabled
+  - name: sedona-spark-jobs
+    alias: sedonaSparkJobs
+    version: 0.1.0
+    repository: "file://../sedona-spark-jobs"
+    condition: sedonaSparkJobs.enabled
+# Mojaloop remains a separately approved upstream release. Do not add it as a dependency
+# until exact upstream source/version and financial operating approvals have been accepted.

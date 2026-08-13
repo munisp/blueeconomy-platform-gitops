@@ -1,0 +1,16 @@
+apiVersion: v2
+name: sedona-spark-jobs
+description: Ministry templates for governed Apache Sedona SparkApplication workloads on Kubernetes
+type: application
+version: 0.1.0
+appVersion: "REQUIRED_PINNED_SEDONA_SPARK_COMPATIBILITY_SET"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - apache-sedona
+  - apache-spark
+  - geospatial
+  - lakehouse
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "governed-geospatial-analytics"
+  blueeconomy.platform/operator-prerequisite: "Spark Operator CRDs must be installed and accepted separately"

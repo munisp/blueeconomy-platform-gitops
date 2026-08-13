@@ -1,0 +1,19 @@
+{{- $repository := required "image.repository is required" .Values.image.repository -}}
+{{- if contains "REPLACE_WITH" $repository -}}
+{{- fail "image.repository must reference an approved registry and must not retain a placeholder" -}}
+{{- end -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest" -}}
+{{- end -}}
+{{- $clusterID := required "tigerbeetle.clusterID is required" .Values.tigerbeetle.clusterID -}}
+{{- if or (contains "REPLACE_WITH" $clusterID) (eq $clusterID "0") -}}
+{{- fail "tigerbeetle.clusterID must be an approved non-zero cluster identifier" -}}
+{{- end -}}
+{{- if lt (int .Values.tigerbeetle.replicaCount) 3 -}}
+{{- fail "tigerbeetle.replicaCount must be at least 3 for this high-integrity chart" -}}
+{{- end -}}
+{{- $storageClass := required "persistence.storageClass is required" .Values.persistence.storageClass -}}
+{{- if contains "REPLACE_WITH" $storageClass -}}
+{{- fail "persistence.storageClass must name an approved encrypted storage class" -}}
+{{- end -}}

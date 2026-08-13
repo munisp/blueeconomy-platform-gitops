@@ -1,0 +1,78 @@
+{{- if .Values.job.enabled }}
+apiVersion: {{ .Values.sparkOperator.apiVersion }}
+kind: {{ .Values.sparkOperator.kind }}
+metadata:
+  name: {{ default (printf "%s-%s" .Release.Name .Values.job.name) .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+  labels:
+    app.kubernetes.io/name: sedona-spark-jobs
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    blueeconomy.platform/data-product: {{ .Values.job.dataProduct.name | quote }}
+    blueeconomy.platform/classification: {{ .Values.job.dataProduct.classification | quote }}
+    {{- with .Values.observability.kubecostLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  type: {{ .Values.spark.type }}
+  {{- with .Values.nodeSelector }}
+  nodeSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  mode: {{ .Values.spark.mode }}
+  image: {{ printf "%s@%s" .Values.image.repository .Values.image.digest | quote }}
+  imagePullPolicy: {{ .Values.image.pullPolicy }}
+  mainApplicationFile: {{ required "job.mainApplicationFile is required" .Values.job.mainApplicationFile | quote }}
+  {{- if .Values.job.mainClass }}
+  mainClass: {{ .Values.job.mainClass | quote }}
+  {{- end }}
+  arguments:
+    - "--input-table={{ .Values.job.dataProduct.inputTable }}"
+    - "--output-table={{ .Values.job.dataProduct.outputTable }}"
+    - "--quality-contract={{ .Values.job.dataProduct.qualityContract }}"
+    - "--crs={{ .Values.job.dataProduct.crs }}"
+    {{- range .Values.job.arguments }}
+    - {{ . | quote }}
+    {{- end }}
+  sparkVersion: {{ required "spark.sparkVersion is required" .Values.spark.sparkVersion | quote }}
+  restartPolicy:
+    {{- toYaml .Values.spark.restartPolicy | nindent 4 }}
+  dynamicAllocation:
+    {{- toYaml .Values.spark.dynamicAllocation | nindent 4 }}
+  sparkConf:
+    {{- toYaml .Values.spark.sparkConf | nindent 4 }}
+  hadoopConf:
+    {{- toYaml .Values.spark.hadoopConf | nindent 4 }}
+  driver:
+    cores: {{ .Values.driver.cores }}
+    coreLimit: {{ .Values.driver.coreLimit | quote }}
+    memory: {{ .Values.driver.memory | quote }}
+    serviceAccount: {{ default (default (printf "%s-sedona" .Release.Name) .Values.serviceAccount.name) .Values.driver.serviceAccount | quote }}
+    labels:
+      {{- toYaml .Values.driver.labels | nindent 6 }}
+    {{- with .Values.driver.envFrom }}
+    envFrom:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+    tolerations:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    securityContext:
+      {{- toYaml .Values.driver.securityContext | nindent 6 }}
+  executor:
+    instances: {{ .Values.executor.instances }}
+    cores: {{ .Values.executor.cores }}
+    coreLimit: {{ .Values.executor.coreLimit | quote }}
+    memory: {{ .Values.executor.memory | quote }}
+    labels:
+      {{- toYaml .Values.executor.labels | nindent 6 }}
+    {{- with .Values.executor.envFrom }}
+    envFrom:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+    tolerations:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    securityContext:
+      {{- toYaml .Values.executor.securityContext | nindent 6 }}
+{{- end }}

@@ -1,0 +1,40 @@
+{{- $repository := required "image.repository is required" .Values.image.repository -}}
+{{- if contains "REPLACE_WITH" $repository -}}
+{{- fail "image.repository must reference an approved registry and must not retain a placeholder" -}}
+{{- end -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest" -}}
+{{- end -}}
+{{- $sparkVersion := required "spark.sparkVersion is required" .Values.spark.sparkVersion -}}
+{{- if contains "REQUIRED" $sparkVersion -}}
+{{- fail "spark.sparkVersion must be an approved compatible version" -}}
+{{- end -}}
+{{- $qualityContract := required "job.dataProduct.qualityContract is required" .Values.job.dataProduct.qualityContract -}}
+{{- if contains "REPLACE_WITH" $qualityContract -}}
+{{- fail "job.dataProduct.qualityContract must identify an approved versioned contract" -}}
+{{- end -}}
+{{- if and .Values.serviceAccount.create (not .Values.rbac.create) -}}
+{{- fail "rbac.create must be true when this chart creates the Spark driver service account" -}}
+{{- end -}}
+{{- if and .Values.serviceAccount.create (not .Values.serviceAccount.automountServiceAccountToken) -}}
+{{- fail "serviceAccount.automountServiceAccountToken must be true for the Spark driver" -}}
+{{- end -}}
+{{- if and (not .Values.serviceAccount.create) (empty .Values.serviceAccount.name) -}}
+{{- fail "serviceAccount.name is required when serviceAccount.create is false" -}}
+{{- end -}}
+{{- if not .Values.networkPolicy.enabled -}}
+{{- fail "networkPolicy.enabled must remain true for Sedona jobs" -}}
+{{- end -}}
+{{- if eq (len .Values.networkPolicy.kubernetesAPIServerCIDRs) 0 -}}
+{{- fail "networkPolicy.kubernetesAPIServerCIDRs must contain approved API service CIDRs" -}}
+{{- end -}}
+{{- if eq (len .Values.networkPolicy.objectStoreCIDRs) 0 -}}
+{{- fail "networkPolicy.objectStoreCIDRs must contain approved object-store CIDRs" -}}
+{{- end -}}
+{{- if or (empty .Values.networkPolicy.kafkaNamespace) (eq (len .Values.networkPolicy.kafkaPorts) 0) -}}
+{{- fail "networkPolicy Kafka namespace and ports are required" -}}
+{{- end -}}
+{{- if or (empty .Values.networkPolicy.catalogNamespace) (eq (len .Values.networkPolicy.catalogPorts) 0) -}}
+{{- fail "networkPolicy catalog namespace and ports are required" -}}
+{{- end -}}
