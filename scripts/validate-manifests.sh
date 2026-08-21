@@ -3,6 +3,10 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 helm version --short >/dev/null
+# Helm otherwise defaults to a legacy synthetic Kubernetes 1.20 capability. The
+# charts declare Kubernetes 1.28+ support; test that baseline explicitly while
+# allowing approved CI or target pipelines to provide their exact capability.
+helm_kube_version="${HELM_KUBE_VERSION:-1.28.0}"
 
 # The base uses Kustomize, so validate the required namespace and default-deny sources directly.
 grep -q 'kind: Namespace' "$repo_root/kubernetes/base/namespaces/platform.yaml"
@@ -39,7 +43,7 @@ assert_default_render_fails_closed() {
   local expected="$2"
   local output
   output="$(mktemp)"
-  if helm template validation "$repo_root/charts/$chart" > /dev/null 2>"$output"; then
+  if helm template validation "$repo_root/charts/$chart" --kube-version "$helm_kube_version" > /dev/null 2>"$output"; then
     echo "$chart rendered without approved environment values" >&2
     rm -f "$output"
     exit 1
@@ -61,7 +65,7 @@ workspace="$(mktemp -d)"
 trap 'rm -rf "$workspace"' EXIT
 cp -a "$repo_root/charts" "$workspace/charts"
 helm dependency build "$workspace/charts/core-services" >/dev/null
-helm lint "$workspace/charts/core-services" >/dev/null
-helm template core-services "$workspace/charts/core-services" >/dev/null
+helm lint "$workspace/charts/core-services" --kube-version "$helm_kube_version" >/dev/null
+helm template core-services "$workspace/charts/core-services" --kube-version "$helm_kube_version" >/dev/null
 
 printf '%s\n' 'Validated GitOps base manifests, upstream source locks, chart sources, fail-closed value gates and umbrella dependencies.'
