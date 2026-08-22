@@ -22,8 +22,17 @@ identity:
   keycloak:
     enabled: true
     issuerURL: ""
+    jwksURI: ""
     # APISIX/Keycloak validates public audience and scope metadata per partner route.
     # No bearer token or secret is permitted in chart values.
+    assertions:
+      requireIssuerExactMatch: true
+      requireJWKSValidation: true
+      requireExpiry: true
+      requireNotBefore: true
+      maximumClockSkewSeconds: 60
+      allowedSigningAlgorithms:
+        - RS256
     clientSecretRef:
       name: ""
       key: "client-secret"
@@ -65,6 +74,8 @@ apiGateway:
   adminRoutesPrivate: true
   requireOIDCAudienceValidation: true
   requireOIDCScopeValidation: true
+  requireTLS12Minimum: true
+  rejectBearerTokenQueryParameters: true
   requireCorrelationID: true
   requireSchemaValidation: true
   requireOpenAppSec: true

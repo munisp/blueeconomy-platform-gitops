@@ -13,6 +13,13 @@ data:
   upstream-repository: {{ required "upstream.repository must be set" .Values.upstream.repository | quote }}
   private-administration: {{ .Values.namespacePolicy.enforcePrivateAdministration | quote }}
   ingress-controller: {{ .Values.namespacePolicy.permittedIngressController | quote }}
+  oidc-issuer-url: {{ required "identity.keycloak.issuerURL must be set" .Values.identity.keycloak.issuerURL | quote }}
+  oidc-jwks-uri: {{ required "identity.keycloak.jwksURI must be set" .Values.identity.keycloak.jwksURI | quote }}
+  oidc-allowed-signing-algorithms: {{ join "," .Values.identity.keycloak.assertions.allowedSigningAlgorithms | quote }}
+  oidc-maximum-clock-skew-seconds: {{ .Values.identity.keycloak.assertions.maximumClockSkewSeconds | quote }}
+  apisix-require-tls12-minimum: {{ .Values.apiGateway.requireTLS12Minimum | quote }}
+  apisix-reject-bearer-token-query-parameters: {{ .Values.apiGateway.rejectBearerTokenQueryParameters | quote }}
+  apisix-partner-route-contracts: {{ toJson .Values.apiGateway.partnerRoutes | quote }}
   settlement-authority: {{ required "operations.settlementAuthority must be set" .Values.operations.settlementAuthority | quote }}
   production-gate-approvals: {{ join "," .Values.productionGate.requiredApprovals | quote }}
   production-gate-tests: {{ join "," .Values.productionGate.requiredTests | quote }}

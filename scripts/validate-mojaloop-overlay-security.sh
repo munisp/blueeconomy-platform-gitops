@@ -17,6 +17,14 @@ upstream:
 identity:
   keycloak:
     issuerURL: https://issuer.example.invalid/realms/local-validation
+    jwksURI: https://issuer.example.invalid/realms/local-validation/protocol/openid-connect/certs
+    assertions:
+      requireIssuerExactMatch: true
+      requireJWKSValidation: true
+      requireExpiry: true
+      requireNotBefore: true
+      maximumClockSkewSeconds: 60
+      allowedSigningAlgorithms: [RS256]
     clientSecretRef:
       name: local-keycloak-reference
       key: client-secret
@@ -38,6 +46,8 @@ apiGateway:
   partnerRoutes:
     - name: local-partner
       hostname: partner.example.invalid
+      pathPrefix: /payments/v1
+      allowedMethods: [GET, POST]
       rateLimitPolicy: local-rate-policy
       audience: local-partner-audience
       scopes: ["payments.read"]
@@ -84,6 +94,10 @@ assert_override_fails() {
 
 assert_override_fails 'identity.keycloak.enabled must remain true' --set identity.keycloak.enabled=false
 assert_override_fails 'identity.keycloak.issuerURL must be an HTTPS issuer URL' --set identity.keycloak.issuerURL=http://issuer.example.invalid/realm
+assert_override_fails 'identity.keycloak.jwksURI must be an HTTPS JWKS URL' --set identity.keycloak.jwksURI=http://issuer.example.invalid/certs
+assert_override_fails 'identity.keycloak.assertions.requireExpiry must remain true' --set identity.keycloak.assertions.requireExpiry=false
+assert_override_fails 'identity.keycloak.assertions.maximumClockSkewSeconds must be between 0 and 120' --set identity.keycloak.assertions.maximumClockSkewSeconds=121
+assert_override_fails 'identity.keycloak.assertions.allowedSigningAlgorithms[0] must be RS256, PS256 or ES256' --set-json 'identity.keycloak.assertions.allowedSigningAlgorithms=["HS256"]'
 assert_override_fails 'identity.mTLS.enabled must remain true' --set identity.mTLS.enabled=false
 assert_override_fails 'identity.mTLS.trustedCASecretRef.name must contain an approved non-placeholder value' --set identity.mTLS.trustedCASecretRef.name=
 assert_override_fails 'secrets.provider must be external-secrets' --set secrets.provider=plaintext
@@ -99,10 +113,16 @@ assert_override_fails 'backingServices.redis.mode must be external-managed' --se
 assert_override_fails 'apiGateway.adminRoutesPrivate must remain true' --set apiGateway.adminRoutesPrivate=false
 assert_override_fails 'apiGateway.requireOIDCAudienceValidation must remain true' --set apiGateway.requireOIDCAudienceValidation=false
 assert_override_fails 'apiGateway.requireOIDCScopeValidation must remain true' --set apiGateway.requireOIDCScopeValidation=false
+assert_override_fails 'apiGateway.requireTLS12Minimum must remain true' --set apiGateway.requireTLS12Minimum=false
+assert_override_fails 'apiGateway.rejectBearerTokenQueryParameters must remain true' --set apiGateway.rejectBearerTokenQueryParameters=false
 assert_override_fails 'apiGateway.partnerRoutes[0].requireMTLS must remain true' --set apiGateway.partnerRoutes[0].requireMTLS=false
 assert_override_fails 'apiGateway.partnerRoutes[0].audience must contain an approved non-placeholder value' --set apiGateway.partnerRoutes[0].audience=
 assert_override_fails 'apiGateway.partnerRoutes[0].scopes must contain at least one approved scope' --set-json 'apiGateway.partnerRoutes[0].scopes=[]'
 assert_override_fails 'apiGateway.partnerRoutes[0].schemaProfile must contain an approved non-placeholder value' --set apiGateway.partnerRoutes[0].schemaProfile=
+assert_override_fails 'apiGateway.partnerRoutes[0].pathPrefix must contain an approved non-placeholder value' --set apiGateway.partnerRoutes[0].pathPrefix=
+assert_override_fails 'apiGateway.partnerRoutes[0].pathPrefix must be an absolute path without traversal' --set apiGateway.partnerRoutes[0].pathPrefix=relative
+assert_override_fails 'apiGateway.partnerRoutes[0].allowedMethods must contain at least one approved method' --set-json 'apiGateway.partnerRoutes[0].allowedMethods=[]'
+assert_override_fails 'apiGateway.partnerRoutes[0].allowedMethods[0] must be GET, POST, PUT, PATCH or DELETE' --set-json 'apiGateway.partnerRoutes[0].allowedMethods=["TRACE"]'
 assert_override_fails 'apiGateway.requireCorrelationID must remain true' --set apiGateway.requireCorrelationID=false
 assert_override_fails 'apiGateway.requireSchemaValidation must remain true' --set apiGateway.requireSchemaValidation=false
 assert_override_fails 'apiGateway.requireOpenAppSec must remain true' --set apiGateway.requireOpenAppSec=false

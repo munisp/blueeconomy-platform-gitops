@@ -3,6 +3,7 @@
   "upstream.chartVersion" .Values.upstream.chartVersion
   "upstream.repository" .Values.upstream.repository
   "identity.keycloak.issuerURL" .Values.identity.keycloak.issuerURL
+  "identity.keycloak.jwksURI" .Values.identity.keycloak.jwksURI
   "identity.keycloak.clientSecretRef.name" .Values.identity.keycloak.clientSecretRef.name
   "identity.keycloak.clientSecretRef.key" .Values.identity.keycloak.clientSecretRef.key
   "identity.mTLS.certificateSecretRef.name" .Values.identity.mTLS.certificateSecretRef.name
@@ -23,6 +24,25 @@
 {{- end -}}
 {{- if not (regexMatch "^https://[^/]+(/.*)?$" .Values.identity.keycloak.issuerURL) -}}
 {{- fail "identity.keycloak.issuerURL must be an HTTPS issuer URL" -}}
+{{- end -}}
+{{- if not (regexMatch "^https://[^/]+(/.*)?$" .Values.identity.keycloak.jwksURI) -}}
+{{- fail "identity.keycloak.jwksURI must be an HTTPS JWKS URL" -}}
+{{- end -}}
+{{- range $name, $enabled := dict "requireIssuerExactMatch" .Values.identity.keycloak.assertions.requireIssuerExactMatch "requireJWKSValidation" .Values.identity.keycloak.assertions.requireJWKSValidation "requireExpiry" .Values.identity.keycloak.assertions.requireExpiry "requireNotBefore" .Values.identity.keycloak.assertions.requireNotBefore -}}
+{{- if not $enabled -}}
+{{- fail (printf "identity.keycloak.assertions.%s must remain true" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- if or (lt (int .Values.identity.keycloak.assertions.maximumClockSkewSeconds) 0) (gt (int .Values.identity.keycloak.assertions.maximumClockSkewSeconds) 120) -}}
+{{- fail "identity.keycloak.assertions.maximumClockSkewSeconds must be between 0 and 120" -}}
+{{- end -}}
+{{- if eq (len .Values.identity.keycloak.assertions.allowedSigningAlgorithms) 0 -}}
+{{- fail "identity.keycloak.assertions.allowedSigningAlgorithms must contain at least one approved asymmetric algorithm" -}}
+{{- end -}}
+{{- range $index, $algorithm := .Values.identity.keycloak.assertions.allowedSigningAlgorithms -}}
+{{- if not (has $algorithm (list "RS256" "PS256" "ES256")) -}}
+{{- fail (printf "identity.keycloak.assertions.allowedSigningAlgorithms[%d] must be RS256, PS256 or ES256" $index) -}}
+{{- end -}}
 {{- end -}}
 {{- if not .Values.identity.keycloak.enabled -}}
 {{- fail "identity.keycloak.enabled must remain true for the regulated payment overlay" -}}
@@ -74,6 +94,12 @@
 {{- if not .Values.apiGateway.requireOIDCScopeValidation -}}
 {{- fail "apiGateway.requireOIDCScopeValidation must remain true" -}}
 {{- end -}}
+{{- if not .Values.apiGateway.requireTLS12Minimum -}}
+{{- fail "apiGateway.requireTLS12Minimum must remain true" -}}
+{{- end -}}
+{{- if not .Values.apiGateway.rejectBearerTokenQueryParameters -}}
+{{- fail "apiGateway.rejectBearerTokenQueryParameters must remain true" -}}
+{{- end -}}
 {{- if not .Values.apiGateway.requireCorrelationID -}}
 {{- fail "apiGateway.requireCorrelationID must remain true" -}}
 {{- end -}}
@@ -93,13 +119,24 @@
 {{- fail "operations.dailyReconciliation.required must remain true" -}}
 {{- end -}}
 {{- range $index, $route := .Values.apiGateway.partnerRoutes -}}
-{{- range $name, $value := dict "name" $route.name "hostname" $route.hostname "rateLimitPolicy" $route.rateLimitPolicy "audience" $route.audience "schemaProfile" $route.schemaProfile -}}
+{{- range $name, $value := dict "name" $route.name "hostname" $route.hostname "pathPrefix" $route.pathPrefix "rateLimitPolicy" $route.rateLimitPolicy "audience" $route.audience "schemaProfile" $route.schemaProfile -}}
 {{- if or (empty $value) (contains "REPLACE_WITH" $value) -}}
 {{- fail (printf "apiGateway.partnerRoutes[%d].%s must contain an approved non-placeholder value" $index $name) -}}
 {{- end -}}
 {{- end -}}
 {{- if eq (len $route.scopes) 0 -}}
 {{- fail (printf "apiGateway.partnerRoutes[%d].scopes must contain at least one approved scope" $index) -}}
+{{- end -}}
+{{- if not (regexMatch "^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$" $route.pathPrefix) -}}
+{{- fail (printf "apiGateway.partnerRoutes[%d].pathPrefix must be an absolute path without traversal" $index) -}}
+{{- end -}}
+{{- if eq (len $route.allowedMethods) 0 -}}
+{{- fail (printf "apiGateway.partnerRoutes[%d].allowedMethods must contain at least one approved method" $index) -}}
+{{- end -}}
+{{- range $methodIndex, $method := $route.allowedMethods -}}
+{{- if not (has $method (list "GET" "POST" "PUT" "PATCH" "DELETE")) -}}
+{{- fail (printf "apiGateway.partnerRoutes[%d].allowedMethods[%d] must be GET, POST, PUT, PATCH or DELETE" $index $methodIndex) -}}
+{{- end -}}
 {{- end -}}
 {{- if not $route.requireMTLS -}}
 {{- fail (printf "apiGateway.partnerRoutes[%d].requireMTLS must remain true" $index) -}}
