@@ -17,6 +17,9 @@ data:
   oidc-jwks-uri: {{ required "identity.keycloak.jwksURI must be set" .Values.identity.keycloak.jwksURI | quote }}
   oidc-allowed-signing-algorithms: {{ join "," .Values.identity.keycloak.assertions.allowedSigningAlgorithms | quote }}
   oidc-maximum-clock-skew-seconds: {{ .Values.identity.keycloak.assertions.maximumClockSkewSeconds | quote }}
+  apisix-plugin-set-reference: {{ .Values.apiGateway.attachment.pluginSetReference | quote }}
+  apisix-plugin-set-sha256: {{ .Values.apiGateway.attachment.pluginSetSHA256 | quote }}
+  apisix-policy-change-approval-reference: {{ .Values.apiGateway.attachment.policyChangeApprovalRef | quote }}
   apisix-require-tls12-minimum: {{ .Values.apiGateway.requireTLS12Minimum | quote }}
   apisix-reject-bearer-token-query-parameters: {{ .Values.apiGateway.rejectBearerTokenQueryParameters | quote }}
   apisix-partner-route-contracts: {{ toJson .Values.apiGateway.partnerRoutes | quote }}

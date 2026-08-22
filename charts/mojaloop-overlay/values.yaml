@@ -68,6 +68,12 @@ backingServices:
 
 apiGateway:
   publicRoutes: []
+  # This describes the approved APISIX attachment contract; APISIX resources and
+  # actual plugin attachment remain environment-owned and are not claimed here.
+  attachment:
+    pluginSetReference: ""
+    pluginSetSHA256: ""
+    policyChangeApprovalRef: ""
   # Every partner route must identify the expected audience/scopes, mTLS and
   # schema contract. APISIX resources themselves remain environment-owned.
   partnerRoutes: []

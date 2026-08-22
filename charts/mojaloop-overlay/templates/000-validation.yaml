@@ -10,6 +10,8 @@
   "identity.mTLS.certificateSecretRef.key" .Values.identity.mTLS.certificateSecretRef.key
   "identity.mTLS.trustedCASecretRef.name" .Values.identity.mTLS.trustedCASecretRef.name
   "identity.mTLS.trustedCASecretRef.key" .Values.identity.mTLS.trustedCASecretRef.key
+  "apiGateway.attachment.pluginSetReference" .Values.apiGateway.attachment.pluginSetReference
+  "apiGateway.attachment.policyChangeApprovalRef" .Values.apiGateway.attachment.policyChangeApprovalRef
   "backingServices.mysql.host" .Values.backingServices.mysql.host
   "backingServices.mysql.secretRef" .Values.backingServices.mysql.secretRef
   "backingServices.redis.host" .Values.backingServices.redis.host
@@ -86,8 +88,15 @@
 {{- fail "backingServices.redis.mode must be external-managed" -}}
 {{- end -}}
 {{- if not .Values.apiGateway.adminRoutesPrivate -}}
-{{- fail "apiGateway.adminRoutesPrivate must remain true" -}}
+  {{- fail "apiGateway.adminRoutesPrivate must remain true" -}}
 {{- end -}}
+{{- if not (regexMatch "^[a-fA-F0-9]{64}$" .Values.apiGateway.attachment.pluginSetSHA256) -}}
+  {{- fail "apiGateway.attachment.pluginSetSHA256 must be a 64-character SHA-256 digest" -}}
+{{- end -}}
+{{- if eq (len .Values.apiGateway.partnerRoutes) 0 -}}
+  {{- fail "apiGateway.partnerRoutes must contain at least one approved partner route" -}}
+{{- end -}}
+
 {{- if not .Values.apiGateway.requireOIDCAudienceValidation -}}
 {{- fail "apiGateway.requireOIDCAudienceValidation must remain true" -}}
 {{- end -}}
@@ -119,26 +128,57 @@
 {{- fail "operations.dailyReconciliation.required must remain true" -}}
 {{- end -}}
 {{- range $index, $route := .Values.apiGateway.partnerRoutes -}}
-{{- range $name, $value := dict "name" $route.name "hostname" $route.hostname "pathPrefix" $route.pathPrefix "rateLimitPolicy" $route.rateLimitPolicy "audience" $route.audience "schemaProfile" $route.schemaProfile -}}
+  {{- range $name, $value := dict "name" $route.name "hostname" $route.hostname "pathPrefix" $route.pathPrefix "rateLimitPolicy" $route.rateLimitPolicy "audience" $route.audience "schemaProfile" $route.schemaProfile -}}
+
 {{- if or (empty $value) (contains "REPLACE_WITH" $value) -}}
 {{- fail (printf "apiGateway.partnerRoutes[%d].%s must contain an approved non-placeholder value" $index $name) -}}
 {{- end -}}
 {{- end -}}
-{{- if eq (len $route.scopes) 0 -}}
-{{- fail (printf "apiGateway.partnerRoutes[%d].scopes must contain at least one approved scope" $index) -}}
-{{- end -}}
-{{- if not (regexMatch "^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$" $route.pathPrefix) -}}
+  {{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$" $route.name) -}}
+    {{- fail (printf "apiGateway.partnerRoutes[%d].name must be a canonical route identifier" $index) -}}
+  {{- end -}}
+  {{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9.-]{1,253}[A-Za-z0-9]$" $route.hostname) -}}
+    {{- fail (printf "apiGateway.partnerRoutes[%d].hostname must be a DNS hostname" $index) -}}
+  {{- end -}}
+  {{- if ne $route.hostname (lower $route.hostname) -}}
+    {{- fail (printf "apiGateway.partnerRoutes[%d].hostname must be lowercase" $index) -}}
+  {{- end -}}
+  {{- if eq (len $route.scopes) 0 -}}
+    {{- fail (printf "apiGateway.partnerRoutes[%d].scopes must contain at least one approved scope" $index) -}}
+  {{- end -}}
+  {{- if ne (len $route.scopes) (len (uniq $route.scopes)) -}}
+    {{- fail (printf "apiGateway.partnerRoutes[%d].scopes must not contain duplicates" $index) -}}
+  {{- end -}}
+  {{- range $scopeIndex, $scope := $route.scopes -}}
+    {{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._:-]{1,255}$" $scope) -}}
+      {{- fail (printf "apiGateway.partnerRoutes[%d].scopes[%d] must be a canonical scope identifier" $index $scopeIndex) -}}
+    {{- end -}}
+  {{- end -}}
+  {{- if not (regexMatch "^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$" $route.pathPrefix) -}}
+
 {{- fail (printf "apiGateway.partnerRoutes[%d].pathPrefix must be an absolute path without traversal" $index) -}}
 {{- end -}}
-{{- if eq (len $route.allowedMethods) 0 -}}
-{{- fail (printf "apiGateway.partnerRoutes[%d].allowedMethods must contain at least one approved method" $index) -}}
-{{- end -}}
-{{- range $methodIndex, $method := $route.allowedMethods -}}
+  {{- if eq (len $route.allowedMethods) 0 -}}
+    {{- fail (printf "apiGateway.partnerRoutes[%d].allowedMethods must contain at least one approved method" $index) -}}
+  {{- end -}}
+  {{- if ne (len $route.allowedMethods) (len (uniq $route.allowedMethods)) -}}
+    {{- fail (printf "apiGateway.partnerRoutes[%d].allowedMethods must not contain duplicates" $index) -}}
+  {{- end -}}
+  {{- range $methodIndex, $method := $route.allowedMethods -}}
+
 {{- if not (has $method (list "GET" "POST" "PUT" "PATCH" "DELETE")) -}}
 {{- fail (printf "apiGateway.partnerRoutes[%d].allowedMethods[%d] must be GET, POST, PUT, PATCH or DELETE" $index $methodIndex) -}}
 {{- end -}}
 {{- end -}}
-{{- if not $route.requireMTLS -}}
-{{- fail (printf "apiGateway.partnerRoutes[%d].requireMTLS must remain true" $index) -}}
+  {{- if not $route.requireMTLS -}}
+    {{- fail (printf "apiGateway.partnerRoutes[%d].requireMTLS must remain true" $index) -}}
+  {{- end -}}
 {{- end -}}
+{{- $routeKeys := dict -}}
+{{- range $index, $route := .Values.apiGateway.partnerRoutes -}}
+  {{- $routeKey := printf "%s|%s" $route.hostname $route.pathPrefix -}}
+  {{- if hasKey $routeKeys $routeKey -}}
+    {{- fail (printf "apiGateway.partnerRoutes[%d] duplicates hostname and pathPrefix of another route" $index) -}}
+  {{- end -}}
+  {{- $_ := set $routeKeys $routeKey true -}}
 {{- end -}}
