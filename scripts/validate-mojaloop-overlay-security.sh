@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+helm_kube_version="${HELM_KUBE_VERSION:-1.28.0}"
+workspace="$(mktemp -d)"
+trap 'rm -rf "$workspace"' EXIT
+values="$workspace/mojaloop-local-contract.yaml"
+
+cat > "$values" <<'YAML'
+# Local manifest-validation fixture only. It contains no credential, certificate,
+# participant, payment, settlement or Ministry environment identifier.
+upstream:
+  chartName: local-validation-upstream
+  chartVersion: 0.0.0-local
+  repository: https://charts.example.invalid/local-validation
+identity:
+  keycloak:
+    issuerURL: https://issuer.example.invalid/realms/local-validation
+    clientSecretRef:
+      name: local-keycloak-reference
+      key: client-secret
+  mTLS:
+    certificateSecretRef:
+      name: local-mtls-reference
+      key: tls.crt
+backingServices:
+  mysql:
+    host: mysql.example.invalid
+    secretRef: local-mysql-reference
+  redis:
+    host: redis.example.invalid
+    secretRef: local-redis-reference
+apiGateway:
+  partnerRoutes:
+    - name: local-partner
+      hostname: partner.example.invalid
+      rateLimitPolicy: local-rate-policy
+operations:
+  auditExport:
+    kafkaTopic: local-audit-topic
+  settlementAuthority: local-settlement-authority
+YAML
+
+render() {
+  helm template mojaloop-security "$repo_root/charts/mojaloop-overlay" \
+    --namespace blueeco-mojaloop-local-validation \
+    --kube-version "$helm_kube_version" \
+    --values "$values" "$@"
+}
+
+render > "$workspace/rendered.yaml"
+grep -q 'kind: ConfigMap' "$workspace/rendered.yaml"
+if grep -q 'kind: Secret' "$workspace/rendered.yaml"; then
+  echo 'Mojaloop overlay must not render plaintext Secret resources' >&2
+  exit 1
+fi
+
+assert_override_fails() {
+  local expected="$1"
+  shift
+  local output
+  output="$(mktemp)"
+  if render "$@" > /dev/null 2>"$output"; then
+    echo "Mojaloop overlay accepted insecure override: $*" >&2
+    rm -f "$output"
+    exit 1
+  fi
+  if ! grep -Fq "$expected" "$output"; then
+    cat "$output" >&2
+    echo "Mojaloop overlay did not emit expected guard: $expected" >&2
+    rm -f "$output"
+    exit 1
+  fi
+  rm -f "$output"
+}
+
+assert_override_fails 'identity.keycloak.enabled must remain true' --set identity.keycloak.enabled=false
+assert_override_fails 'identity.keycloak.issuerURL must be an HTTPS issuer URL' --set identity.keycloak.issuerURL=http://issuer.example.invalid/realm
+assert_override_fails 'identity.mTLS.enabled must remain true' --set identity.mTLS.enabled=false
+assert_override_fails 'secrets.provider must be external-secrets' --set secrets.provider=plaintext
+assert_override_fails 'namespacePolicy.enforcePrivateAdministration must remain true' --set namespacePolicy.enforcePrivateAdministration=false
+assert_override_fails 'namespacePolicy.permittedIngressController must be apisix' --set namespacePolicy.permittedIngressController=nginx
+assert_override_fails 'namespacePolicy.requireNetworkPolicies must remain true' --set namespacePolicy.requireNetworkPolicies=false
+assert_override_fails 'namespacePolicy.requirePodSecurityStandard must remain restricted' --set namespacePolicy.requirePodSecurityStandard=baseline
+assert_override_fails 'upstream.imagePolicy.requireDigestPinning must remain true' --set upstream.imagePolicy.requireDigestPinning=false
+assert_override_fails 'upstream.imagePolicy.requireSignedArtifacts must remain true' --set upstream.imagePolicy.requireSignedArtifacts=false
+assert_override_fails 'upstream.imagePolicy.requireSBOM must remain true' --set upstream.imagePolicy.requireSBOM=false
+assert_override_fails 'backingServices.mysql.mode must be external-managed' --set backingServices.mysql.mode=embedded
+assert_override_fails 'backingServices.redis.mode must be external-managed' --set backingServices.redis.mode=embedded
+assert_override_fails 'apiGateway.adminRoutesPrivate must remain true' --set apiGateway.adminRoutesPrivate=false
+assert_override_fails 'apiGateway.requireCorrelationID must remain true' --set apiGateway.requireCorrelationID=false
+assert_override_fails 'apiGateway.requireSchemaValidation must remain true' --set apiGateway.requireSchemaValidation=false
+assert_override_fails 'apiGateway.requireOpenAppSec must remain true' --set apiGateway.requireOpenAppSec=false
+assert_override_fails 'operations.auditExport.enabled must remain true' --set operations.auditExport.enabled=false
+assert_override_fails 'operations.backup.required must remain true' --set operations.backup.required=false
+assert_override_fails 'operations.dailyReconciliation.required must remain true' --set operations.dailyReconciliation.required=false
+
+printf '%s\n' 'Validated Mojaloop Keycloak, mTLS, APISIX and regulated-operation fail-closed render guards.'

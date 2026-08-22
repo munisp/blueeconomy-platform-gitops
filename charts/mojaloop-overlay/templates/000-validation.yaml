@@ -4,9 +4,13 @@
   "upstream.repository" .Values.upstream.repository
   "identity.keycloak.issuerURL" .Values.identity.keycloak.issuerURL
   "identity.keycloak.clientSecretRef.name" .Values.identity.keycloak.clientSecretRef.name
+  "identity.keycloak.clientSecretRef.key" .Values.identity.keycloak.clientSecretRef.key
   "identity.mTLS.certificateSecretRef.name" .Values.identity.mTLS.certificateSecretRef.name
+  "identity.mTLS.certificateSecretRef.key" .Values.identity.mTLS.certificateSecretRef.key
   "backingServices.mysql.host" .Values.backingServices.mysql.host
+  "backingServices.mysql.secretRef" .Values.backingServices.mysql.secretRef
   "backingServices.redis.host" .Values.backingServices.redis.host
+  "backingServices.redis.secretRef" .Values.backingServices.redis.secretRef
   "operations.auditExport.kafkaTopic" .Values.operations.auditExport.kafkaTopic
   "operations.settlementAuthority" .Values.operations.settlementAuthority
 -}}
@@ -14,6 +18,71 @@
 {{- if or (empty $value) (contains "REPLACE_WITH" $value) (contains "REQUIRED_APPROVED" $value) -}}
 {{- fail (printf "%s must contain an approved non-placeholder value" $name) -}}
 {{- end -}}
+{{- end -}}
+{{- if not (regexMatch "^https://[^/]+(/.*)?$" .Values.identity.keycloak.issuerURL) -}}
+{{- fail "identity.keycloak.issuerURL must be an HTTPS issuer URL" -}}
+{{- end -}}
+{{- if not .Values.identity.keycloak.enabled -}}
+{{- fail "identity.keycloak.enabled must remain true for the regulated payment overlay" -}}
+{{- end -}}
+{{- if not .Values.identity.mTLS.enabled -}}
+{{- fail "identity.mTLS.enabled must remain true for the regulated payment overlay" -}}
+{{- end -}}
+{{- if ne .Values.secrets.provider "external-secrets" -}}
+{{- fail "secrets.provider must be external-secrets; chart values must not contain secret material" -}}
+{{- end -}}
+{{- range $index, $ref := .Values.secrets.requiredRefs -}}
+{{- if empty $ref -}}
+{{- fail (printf "secrets.requiredRefs[%d] must not be empty" $index) -}}
+{{- end -}}
+{{- end -}}
+{{- if not .Values.namespacePolicy.enforcePrivateAdministration -}}
+{{- fail "namespacePolicy.enforcePrivateAdministration must remain true" -}}
+{{- end -}}
+{{- if ne .Values.namespacePolicy.permittedIngressController "apisix" -}}
+{{- fail "namespacePolicy.permittedIngressController must be apisix" -}}
+{{- end -}}
+{{- if not .Values.namespacePolicy.requireNetworkPolicies -}}
+{{- fail "namespacePolicy.requireNetworkPolicies must remain true" -}}
+{{- end -}}
+{{- if ne .Values.namespacePolicy.requirePodSecurityStandard "restricted" -}}
+{{- fail "namespacePolicy.requirePodSecurityStandard must remain restricted" -}}
+{{- end -}}
+{{- if not .Values.upstream.imagePolicy.requireDigestPinning -}}
+{{- fail "upstream.imagePolicy.requireDigestPinning must remain true" -}}
+{{- end -}}
+{{- if not .Values.upstream.imagePolicy.requireSignedArtifacts -}}
+{{- fail "upstream.imagePolicy.requireSignedArtifacts must remain true" -}}
+{{- end -}}
+{{- if not .Values.upstream.imagePolicy.requireSBOM -}}
+{{- fail "upstream.imagePolicy.requireSBOM must remain true" -}}
+{{- end -}}
+{{- if ne .Values.backingServices.mysql.mode "external-managed" -}}
+{{- fail "backingServices.mysql.mode must be external-managed" -}}
+{{- end -}}
+{{- if ne .Values.backingServices.redis.mode "external-managed" -}}
+{{- fail "backingServices.redis.mode must be external-managed" -}}
+{{- end -}}
+{{- if not .Values.apiGateway.adminRoutesPrivate -}}
+{{- fail "apiGateway.adminRoutesPrivate must remain true" -}}
+{{- end -}}
+{{- if not .Values.apiGateway.requireCorrelationID -}}
+{{- fail "apiGateway.requireCorrelationID must remain true" -}}
+{{- end -}}
+{{- if not .Values.apiGateway.requireSchemaValidation -}}
+{{- fail "apiGateway.requireSchemaValidation must remain true" -}}
+{{- end -}}
+{{- if not .Values.apiGateway.requireOpenAppSec -}}
+{{- fail "apiGateway.requireOpenAppSec must remain true" -}}
+{{- end -}}
+{{- if not .Values.operations.auditExport.enabled -}}
+{{- fail "operations.auditExport.enabled must remain true" -}}
+{{- end -}}
+{{- if not .Values.operations.backup.required -}}
+{{- fail "operations.backup.required must remain true" -}}
+{{- end -}}
+{{- if not .Values.operations.dailyReconciliation.required -}}
+{{- fail "operations.dailyReconciliation.required must remain true" -}}
 {{- end -}}
 {{- range $index, $route := .Values.apiGateway.partnerRoutes -}}
 {{- range $name, $value := dict "name" $route.name "hostname" $route.hostname "rateLimitPolicy" $route.rateLimitPolicy -}}

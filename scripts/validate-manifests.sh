@@ -67,5 +67,6 @@ cp -a "$repo_root/charts" "$workspace/charts"
 helm dependency build "$workspace/charts/core-services" >/dev/null
 helm lint "$workspace/charts/core-services" --kube-version "$helm_kube_version" >/dev/null
 helm template core-services "$workspace/charts/core-services" --kube-version "$helm_kube_version" >/dev/null
+HELM_KUBE_VERSION="$helm_kube_version" "$repo_root/scripts/validate-mojaloop-overlay-security.sh"
 
-printf '%s\n' 'Validated GitOps base manifests, upstream source locks, chart sources, fail-closed value gates and umbrella dependencies.'
+printf '%s\n' 'Validated GitOps base manifests, upstream source locks, chart sources, fail-closed value gates, Mojaloop security overrides and umbrella dependencies.'
