@@ -24,6 +24,9 @@ identity:
     certificateSecretRef:
       name: local-mtls-reference
       key: tls.crt
+    trustedCASecretRef:
+      name: local-mtls-ca-reference
+      key: ca.crt
 backingServices:
   mysql:
     host: mysql.example.invalid
@@ -36,6 +39,10 @@ apiGateway:
     - name: local-partner
       hostname: partner.example.invalid
       rateLimitPolicy: local-rate-policy
+      audience: local-partner-audience
+      scopes: ["payments.read"]
+      requireMTLS: true
+      schemaProfile: local-partner-schema-v1
 operations:
   auditExport:
     kafkaTopic: local-audit-topic
@@ -78,6 +85,7 @@ assert_override_fails() {
 assert_override_fails 'identity.keycloak.enabled must remain true' --set identity.keycloak.enabled=false
 assert_override_fails 'identity.keycloak.issuerURL must be an HTTPS issuer URL' --set identity.keycloak.issuerURL=http://issuer.example.invalid/realm
 assert_override_fails 'identity.mTLS.enabled must remain true' --set identity.mTLS.enabled=false
+assert_override_fails 'identity.mTLS.trustedCASecretRef.name must contain an approved non-placeholder value' --set identity.mTLS.trustedCASecretRef.name=
 assert_override_fails 'secrets.provider must be external-secrets' --set secrets.provider=plaintext
 assert_override_fails 'namespacePolicy.enforcePrivateAdministration must remain true' --set namespacePolicy.enforcePrivateAdministration=false
 assert_override_fails 'namespacePolicy.permittedIngressController must be apisix' --set namespacePolicy.permittedIngressController=nginx
@@ -89,6 +97,9 @@ assert_override_fails 'upstream.imagePolicy.requireSBOM must remain true' --set 
 assert_override_fails 'backingServices.mysql.mode must be external-managed' --set backingServices.mysql.mode=embedded
 assert_override_fails 'backingServices.redis.mode must be external-managed' --set backingServices.redis.mode=embedded
 assert_override_fails 'apiGateway.adminRoutesPrivate must remain true' --set apiGateway.adminRoutesPrivate=false
+assert_override_fails 'apiGateway.requireOIDCAudienceValidation must remain true' --set apiGateway.requireOIDCAudienceValidation=false
+assert_override_fails 'apiGateway.requireOIDCScopeValidation must remain true' --set apiGateway.requireOIDCScopeValidation=false
+assert_override_fails 'apiGateway.partnerRoutes[0].requireMTLS must remain true' --set apiGateway.partnerRoutes[0].requireMTLS=false
 assert_override_fails 'apiGateway.requireCorrelationID must remain true' --set apiGateway.requireCorrelationID=false
 assert_override_fails 'apiGateway.requireSchemaValidation must remain true' --set apiGateway.requireSchemaValidation=false
 assert_override_fails 'apiGateway.requireOpenAppSec must remain true' --set apiGateway.requireOpenAppSec=false

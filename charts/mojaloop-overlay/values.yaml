@@ -22,6 +22,10 @@ identity:
   keycloak:
     enabled: true
     issuerURL: ""
+    # The APISIX/Keycloak integration layer must validate these per-route.
+    # Values are public authorization metadata, never bearer tokens or secrets.
+    audiences: []
+    requiredScopes: []
     clientSecretRef:
       name: ""
       key: "client-secret"
@@ -30,6 +34,9 @@ identity:
     certificateSecretRef:
       name: ""
       key: "tls.crt"
+    trustedCASecretRef:
+      name: ""
+      key: "ca.crt"
 
 secrets:
   provider: external-secrets
@@ -54,8 +61,12 @@ backingServices:
 
 apiGateway:
   publicRoutes: []
+  # Every partner route must identify the expected audience/scopes, mTLS and
+  # schema contract. APISIX resources themselves remain environment-owned.
   partnerRoutes: []
   adminRoutesPrivate: true
+  requireOIDCAudienceValidation: true
+  requireOIDCScopeValidation: true
   requireCorrelationID: true
   requireSchemaValidation: true
   requireOpenAppSec: true

@@ -7,6 +7,8 @@
   "identity.keycloak.clientSecretRef.key" .Values.identity.keycloak.clientSecretRef.key
   "identity.mTLS.certificateSecretRef.name" .Values.identity.mTLS.certificateSecretRef.name
   "identity.mTLS.certificateSecretRef.key" .Values.identity.mTLS.certificateSecretRef.key
+  "identity.mTLS.trustedCASecretRef.name" .Values.identity.mTLS.trustedCASecretRef.name
+  "identity.mTLS.trustedCASecretRef.key" .Values.identity.mTLS.trustedCASecretRef.key
   "backingServices.mysql.host" .Values.backingServices.mysql.host
   "backingServices.mysql.secretRef" .Values.backingServices.mysql.secretRef
   "backingServices.redis.host" .Values.backingServices.redis.host
@@ -66,6 +68,12 @@
 {{- if not .Values.apiGateway.adminRoutesPrivate -}}
 {{- fail "apiGateway.adminRoutesPrivate must remain true" -}}
 {{- end -}}
+{{- if not .Values.apiGateway.requireOIDCAudienceValidation -}}
+{{- fail "apiGateway.requireOIDCAudienceValidation must remain true" -}}
+{{- end -}}
+{{- if not .Values.apiGateway.requireOIDCScopeValidation -}}
+{{- fail "apiGateway.requireOIDCScopeValidation must remain true" -}}
+{{- end -}}
 {{- if not .Values.apiGateway.requireCorrelationID -}}
 {{- fail "apiGateway.requireCorrelationID must remain true" -}}
 {{- end -}}
@@ -85,9 +93,15 @@
 {{- fail "operations.dailyReconciliation.required must remain true" -}}
 {{- end -}}
 {{- range $index, $route := .Values.apiGateway.partnerRoutes -}}
-{{- range $name, $value := dict "name" $route.name "hostname" $route.hostname "rateLimitPolicy" $route.rateLimitPolicy -}}
+{{- range $name, $value := dict "name" $route.name "hostname" $route.hostname "rateLimitPolicy" $route.rateLimitPolicy "audience" $route.audience "schemaProfile" $route.schemaProfile -}}
 {{- if or (empty $value) (contains "REPLACE_WITH" $value) -}}
 {{- fail (printf "apiGateway.partnerRoutes[%d].%s must contain an approved non-placeholder value" $index $name) -}}
 {{- end -}}
+{{- end -}}
+{{- if eq (len $route.scopes) 0 -}}
+{{- fail (printf "apiGateway.partnerRoutes[%d].scopes must contain at least one approved scope" $index) -}}
+{{- end -}}
+{{- if not $route.requireMTLS -}}
+{{- fail (printf "apiGateway.partnerRoutes[%d].requireMTLS must remain true" $index) -}}
 {{- end -}}
 {{- end -}}
