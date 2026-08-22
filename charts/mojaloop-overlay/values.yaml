@@ -22,10 +22,8 @@ identity:
   keycloak:
     enabled: true
     issuerURL: ""
-    # The APISIX/Keycloak integration layer must validate these per-route.
-    # Values are public authorization metadata, never bearer tokens or secrets.
-    audiences: []
-    requiredScopes: []
+    # APISIX/Keycloak validates public audience and scope metadata per partner route.
+    # No bearer token or secret is permitted in chart values.
     clientSecretRef:
       name: ""
       key: "client-secret"

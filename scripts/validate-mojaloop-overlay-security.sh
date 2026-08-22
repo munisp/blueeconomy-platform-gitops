@@ -100,6 +100,9 @@ assert_override_fails 'apiGateway.adminRoutesPrivate must remain true' --set api
 assert_override_fails 'apiGateway.requireOIDCAudienceValidation must remain true' --set apiGateway.requireOIDCAudienceValidation=false
 assert_override_fails 'apiGateway.requireOIDCScopeValidation must remain true' --set apiGateway.requireOIDCScopeValidation=false
 assert_override_fails 'apiGateway.partnerRoutes[0].requireMTLS must remain true' --set apiGateway.partnerRoutes[0].requireMTLS=false
+assert_override_fails 'apiGateway.partnerRoutes[0].audience must contain an approved non-placeholder value' --set apiGateway.partnerRoutes[0].audience=
+assert_override_fails 'apiGateway.partnerRoutes[0].scopes must contain at least one approved scope' --set-json 'apiGateway.partnerRoutes[0].scopes=[]'
+assert_override_fails 'apiGateway.partnerRoutes[0].schemaProfile must contain an approved non-placeholder value' --set apiGateway.partnerRoutes[0].schemaProfile=
 assert_override_fails 'apiGateway.requireCorrelationID must remain true' --set apiGateway.requireCorrelationID=false
 assert_override_fails 'apiGateway.requireSchemaValidation must remain true' --set apiGateway.requireSchemaValidation=false
 assert_override_fails 'apiGateway.requireOpenAppSec must remain true' --set apiGateway.requireOpenAppSec=false
