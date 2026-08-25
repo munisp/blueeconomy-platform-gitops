@@ -27,7 +27,7 @@ grep -q 'cloudnative-pg' "$lockfile"
 sha_count="$(grep -E 'artifact_sha256: [0-9a-f]{64}$' "$lockfile" | wc -l)"
 test "$sha_count" -ge 7
 
-for chart in tigerbeetle mojaloop-overlay sedona-spark-jobs core-services; do
+for chart in tigerbeetle mojaloop-overlay sedona-spark-jobs core-services regional-dr; do
   test -s "$repo_root/charts/$chart/Chart.yaml"
   test -s "$repo_root/charts/$chart/values.yaml"
 done
@@ -60,6 +60,7 @@ assert_default_render_fails_closed() {
 assert_default_render_fails_closed tigerbeetle 'tigerbeetle.clusterID is required'
 assert_default_render_fails_closed mojaloop-overlay 'upstream.chartName must be set'
 assert_default_render_fails_closed sedona-spark-jobs 'spark.sparkVersion is required'
+assert_default_render_fails_closed regional-dr 'regionalDR.primary.region'
 
 workspace="$(mktemp -d)"
 trap 'rm -rf "$workspace"' EXIT
@@ -68,5 +69,6 @@ helm dependency build "$workspace/charts/core-services" >/dev/null
 helm lint "$workspace/charts/core-services" --kube-version "$helm_kube_version" >/dev/null
 helm template core-services "$workspace/charts/core-services" --kube-version "$helm_kube_version" >/dev/null
 HELM_KUBE_VERSION="$helm_kube_version" "$repo_root/scripts/validate-mojaloop-overlay-security.sh"
+HELM_KUBE_VERSION="$helm_kube_version" "$repo_root/scripts/validate-regional-dr.sh"
 
-printf '%s\n' 'Validated GitOps base manifests, upstream source locks, chart sources, fail-closed value gates, Mojaloop security overrides and umbrella dependencies.'
+printf '%s\n' 'Validated GitOps base manifests, recovery namespace, upstream source locks, chart sources, fail-closed value gates, regional DR contract, Mojaloop security overrides and umbrella dependencies.'

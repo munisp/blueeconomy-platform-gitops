@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-regional-dr-contract
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: regional-dr
+    blueeconomy.platform/control: regional-dr-contract
+data:
+  strategy: {{ .Values.regionalDR.strategy | quote }}
+  primary-region: {{ .Values.regionalDR.primary.region | quote }}
+  primary-cluster-ref: {{ .Values.regionalDR.primary.clusterRef | quote }}
+  secondary-region: {{ .Values.regionalDR.secondary.region | quote }}
+  secondary-cluster-ref: {{ .Values.regionalDR.secondary.clusterRef | quote }}
+  rpo-minutes: {{ .Values.regionalDR.rpoMinutes | quote }}
+  rto-minutes: {{ .Values.regionalDR.rtoMinutes | quote }}
+  backup-artifact-store-ref: {{ .Values.regionalDR.backup.artifactStoreRef | quote }}
+  backup-encryption-key-ref: {{ .Values.regionalDR.backup.encryptionKeyRef | quote }}
+  restore-drill-max-age-hours: {{ .Values.regionalDR.backup.restoreDrillMaxAgeHours | quote }}
+  failover-mode: {{ .Values.regionalDR.failover.mode | quote }}
+  minimum-approvers: {{ .Values.regionalDR.failover.minimumApprovers | quote }}
+  change-id: {{ .Values.regionalDR.drill.changeId | quote }}
+  evidence-location-ref: {{ .Values.regionalDR.drill.evidenceLocationRef | quote }}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["regionalDR"],
+  "properties": {
+    "regionalDR": {
+      "type": "object",
+      "required": ["strategy", "primary", "secondary", "rpoMinutes", "rtoMinutes", "backup", "routing", "failover", "drill"],
+      "properties": {
+        "strategy": {"const": "active-passive"},
+        "rpoMinutes": {"type": "integer", "minimum": 1},
+        "rtoMinutes": {"type": "integer", "minimum": 1},
+        "primary": {"type": "object", "required": ["region", "clusterRef"], "properties": {"region": {"type": "string", "minLength": 1}, "clusterRef": {"type": "string", "minLength": 1}}},
+        "secondary": {"type": "object", "required": ["region", "clusterRef"], "properties": {"region": {"type": "string", "minLength": 1}, "clusterRef": {"type": "string", "minLength": 1}}},
+        "backup": {"type": "object", "required": ["artifactStoreRef", "encryptionKeyRef", "immutabilityDays", "restoreDrillMaxAgeHours"], "properties": {"artifactStoreRef": {"type": "string", "minLength": 1}, "encryptionKeyRef": {"type": "string", "minLength": 1}, "immutabilityDays": {"type": "integer", "minimum": 1}, "restoreDrillMaxAgeHours": {"type": "integer", "minimum": 1}}},
+        "routing": {"type": "object", "required": ["primaryEndpointRef", "secondaryEndpointRef", "failoverRecordRef"], "properties": {"primaryEndpointRef": {"type": "string", "minLength": 1}, "secondaryEndpointRef": {"type": "string", "minLength": 1}, "failoverRecordRef": {"type": "string", "minLength": 1}}},
+        "failover": {"type": "object", "required": ["mode", "minimumApprovers", "approvalEvidenceRef"], "properties": {"mode": {"const": "manual-approved"}, "minimumApprovers": {"type": "integer", "minimum": 2}, "approvalEvidenceRef": {"type": "string", "minLength": 1}}},
+        "drill": {"type": "object", "required": ["changeId", "evidenceLocationRef"], "properties": {"changeId": {"type": "string", "pattern": "^[A-Z][A-Z0-9_-]{2,63}$"}, "evidenceLocationRef": {"type": "string", "minLength": 1}}}
+      }
+    }
+  }
+}

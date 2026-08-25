@@ -1,0 +1,27 @@
+{{- if ne .Values.regionalDR.strategy "active-passive" -}}
+{{- fail "regionalDR.strategy must be active-passive until an approved data-consistency design exists" -}}
+{{- end -}}
+{{- $primaryRegion := required "regionalDR.primary.region is required" .Values.regionalDR.primary.region -}}
+{{- $secondaryRegion := required "regionalDR.secondary.region is required" .Values.regionalDR.secondary.region -}}
+{{- if eq $primaryRegion $secondaryRegion -}}
+{{- fail "regionalDR primary and secondary regions must be independent failure domains" -}}
+{{- end -}}
+{{- $primaryCluster := required "regionalDR.primary.clusterRef is required" .Values.regionalDR.primary.clusterRef -}}
+{{- $secondaryCluster := required "regionalDR.secondary.clusterRef is required" .Values.regionalDR.secondary.clusterRef -}}
+{{- if eq $primaryCluster $secondaryCluster -}}
+{{- fail "regionalDR primary and secondary clusters must be distinct" -}}
+{{- end -}}
+{{- if le (int .Values.regionalDR.rpoMinutes) 0 -}}{{- fail "regionalDR.rpoMinutes must be a positive business-approved value" -}}{{- end -}}
+{{- if le (int .Values.regionalDR.rtoMinutes) 0 -}}{{- fail "regionalDR.rtoMinutes must be a positive business-approved value" -}}{{- end -}}
+{{- if le (int .Values.regionalDR.backup.immutabilityDays) 0 -}}{{- fail "regionalDR.backup.immutabilityDays must be positive" -}}{{- end -}}
+{{- if le (int .Values.regionalDR.backup.restoreDrillMaxAgeHours) 0 -}}{{- fail "regionalDR.backup.restoreDrillMaxAgeHours must be positive" -}}{{- end -}}
+{{- $backupStore := required "regionalDR.backup.artifactStoreRef is required" .Values.regionalDR.backup.artifactStoreRef -}}
+{{- $backupKey := required "regionalDR.backup.encryptionKeyRef is required" .Values.regionalDR.backup.encryptionKeyRef -}}
+{{- $primaryRoute := required "regionalDR.routing.primaryEndpointRef is required" .Values.regionalDR.routing.primaryEndpointRef -}}
+{{- $secondaryRoute := required "regionalDR.routing.secondaryEndpointRef is required" .Values.regionalDR.routing.secondaryEndpointRef -}}
+{{- $failoverRoute := required "regionalDR.routing.failoverRecordRef is required" .Values.regionalDR.routing.failoverRecordRef -}}
+{{- if ne .Values.regionalDR.failover.mode "manual-approved" -}}{{- fail "regionalDR.failover.mode must be manual-approved" -}}{{- end -}}
+{{- if lt (int .Values.regionalDR.failover.minimumApprovers) 2 -}}{{- fail "regionalDR.failover.minimumApprovers must be at least 2" -}}{{- end -}}
+{{- $approvalEvidence := required "regionalDR.failover.approvalEvidenceRef is required" .Values.regionalDR.failover.approvalEvidenceRef -}}
+{{- $changeID := required "regionalDR.drill.changeId is required" .Values.regionalDR.drill.changeId -}}
+{{- $evidenceLocation := required "regionalDR.drill.evidenceLocationRef is required" .Values.regionalDR.drill.evidenceLocationRef -}}

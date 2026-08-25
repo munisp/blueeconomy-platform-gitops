@@ -1,0 +1,26 @@
+regionalDR:
+  strategy: active-passive
+  primary:
+    region: ""
+    clusterRef: ""
+  secondary:
+    region: ""
+    clusterRef: ""
+  rpoMinutes: 0
+  rtoMinutes: 0
+  backup:
+    artifactStoreRef: ""
+    encryptionKeyRef: ""
+    immutabilityDays: 0
+    restoreDrillMaxAgeHours: 0
+  routing:
+    primaryEndpointRef: ""
+    secondaryEndpointRef: ""
+    failoverRecordRef: ""
+  failover:
+    mode: manual-approved
+    minimumApprovers: 0
+    approvalEvidenceRef: ""
+  drill:
+    changeId: ""
+    evidenceLocationRef: ""

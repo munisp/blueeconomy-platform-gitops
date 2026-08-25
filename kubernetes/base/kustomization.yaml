@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - namespaces/platform.yaml
   - namespaces/security.yaml
+  - namespaces/recovery.yaml
