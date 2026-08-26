@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodic bounded recovery for Blue Economy pull-request approval monitor
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=blueeconomy-pr-approval-monitor-recovery.service
+
+[Install]
+WantedBy=timers.target

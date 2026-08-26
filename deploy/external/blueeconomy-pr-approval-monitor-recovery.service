@@ -1,0 +1,40 @@
+[Unit]
+Description=Bounded recovery for Blue Economy pull-request approval monitor
+After=blueeconomy-pr-approval-monitor-health.service
+
+[Service]
+Type=oneshot
+# Root is required only because systemd service restart authorization is system-wide.
+# NoNewPrivileges, empty capabilities, and the fixed ExecStart limit the action.
+User=root
+Group=root
+EnvironmentFile=/etc/blueeconomy/pr-monitor.env
+ExecStart=/opt/blueeconomy-platform-gitops/scripts/recover-pr-approval-monitor.sh
+StandardOutput=append:/var/log/blueeconomy/pr-monitor-recovery.log
+StandardError=append:/var/log/blueeconomy/pr-monitor-recovery.log
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictRealtime=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RemoveIPC=true
+KeyringMode=private
+ProcSubset=pid
+ProtectProc=invisible
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077
+ReadWritePaths=/var/lib/blueeconomy /var/log/blueeconomy

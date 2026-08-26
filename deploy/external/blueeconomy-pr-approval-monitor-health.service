@@ -1,0 +1,37 @@
+[Unit]
+Description=Health check for Blue Economy pull-request approval monitor
+After=blueeconomy-pr-approval-monitor.service
+
+[Service]
+Type=oneshot
+User=blueeconomy
+Group=blueeconomy
+ExecStart=/opt/blueeconomy-platform-gitops/scripts/check-pr-approval-monitor-health.sh
+StandardOutput=append:/var/log/blueeconomy/pr-monitor-health.log
+StandardError=append:/var/log/blueeconomy/pr-monitor-health.log
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictRealtime=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RemoveIPC=true
+KeyringMode=private
+ProcSubset=pid
+ProtectProc=invisible
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077
+ReadWritePaths=/var/lib/blueeconomy /var/log/blueeconomy

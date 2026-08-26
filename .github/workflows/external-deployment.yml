@@ -1,0 +1,82 @@
+name: external-deployment
+
+on:
+  pull_request:
+    paths:
+      - 'deploy/external/**'
+      - 'secrets/external.env.example'
+      - 'scripts/backup-and-migrate-postgres.sh'
+      - '.github/workflows/external-deployment.yml'
+  workflow_dispatch:
+    inputs:
+      migration_file:
+        description: 'Absolute path to the reviewed PostgreSQL migration file on the runner'
+        required: true
+        type: string
+      apply_migration:
+        description: 'Apply the backup-gated migration after backup verification'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: external-deployment-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate external deployment definitions
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Validate Compose syntax without interpolating secrets
+        run: docker compose -f deploy/external/docker-compose.yml config --no-interpolate --quiet
+      - name: Validate shell scripts
+        run: bash -n scripts/backup-and-migrate-postgres.sh
+      - name: Reject tracked credential material
+        run: |
+          test ! -f deploy/external/.env
+          if git ls-files -z | xargs -0 grep -IlE '^(KEYCLOAK_(DB_PASSWORD|ADMIN_PASSWORD)|MINIO_ROOT_PASSWORD|OIDC_CLIENT_SECRET|S3_SECRET_ACCESS_KEY)=.+'; then
+            echo 'Tracked credential material detected' >&2
+            exit 1
+          fi
+
+  deploy:
+    name: Manual external deployment
+    if: github.event_name == 'workflow_dispatch' && inputs.apply_migration == true
+    needs: validate
+    runs-on: ubuntu-24.04
+    environment:
+      name: external-production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Require explicit migration approval
+        env:
+          POSTGRES_MIGRATION_APPROVED: ${{ secrets.POSTGRES_MIGRATION_APPROVED }}
+        run: test "$POSTGRES_MIGRATION_APPROVED" = yes
+      - name: Materialize operator environment
+        env:
+          EXTERNAL_ENV_FILE: ${{ secrets.EXTERNAL_ENV_FILE }}
+        run: |
+          test -n "$EXTERNAL_ENV_FILE"
+          umask 077
+          printf '%s\n' "$EXTERNAL_ENV_FILE" > deploy/external/.env
+      - name: Validate resolved Compose configuration
+        run: docker compose --env-file deploy/external/.env -f deploy/external/docker-compose.yml config --quiet
+      - name: Start identity and object storage services
+        run: docker compose --env-file deploy/external/.env -f deploy/external/docker-compose.yml up -d
+      - name: Backup and apply PostgreSQL baseline
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          POSTGRES_MIGRATION_APPROVED: ${{ secrets.POSTGRES_MIGRATION_APPROVED }}
+          POSTGRES_MIGRATION_FILE: ${{ inputs.migration_file }}
+          BACKUP_DIR: ./backups
+        run: bash scripts/backup-and-migrate-postgres.sh
+      - name: Remove materialized secrets
+        if: always()
+        run: rm -f deploy/external/.env

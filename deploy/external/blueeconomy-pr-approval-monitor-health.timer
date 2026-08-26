@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodic health check for Blue Economy pull-request approval monitor
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=blueeconomy-pr-approval-monitor-health.service
+
+[Install]
+WantedBy=timers.target

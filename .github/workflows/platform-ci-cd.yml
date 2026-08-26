@@ -1,0 +1,147 @@
+name: platform-ci-cd
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_external:
+        description: "Deploy the external stack after protected environment approval"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-ci-cd-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate platform deployment package
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate shell scripts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mapfile -t scripts < <(find scripts -maxdepth 1 -type f -name '*.sh' -print | sort)
+          test "${#scripts[@]}" -gt 0
+          for script in "${scripts[@]}"; do
+            bash -n "$script"
+          done
+
+      - name: Validate systemd unit safety declarations
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for unit in deploy/external/blueeconomy-pr-approval-monitor.service deploy/external/blueeconomy-pr-approval-monitor-health.service deploy/external/blueeconomy-pr-approval-monitor-recovery.service deploy/external/blueeconomy-pr-approval-monitor-health.timer deploy/external/blueeconomy-pr-approval-monitor-recovery.timer; do
+            test -s "$unit"
+          done
+          grep -q '^ProtectClock=true$' deploy/external/blueeconomy-pr-approval-monitor.service
+          grep -q '^ProtectHostname=true$' deploy/external/blueeconomy-pr-approval-monitor.service
+          grep -q '^PrivateDevices=true$' deploy/external/blueeconomy-pr-approval-monitor.service
+          grep -q '^SystemCallFilter=@system-service$' deploy/external/blueeconomy-pr-approval-monitor.service
+
+      - name: Validate Compose syntax without secret interpolation
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if command -v docker >/dev/null 2>&1; then
+            docker compose -f deploy/external/docker-compose.yml config --no-interpolate --quiet
+          else
+            python3 -c 'import pathlib; text=pathlib.Path("deploy/external/docker-compose.yml").read_text(); assert all(("\\n  "+name+":") in text for name in ("keycloak","openbao","minio","systemd-exporter","prometheus","grafana")); print("Compose structure valid")'
+          fi
+
+      - name: Verify credential-free tracked files
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test ! -f deploy/external/.env
+          if git ls-files -z | xargs -0 grep -IlE '^(DATABASE_URL|KEYCLOAK_(DB_PASSWORD|ADMIN_PASSWORD)|MINIO_ROOT_PASSWORD|OIDC_CLIENT_SECRET|S3_SECRET_ACCESS_KEY|GRAFANA_ADMIN_PASSWORD)=.+'; then
+            echo 'Tracked credential material detected' >&2
+            exit 1
+          fi
+
+      - name: Exercise backup refusal path
+        shell: bash
+        run: |
+          set +e
+          env -u DATABASE_URL -u POSTGRES_MIGRATION_APPROVED \
+            scripts/backup-and-migrate-postgres.sh >/tmp/backup-refusal.log 2>&1
+          rc=$?
+          test "$rc" -ne 0
+          grep -Eq 'DATABASE_URL|approval' /tmp/backup-refusal.log
+
+      - name: Run permission and whitespace checks
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git diff --check
+          test -f secrets/observability-config.template
+          test -f deploy/external/observability/prometheus.yml
+          test -f deploy/external/observability/grafana/provisioning/datasources/prometheus.yml
+
+  package:
+    name: Retain deployment artifacts
+    needs: validate
+    if: always() && needs.validate.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Create deterministic package manifest
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          find deploy scripts secrets .github/workflows -type f -print0 | sort -z | xargs -0 sha256sum > deployment-artifacts.sha256
+      - name: Upload deployment manifest
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: deployment-artifacts-${{ github.sha }}
+          path: deployment-artifacts.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  deploy_external:
+    name: Manual protected external deployment
+    needs: [validate, package]
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy_external == true
+    runs-on: [self-hosted, external]
+    environment:
+      name: external-production
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Require operator-provided environment
+        shell: bash
+        env:
+          DEPLOY_ENV_FILE: ${{ secrets.DEPLOY_ENV_FILE }}
+          POSTGRES_MIGRATION_APPROVED: ${{ secrets.POSTGRES_MIGRATION_APPROVED }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$DEPLOY_ENV_FILE"
+          test "$POSTGRES_MIGRATION_APPROVED" = yes
+          umask 077
+          printf '%s\n' "$DEPLOY_ENV_FILE" > deploy/external/.env
+      - name: Validate and deploy
+        shell: bash
+        env:
+          DEPLOY_ENV_FILE: ${{ github.workspace }}/deploy/external/.env
+          POSTGRES_MIGRATION_APPROVED: ${{ secrets.POSTGRES_MIGRATION_APPROVED }}
+        run: |
+          set -Eeuo pipefail
+          trap 'rm -f "$DEPLOY_ENV_FILE"' EXIT
+          bash scripts/deploy-external-stack.sh
+      - name: Remove materialized environment
+        if: always()
+        shell: bash
+        run: rm -f deploy/external/.env

@@ -1,0 +1,12 @@
+/var/log/blueeconomy/pr-monitor.log /var/log/blueeconomy/pr-monitor-health.log /var/log/blueeconomy/pr-monitor-recovery.log /var/log/blueeconomy/security-report.log {
+    daily
+    rotate 14
+    size 50M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su blueeconomy blueeconomy
+    create 0640 blueeconomy blueeconomy
+}

@@ -1,0 +1,52 @@
+groups:
+  - name: blueeconomy-availability
+    rules:
+      - alert: BlueEconomyMonitorServiceDown
+        expr: node_systemd_unit_state{name="blueeconomy-pr-approval-monitor.service",state="active"} != 1
+        for: 5m
+        labels:
+          severity: critical
+          component: approval-monitor
+        annotations:
+          summary: Blue Economy approval monitor is not active
+          description: The approval-monitor systemd unit has not been active for more than five minutes.
+
+      - alert: BlueEconomyHealthServiceFailed
+        expr: node_systemd_unit_state{name="blueeconomy-pr-approval-monitor-health.service",state="failed"} == 1
+        for: 2m
+        labels:
+          severity: warning
+          component: health-check
+        annotations:
+          summary: Blue Economy health-check service failed
+          description: The health-check service is in failed state and requires operator review.
+
+      - alert: BlueEconomyContainerUnhealthy
+        expr: container_last_seen{container_label_com_docker_compose_project="blueeconomy-external"} < time() - 120
+        for: 5m
+        labels:
+          severity: critical
+          component: container-runtime
+        annotations:
+          summary: Blue Economy container metrics stopped
+          description: Container metrics have not been observed for more than two minutes.
+
+      - alert: BlueEconomyHostDiskLow
+        expr: (node_filesystem_avail_bytes{mountpoint=~"/|/var|/opt"} / node_filesystem_size_bytes{mountpoint=~"/|/var|/opt"}) < 0.15
+        for: 10m
+        labels:
+          severity: warning
+          component: host-storage
+        annotations:
+          summary: External host disk space is low
+          description: Available space is below 15 percent on a monitored filesystem.
+
+      - alert: BlueEconomyHostDiskCritical
+        expr: (node_filesystem_avail_bytes{mountpoint=~"/|/var|/opt"} / node_filesystem_size_bytes{mountpoint=~"/|/var|/opt"}) < 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: host-storage
+        annotations:
+          summary: External host disk space is critically low
+          description: Available space is below 5 percent on a monitored filesystem.
