@@ -48,7 +48,7 @@ assert_default_render_fails_closed() {
     rm -f "$output"
     exit 1
   fi
-  if ! grep -Fq "$expected" "$output"; then
+  if ! grep -Eq "$expected" "$output"; then
     cat "$output" >&2
     echo "$chart did not fail with its expected approval gate" >&2
     rm -f "$output"
@@ -60,7 +60,10 @@ assert_default_render_fails_closed() {
 assert_default_render_fails_closed tigerbeetle 'tigerbeetle.clusterID is required'
 assert_default_render_fails_closed mojaloop-overlay 'upstream.chartName must be set'
 assert_default_render_fails_closed sedona-spark-jobs 'spark.sparkVersion is required'
-assert_default_render_fails_closed regional-dr 'regionalDR.primary.region'
+# regional-dr validates required recovery references in values.schema.json before
+# template rendering. Its schema rejection is a stronger fail-closed condition
+# than the later template assertion and must remain an accepted denial result.
+assert_default_render_fails_closed regional-dr 'regionalDR\.primary\.region|values don.t meet the specifications of the schema'
 
 workspace="$(mktemp -d)"
 trap 'rm -rf "$workspace"' EXIT
