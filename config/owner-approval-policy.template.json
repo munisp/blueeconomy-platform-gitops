@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "1.0",
+  "changeId": "REQUIRED_FROM_CHANGE_MANAGER",
+  "approvals": {
+    "oidc": {
+      "ownerRole": "REQUIRED_FROM_IDENTITY_OWNER",
+      "documentPath": "REQUIRED_FROM_RESTRICTED_APPROVAL_RECORD_PATH"
+    },
+    "evidenceRetention": {
+      "ownerRole": "REQUIRED_FROM_COMPLIANCE_OWNER",
+      "documentPath": "REQUIRED_FROM_RESTRICTED_APPROVAL_RECORD_PATH"
+    },
+    "routing": {
+      "ownerRole": "REQUIRED_FROM_ROUTING_OWNER",
+      "documentPath": "REQUIRED_FROM_RESTRICTED_APPROVAL_RECORD_PATH"
+    }
+  }
+}
