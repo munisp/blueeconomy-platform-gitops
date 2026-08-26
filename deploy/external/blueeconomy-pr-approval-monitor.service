@@ -1,0 +1,23 @@
+[Unit]
+Description=Blue Economy pull-request approval monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=blueeconomy
+Group=blueeconomy
+WorkingDirectory=/opt/blueeconomy-platform-gitops
+EnvironmentFile=/etc/blueeconomy/pr-monitor.env
+Environment=WATCH_SECONDS=300
+ExecStart=/opt/blueeconomy-platform-gitops/scripts/approval-monitor-with-slack.sh
+Restart=always
+RestartSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/blueeconomy
+
+[Install]
+WantedBy=multi-user.target
