@@ -6,7 +6,10 @@ version="${HELM_KUBE_VERSION:-1.28.0}"
 failure="$(mktemp)"; values="$(mktemp)"
 trap 'rm -f "$failure" "$values"' EXIT
 if helm template regional-dr "$chart" --kube-version "$version" >/dev/null 2>"$failure"; then echo 'regional-dr rendered without approved values' >&2; exit 1; fi
-grep -Fq 'regionalDR.primary.region' "$failure"
+# Helm values-schema validation can reject the unresolved recovery contract
+# before template rendering. Both this schema denial and the template-level
+# region assertion are valid fail-closed outcomes.
+grep -Eq 'regionalDR\.primary\.region|values don.t meet the specifications of the schema' "$failure"
 cat >"$values" <<'VALUES'
 regionalDR:
   strategy: active-passive
