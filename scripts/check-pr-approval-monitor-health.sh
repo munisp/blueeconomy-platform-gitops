@@ -2,8 +2,36 @@
 set -Eeuo pipefail
 
 SERVICE="${SERVICE_NAME:-blueeconomy-pr-approval-monitor.service}"
+ALERT_SUBJECT="${HEALTH_ALERT_SUBJECT:-Blue Economy approval monitor health failure}"
 log() { logger -t blueeconomy-pr-monitor-health -- "$*" 2>/dev/null || true; printf '%s\n' "$*"; }
-fail() { log "FAIL: $*"; exit 1; }
+
+send_alerts() {
+  local detail="$1" payload
+  if [[ -n "${HEALTH_ALERT_WEBHOOK_URL:-}" ]] && command -v curl >/dev/null 2>&1; then
+    payload="$(printf '%s' "$detail" | python3 -c 'import json,sys; print(json.dumps({"text":sys.stdin.read()}))')"
+    if ! printf '%s' "$payload" | curl --fail --silent --show-error --max-time 10 \
+      --header 'Content-Type: application/json' --data-binary @- \
+      "$HEALTH_ALERT_WEBHOOK_URL" >/dev/null; then
+      log "WARN: webhook alert delivery failed"
+    fi
+  fi
+
+  if [[ -n "${HEALTH_ALERT_EMAIL_TO:-}" ]] && command -v sendmail >/dev/null 2>&1; then
+    {
+      printf 'To: %s\n' "$HEALTH_ALERT_EMAIL_TO"
+      printf 'From: %s\n' "${HEALTH_ALERT_EMAIL_FROM:-blueeconomy-monitor@localhost}"
+      printf 'Subject: %s\n' "$ALERT_SUBJECT"
+      printf '\n%s\n' "$detail"
+    } | sendmail -t -oi 2>/dev/null || log "WARN: email alert delivery failed"
+  fi
+}
+
+fail() {
+  local detail="FAIL: $*"
+  log "$detail"
+  send_alerts "$detail" || true
+  exit 1
+}
 
 systemctl is-enabled --quiet "$SERVICE" || fail "$SERVICE is not enabled"
 systemctl is-active --quiet "$SERVICE" || fail "$SERVICE is not active"
