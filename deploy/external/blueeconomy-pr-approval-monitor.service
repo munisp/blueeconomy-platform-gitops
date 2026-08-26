@@ -11,6 +11,8 @@ WorkingDirectory=/opt/blueeconomy-platform-gitops
 EnvironmentFile=/etc/blueeconomy/pr-monitor.env
 Environment=WATCH_SECONDS=300
 ExecStart=/opt/blueeconomy-platform-gitops/scripts/approval-monitor-with-slack.sh
+StandardOutput=append:/var/log/blueeconomy/pr-monitor.log
+StandardError=append:/var/log/blueeconomy/pr-monitor.log
 Restart=always
 RestartSec=15
 NoNewPrivileges=true
@@ -38,7 +40,7 @@ AmbientCapabilities=
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 UMask=0077
-ReadWritePaths=/var/lib/blueeconomy
+ReadWritePaths=/var/lib/blueeconomy /var/log/blueeconomy
 
 [Install]
 WantedBy=multi-user.target

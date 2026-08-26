@@ -7,24 +7,33 @@ STATE_DIR="${STATE_DIR:-/var/lib/blueeconomy}"
 SERVICE_NAME="blueeconomy-pr-approval-monitor.service"
 HEALTH_SERVICE_NAME="blueeconomy-pr-approval-monitor-health.service"
 HEALTH_TIMER_NAME="blueeconomy-pr-approval-monitor-health.timer"
+RECOVERY_SERVICE_NAME="blueeconomy-pr-approval-monitor-recovery.service"
+RECOVERY_TIMER_NAME="blueeconomy-pr-approval-monitor-recovery.timer"
+LOGROTATE_NAME="blueeconomy-pr-approval-monitor"
 
 fail() { printf 'ERROR: %s\n' "$1" >&2; exit 1; }
 [[ "$(id -u)" -eq 0 ]] || fail 'run as root or through sudo'
 [[ "${CONFIRM_UNINSTALL:-}" == YES ]] || fail 'set CONFIRM_UNINSTALL=YES to remove monitoring services'
 command -v systemctl >/dev/null 2>&1 || fail 'systemctl is required'
 
-systemctl disable --now "$HEALTH_TIMER_NAME" 2>/dev/null || true
-systemctl stop "$HEALTH_SERVICE_NAME" "$SERVICE_NAME" 2>/dev/null || true
-systemctl disable "$HEALTH_SERVICE_NAME" "$SERVICE_NAME" 2>/dev/null || true
+systemctl disable --now "$HEALTH_TIMER_NAME" "$RECOVERY_TIMER_NAME" 2>/dev/null || true
+systemctl stop "$HEALTH_SERVICE_NAME" "$RECOVERY_SERVICE_NAME" "$SERVICE_NAME" 2>/dev/null || true
+systemctl disable "$HEALTH_SERVICE_NAME" "$RECOVERY_SERVICE_NAME" "$SERVICE_NAME" 2>/dev/null || true
 
 rm -f \
   "/etc/systemd/system/$HEALTH_TIMER_NAME" \
+  "/etc/systemd/system/$RECOVERY_TIMER_NAME" \
+  "/etc/systemd/system/$RECOVERY_SERVICE_NAME" \
   "/etc/systemd/system/$HEALTH_SERVICE_NAME" \
-  "/etc/systemd/system/$SERVICE_NAME"
+  "/etc/systemd/system/$SERVICE_NAME" \
+  "/etc/logrotate.d/$LOGROTATE_NAME"
 systemctl daemon-reload
 systemctl reset-failed "$HEALTH_SERVICE_NAME" "$SERVICE_NAME" 2>/dev/null || true
 
 rm -f "$INSTALL_ROOT/scripts/check-pr-approval-monitor-health.sh" \
+      "$INSTALL_ROOT/scripts/recover-pr-approval-monitor.sh" \
+      "$INSTALL_ROOT/scripts/audit-pr-monitor-permissions.sh" \
+      "$INSTALL_ROOT/scripts/report-pr-monitor-security.sh" \
       "$INSTALL_ROOT/scripts/approval-monitor-with-slack.sh" \
       "$INSTALL_ROOT/scripts/check-pr-approvals.sh"
 
