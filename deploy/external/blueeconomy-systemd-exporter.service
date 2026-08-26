@@ -1,0 +1,35 @@
+[Unit]
+Description=Prometheus systemd metrics exporter for Blue Economy services
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=systemd-exporter
+Group=systemd-exporter
+ExecStart=/usr/local/bin/systemd_exporter --web.listen-address=127.0.0.1:9558
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -76,10 +76,61 @@ services:
       retries: 10
     networks: [storage]
 
+  systemd-exporter:
+    image: prometheuscommunity/systemd-exporter:v0.7.0
+    restart: unless-stopped
+    command: ["--web.listen-address=0.0.0.0:9558"]
+    pid: host
+    privileged: false
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    environment:
+      DBUS_SYSTEM_BUS_ADDRESS: unix:path=/run/dbus/system_bus_socket
+    volumes:
+      - /run/systemd:/run/systemd:ro
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+    expose: ["9558"]
+    networks: [observability]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
+    depends_on: [systemd-exporter]
+    networks: [observability]
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER is required}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "${GRAFANA_BIND_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3001}:3000"
+    depends_on: [prometheus]
+    networks: [observability]
+
 volumes:
   keycloak-db:
   minio-data:
   openbao-data:
+  prometheus-data:
+  grafana-data:
 
 networks:
   identity:
@@ -87,4 +138,6 @@ networks:
   storage:
     internal: true
   secrets:
+    internal: true
+  observability:
     internal: true
