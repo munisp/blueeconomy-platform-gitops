@@ -1,0 +1,21 @@
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: blueeconomy-operations
+    group_by:
+      - alertname
+      - component
+      - severity
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    routes:
+      - receiver: blueeconomy-operations
+        matchers:
+          - severity = critical
+        continue: false
+      - receiver: blueeconomy-operations
+        matchers:
+          - severity = warning
+        continue: false
