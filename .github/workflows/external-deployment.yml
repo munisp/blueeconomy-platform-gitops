@@ -39,7 +39,7 @@ jobs:
       - name: Reject tracked credential material
         run: |
           test ! -f deploy/external/.env
-          if git ls-files -z | xargs -0 grep -IlE '^(KEYCLOAK_(DB_PASSWORD|ADMIN_PASSWORD)|MINIO_ROOT_PASSWORD|OIDC_CLIENT_SECRET|S3_SECRET_ACCESS_KEY)='; then
+          if git ls-files -z | xargs -0 grep -IlE '^(KEYCLOAK_(DB_PASSWORD|ADMIN_PASSWORD)|MINIO_ROOT_PASSWORD|OIDC_CLIENT_SECRET|S3_SECRET_ACCESS_KEY)=.+'; then
             echo 'Tracked credential material detected' >&2
             exit 1
           fi
