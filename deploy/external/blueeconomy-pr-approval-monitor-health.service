@@ -1,18 +1,12 @@
 [Unit]
-Description=Blue Economy pull-request approval monitor
-After=network-online.target
-Wants=network-online.target
+Description=Health check for Blue Economy pull-request approval monitor
+After=blueeconomy-pr-approval-monitor.service
 
 [Service]
-Type=simple
+Type=oneshot
 User=blueeconomy
 Group=blueeconomy
-WorkingDirectory=/opt/blueeconomy-platform-gitops
-EnvironmentFile=/etc/blueeconomy/pr-monitor.env
-Environment=WATCH_SECONDS=300
-ExecStart=/opt/blueeconomy-platform-gitops/scripts/approval-monitor-with-slack.sh
-Restart=always
-RestartSec=15
+ExecStart=/opt/blueeconomy-platform-gitops/scripts/check-pr-approval-monitor-health.sh
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
@@ -25,7 +19,7 @@ ProtectClock=true
 ProtectHostname=true
 RestrictRealtime=true
 PrivateDevices=true
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictAddressFamilies=AF_UNIX
 RestrictNamespaces=true
 RestrictSUIDSGID=true
 LockPersonality=true
@@ -38,7 +32,3 @@ AmbientCapabilities=
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 UMask=0077
-ReadWritePaths=/var/lib/blueeconomy
-
-[Install]
-WantedBy=multi-user.target

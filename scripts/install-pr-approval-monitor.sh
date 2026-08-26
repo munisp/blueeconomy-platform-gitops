@@ -6,16 +6,26 @@ INSTALL_ROOT="${INSTALL_ROOT:-/opt/blueeconomy-platform-gitops}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/blueeconomy}"
 STATE_DIR="${STATE_DIR:-/var/lib/blueeconomy}"
 SERVICE_NAME="blueeconomy-pr-approval-monitor.service"
+HEALTH_SERVICE_NAME="blueeconomy-pr-approval-monitor-health.service"
+HEALTH_TIMER_NAME="blueeconomy-pr-approval-monitor-health.timer"
 SERVICE_SRC="$SOURCE_ROOT/deploy/external/$SERVICE_NAME"
+HEALTH_SERVICE_SRC="$SOURCE_ROOT/deploy/external/$HEALTH_SERVICE_NAME"
+HEALTH_TIMER_SRC="$SOURCE_ROOT/deploy/external/$HEALTH_TIMER_NAME"
+HEALTH_SCRIPT_SRC="$SOURCE_ROOT/scripts/check-pr-approval-monitor-health.sh"
 ENV_TEMPLATE="$SOURCE_ROOT/deploy/external/pr-monitor.env.example"
 ENV_FILE="$CONFIG_DIR/pr-monitor.env"
 SERVICE_DEST="/etc/systemd/system/$SERVICE_NAME"
+HEALTH_SERVICE_DEST="/etc/systemd/system/$HEALTH_SERVICE_NAME"
+HEALTH_TIMER_DEST="/etc/systemd/system/$HEALTH_TIMER_NAME"
 
 fail() { printf 'ERROR: %s\n' "$1" >&2; exit 1; }
 [[ "$(id -u)" -eq 0 ]] || fail 'run as root or through sudo'
 command -v systemctl >/dev/null 2>&1 || fail 'systemctl is required'
 command -v systemd-analyze >/dev/null 2>&1 || fail 'systemd-analyze is required'
 [[ -f "$SERVICE_SRC" ]] || fail "service unit not found: $SERVICE_SRC"
+[[ -f "$HEALTH_SERVICE_SRC" ]] || fail "health service unit not found: $HEALTH_SERVICE_SRC"
+[[ -f "$HEALTH_TIMER_SRC" ]] || fail "health timer unit not found: $HEALTH_TIMER_SRC"
+[[ -f "$HEALTH_SCRIPT_SRC" ]] || fail "health script not found: $HEALTH_SCRIPT_SRC"
 [[ -f "$ENV_TEMPLATE" ]] || fail "environment template not found: $ENV_TEMPLATE"
 
 install -d -o root -g root -m 0755 "$CONFIG_DIR"
@@ -47,11 +57,15 @@ install -d -o root -g root -m 0755 "$INSTALL_ROOT"
 tar --exclude='deploy/external/.env' --exclude='deploy/external/pr-monitor.env' \
     --exclude='backups' --exclude='*.dump' -C "$SOURCE_ROOT" -cf - . | tar -C "$INSTALL_ROOT" -xf -
 chown -R root:root "$INSTALL_ROOT"
-chmod 0755 "$INSTALL_ROOT/scripts/approval-monitor-with-slack.sh" "$INSTALL_ROOT/scripts/check-pr-approvals.sh"
+chmod 0755 "$INSTALL_ROOT/scripts/approval-monitor-with-slack.sh" "$INSTALL_ROOT/scripts/check-pr-approvals.sh" "$INSTALL_ROOT/scripts/check-pr-approval-monitor-health.sh"
 install -o root -g root -m 0644 "$SERVICE_SRC" "$SERVICE_DEST"
-systemd-analyze verify "$SERVICE_DEST"
+install -o root -g root -m 0644 "$HEALTH_SERVICE_SRC" "$HEALTH_SERVICE_DEST"
+install -o root -g root -m 0644 "$HEALTH_TIMER_SRC" "$HEALTH_TIMER_DEST"
+systemd-analyze verify "$SERVICE_DEST" "$HEALTH_SERVICE_DEST" "$HEALTH_TIMER_DEST"
 systemctl daemon-reload
-systemctl enable "$SERVICE_NAME"
+systemctl enable "$SERVICE_NAME" "$HEALTH_TIMER_NAME"
 systemctl restart "$SERVICE_NAME"
+systemctl start "$HEALTH_TIMER_NAME"
 systemctl --no-pager --full status "$SERVICE_NAME"
+systemctl --no-pager --full status "$HEALTH_TIMER_NAME"
 printf '%s\n' "Installed and started $SERVICE_NAME. Review with: journalctl -u $SERVICE_NAME -f"
