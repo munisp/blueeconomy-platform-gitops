@@ -4,6 +4,7 @@ set -Eeuo pipefail
 : "${DATABASE_URL:?DATABASE_URL is required}"
 backup_dir="${BACKUP_DIR:-./backups}"
 retention_days="${BACKUP_RETENTION_DAYS:-14}"
+[[ "$retention_days" =~ ^[0-9]+$ ]] || { echo 'BACKUP_RETENTION_DAYS must be a non-negative integer' >&2; exit 64; }
 approval_marker="${POSTGRES_MIGRATION_APPROVED:?POSTGRES_MIGRATION_APPROVED must be set to yes}"
 [[ "$approval_marker" == "yes" ]] || { echo 'POSTGRES_MIGRATION_APPROVED must equal yes' >&2; exit 64; }
 
