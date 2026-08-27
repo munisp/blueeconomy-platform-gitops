@@ -1,0 +1,23 @@
+{{- $fullName := include "ferry-ticketing.fullname" . -}}
+{{- range $name, $component := .Values.components }}
+{{- if and $component.enabled $component.service $component.service.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-%s" $fullName $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "ferry-ticketing.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name | quote }}
+spec:
+  type: {{ $component.service.type }}
+  ports:
+    - name: http
+      port: {{ $component.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "ferry-ticketing.selectorLabels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name | quote }}
+{{- end }}
+{{- end }}

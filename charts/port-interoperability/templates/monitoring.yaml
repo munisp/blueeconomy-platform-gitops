@@ -1,0 +1,52 @@
+{{- if .Values.monitoring.podMonitor.enabled }}
+{{- range $name, $component := .Values.components }}
+{{- if and $component.enabled $.Values.dapr.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ printf "%s-%s-dapr" (include "port-interoperability.fullname" $) $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "port-interoperability.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name | quote }}
+    {{- with $.Values.monitoring.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "port-interoperability.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $name | quote }}
+  podMetricsEndpoints:
+    - targetPort: {{ $.Values.dapr.metricsPort }}
+      path: /metrics
+      interval: 30s
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+{{- range $name, $component := .Values.components }}
+{{- if and $component.enabled $component.service $component.service.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ printf "%s-%s" (include "port-interoperability.fullname" $) $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "port-interoperability.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name | quote }}
+    {{- with $.Values.monitoring.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "port-interoperability.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $name | quote }}
+  endpoints:
+    - port: http
+      path: {{ $.Values.monitoring.serviceMonitor.path }}
+      interval: {{ $.Values.monitoring.serviceMonitor.interval }}
+{{- end }}
+{{- end }}
+{{- end }}

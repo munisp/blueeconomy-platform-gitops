@@ -1,0 +1,80 @@
+# Dapr per-workstream component layer. One Argo CD Application per workstream
+# renders this chart into that workstream's namespace. Fail-closed: no
+# brokers, hosts, vault names or store references are defaulted.
+workstream:
+  # ports | ferries | cvff
+  name: ""
+  # Dapr app-ids allowed to use every component rendered by this release.
+  # For cvff this MUST be exactly the cvff app-ids (enforced by the chart):
+  #   [intent-api, cvff-worker, cvff-outbox-publisher]
+  appIds: []
+
+pubsub:
+  enabled: true
+  # kafka is the pinned event-stream backbone (strimzi-kafka-operator in
+  # components/upstream-components.lock.yaml).
+  driver: kafka
+  kafka:
+    # Comma-separated bootstrap brokers, e.g.
+    # kafka-blueeconomy-kafka-bootstrap.blueeconomy-platform.svc:9092
+    brokers: ""
+    # SASL credentials are delivered through the ExternalSecrets-synced
+    # Kubernetes secret below; never inline.
+    authType: none
+    saslPasswordSecretKeyRef:
+      name: ""
+      key: ""
+    consumerGroup: ""
+  # ---------------------------------------------------------------------
+  # Fluvio variant (config-only alternative; NOT currently pinned):
+  # set pubsub.driver: fluvio and pubsub.fluvio.broker once a Fluvio release
+  # has been approved and added to components/upstream-components.lock.yaml.
+  # The template renders pubsub.fluvio with identical scopes, so switching
+  # drivers never widens workstream access.
+  # ---------------------------------------------------------------------
+  fluvio:
+    broker: ""
+    topic: ""
+
+state:
+  hot:
+    # Redis hot state store (locks, short-lived session/idempotency state).
+    enabled: true
+    redisHost: ""
+    passwordSecretKeyRef:
+      name: ""
+      key: ""
+  durable:
+    # PostgreSQL durable state store (CloudNativePG cluster).
+    enabled: true
+    connectionStringSecretKeyRef:
+      name: ""
+      key: ""
+
+secretStores:
+  kubernetes:
+    enabled: true
+  azureKeyVault:
+    enabled: true
+    # Azure Government landing zone: the vault lives in the AKS-managed
+    # resource group; endpoint suffix is vault.usgovcloudapi.net and the
+    # cloud environment MUST remain AzureUSGovernmentCloud. Use
+    # AzurePublicCloud only for commercial-cloud development clusters.
+    vaultName: ""
+    azureEnvironment: "AzureUSGovernmentCloud"
+
+# ExternalSecret syncing the Kubernetes secrets that the Dapr components
+# reference via secretKeyRef (Redis password, PostgreSQL connection string,
+# Kafka SASL password). storeRef.name must reference the approved
+# ClusterSecretStore (Azure Key Vault provider, workload-identity auth).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  # Map of Kubernetes secret key -> remote key path in the external store.
+  keys: {}
+
+rbac:
+  # Least-privilege: the Dapr sidecars read only the synced component secret.
+  create: true

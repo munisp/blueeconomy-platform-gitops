@@ -1,0 +1,16 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative endpoints.
+keycloak:
+  baseUrl: https://keycloak.blueeconomy-security.svc.cluster.local:8443
+
+importJob:
+  repository: quay.io/keycloak-config-cli/keycloak-config-cli
+  digest: sha256:7d759c2782b4737797a5bfece4006b8aa28556d36e9082719bdd0c9f28f1e2d4
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    username: keycloak/render-fixture/admin-username
+    password: keycloak/render-fixture/admin-password

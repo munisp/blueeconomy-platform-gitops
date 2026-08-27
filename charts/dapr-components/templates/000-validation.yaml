@@ -1,0 +1,41 @@
+{{- $ws := required "workstream.name is required (ports | ferries | cvff)" .Values.workstream.name -}}
+{{- if not (has $ws (list "ports" "ferries" "cvff")) -}}
+{{- fail "workstream.name must be one of: ports, ferries, cvff" -}}
+{{- end -}}
+{{- if empty .Values.workstream.appIds -}}
+{{- fail "workstream.appIds must list the approved Dapr app-ids for this workstream" -}}
+{{- end -}}
+{{- /* Fiduciary segregation: the cvff release may never widen beyond the
+       three cvff app-ids, regardless of supplied environment values. */ -}}
+{{- if eq $ws "cvff" -}}
+{{- range $appId := .Values.workstream.appIds -}}
+{{- if not (has $appId (list "intent-api" "cvff-worker" "cvff-outbox-publisher")) -}}
+{{- fail (printf "workstream.appIds entry %q is not a cvff app-id; cvff components are restricted to intent-api, cvff-worker and cvff-outbox-publisher" $appId) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $store := required "externalSecrets.storeRef.name is required" .Values.externalSecrets.storeRef.name -}}
+{{- if .Values.pubsub.enabled -}}
+{{- if eq .Values.pubsub.driver "kafka" -}}
+{{- $brokers := required "pubsub.kafka.brokers is required" .Values.pubsub.kafka.brokers -}}
+{{- if eq .Values.pubsub.kafka.authType "sasl" -}}
+{{- $n := required "pubsub.kafka.saslPasswordSecretKeyRef.name is required when authType=sasl" .Values.pubsub.kafka.saslPasswordSecretKeyRef.name -}}
+{{- end -}}
+{{- else if eq .Values.pubsub.driver "fluvio" -}}
+{{- $broker := required "pubsub.fluvio.broker is required when pubsub.driver=fluvio" .Values.pubsub.fluvio.broker -}}
+{{- else -}}
+{{- fail "pubsub.driver must be kafka or fluvio" -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.state.hot.enabled -}}
+{{- $host := required "state.hot.redisHost is required" .Values.state.hot.redisHost -}}
+{{- $n := required "state.hot.passwordSecretKeyRef.name is required" .Values.state.hot.passwordSecretKeyRef.name -}}
+{{- $k := required "state.hot.passwordSecretKeyRef.key is required" .Values.state.hot.passwordSecretKeyRef.key -}}
+{{- end -}}
+{{- if .Values.state.durable.enabled -}}
+{{- $n := required "state.durable.connectionStringSecretKeyRef.name is required" .Values.state.durable.connectionStringSecretKeyRef.name -}}
+{{- $k := required "state.durable.connectionStringSecretKeyRef.key is required" .Values.state.durable.connectionStringSecretKeyRef.key -}}
+{{- end -}}
+{{- if .Values.secretStores.azureKeyVault.enabled -}}
+{{- $vault := required "secretStores.azureKeyVault.vaultName is required" .Values.secretStores.azureKeyVault.vaultName -}}
+{{- end -}}

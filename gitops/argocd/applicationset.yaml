@@ -1,0 +1,95 @@
+# Argo CD ApplicationSet wiring every shared-platform chart.
+#
+# Each Application renders its chart from THIS repository and layers
+# environment-approved values from the authorised environment repository
+# (multi-source $values ref). Default chart values fail closed, so an
+# Application shows the chart's approval-gate error until the environment
+# repository supplies approved values — that is intentional.
+#
+# Azure Government: the AKS landing zone runs in a USGov region; the
+# environment repository supplies the USGov ACR registry names, the Key Vault
+# (vault.usgovcloudapi.net) ClusterSecretStore and USGov service endpoints.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: blueeconomy-shared-platform
+  namespace: argocd
+  labels:
+    blueeconomy.platform/layer: shared-platform
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - chart: ferry-ticketing
+            namespace: blueeconomy-ferries
+          - chart: port-interoperability
+            namespace: blueeconomy-ports
+          - chart: financial-controls
+            namespace: blueeconomy-cvff
+          - chart: security-operations
+            namespace: blueeconomy-security
+          - chart: temporal
+            namespace: blueeconomy-platform
+          - chart: keycloak-realms
+            namespace: blueeconomy-security
+          # Dapr component layer: one release per workstream, rendered into
+          # that workstream's namespace with its exact app-id scopes.
+          - chart: dapr-components
+            name: dapr-components-ports
+            namespace: blueeconomy-ports
+            workstream: ports
+          - chart: dapr-components
+            name: dapr-components-ferries
+            namespace: blueeconomy-ferries
+            workstream: ferries
+          - chart: dapr-components
+            name: dapr-components-cvff
+            namespace: blueeconomy-cvff
+            workstream: cvff
+  template:
+    metadata:
+      name: '{{ .name | default .chart }}'
+      labels:
+        blueeconomy.platform/chart: '{{ .chart }}'
+    spec:
+      project: blueeconomy-platform
+      sources:
+        - repoURL: https://github.com/munisp/blueeconomy-platform-gitops.git
+          targetRevision: main
+          path: 'charts/{{ .chart }}'
+          helm:
+            valueFiles:
+              - values.yaml
+              - '$values/environments/prod/{{ .chart }}.yaml'
+            ignoreMissingValueFiles: true
+            {{- if (index . "workstream") }}
+            parameters:
+              - name: workstream.name
+                value: '{{ index . "workstream" }}'
+            {{- end }}
+        # Authorised environment repository supplying approved values files.
+        # Until it is provisioned, Applications surface the charts'
+        # fail-closed approval gates instead of deploying.
+        - repoURL: https://github.com/munisp/blueeconomy-platform-env.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{ .namespace }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          # Namespaces are managed by the platform-base Application
+          # (kubernetes/base) with their PSA and default-deny policies.
+          - CreateNamespace=false
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 30s
+            factor: 2
+            maxDuration: 5m
+      revisionHistoryLimit: 5

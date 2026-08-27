@@ -1,0 +1,21 @@
+{{- range $name, $component := .Values.components }}
+{{- if $component.enabled }}
+{{- $digest := required (printf "%s.image.digest is required" $name) $component.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail (printf "%s.image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" $name) -}}
+{{- end -}}
+{{- $repository := required (printf "%s.image.repository is required" $name) $component.image.repository -}}
+{{- $env := default dict $component.env -}}
+{{- range $envName := (default (list) $component.requiredEnv) -}}
+{{- if eq (printf "%v" (get $env $envName)) "" -}}
+{{- fail (printf "%s.%s must be set to an approved environment value" $name $envName) -}}
+{{- end -}}
+{{- end -}}
+{{- range $secretName := (default (list) $component.secretEnv) -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $secretName) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because %s consumes it via secretEnv" $secretName $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+{{- end }}
+{{- $store := required "externalSecrets.storeRef.name is required" .Values.externalSecrets.storeRef.name -}}

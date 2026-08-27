@@ -1,0 +1,186 @@
+# Financial controls / CVFF four-party rail (Workstream C).
+# Deployed ONLY into blueeconomy-cvff (fiduciary segregation). Every
+# credential is delivered exclusively through ExternalSecrets; no placeholder
+# or inline credential is permitted anywhere in this chart.
+nameOverride: ""
+fullnameOverride: ""
+workstream: cvff
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# ExternalSecrets contract. storeRef.name must reference the approved
+# ClusterSecretStore (Azure Key Vault provider on AKS / Azure Government:
+# vault endpoint suffix vault.usgovcloudapi.net, workload-identity auth).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+dapr:
+  enabled: true
+  appProtocol: http
+  metricsPort: 9090
+
+# Temporal connection for cvff-worker. The CVFF service reads
+# TEMPORAL_HOST_PORT (not TEMPORAL_ADDRESS); the chart wires that key.
+temporal:
+  address: "temporal-frontend.blueeconomy-platform.svc.cluster.local:7233"
+  namespace: cvff
+
+components:
+  intent-api:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    port: 8080
+    service:
+      enabled: true
+      type: ClusterIP
+    daprAppId: intent-api
+    probes:
+      livenessPath: /healthz
+      readinessPath: /healthz
+    env:
+      INTENT_API_LISTEN_ADDR: ":8080"
+    requiredEnv:
+      - INTENT_API_LISTEN_ADDR
+    secretEnv:
+      - DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  cvff-worker:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    daprAppId: cvff-worker
+    temporalEnv:
+      enabled: true
+      addressKey: TEMPORAL_HOST_PORT
+    env:
+      TEMPORAL_TASK_QUEUE: cvff-disbursement
+      TIGERBEETLE_CLUSTER_ID_HEX: ""
+      TIGERBEETLE_REPLICA_ADDRESSES: ""
+      CVFF_NGN_DEBIT_ACCOUNT_ID_HEX: ""
+      CVFF_NGN_CREDIT_ACCOUNT_ID_HEX: ""
+      CVFF_USD_DEBIT_ACCOUNT_ID_HEX: ""
+      CVFF_USD_CREDIT_ACCOUNT_ID_HEX: ""
+      CVFF_NGN_LEDGER: ""
+      CVFF_USD_LEDGER: ""
+      CVFF_FEE_CODE: ""
+      CVFF_COST_CODE: ""
+      CVFF_CUSTODIAL_FEE_BPS: ""
+    requiredEnv:
+      - TEMPORAL_TASK_QUEUE
+      - TIGERBEETLE_CLUSTER_ID_HEX
+      - TIGERBEETLE_REPLICA_ADDRESSES
+      - CVFF_NGN_DEBIT_ACCOUNT_ID_HEX
+      - CVFF_NGN_CREDIT_ACCOUNT_ID_HEX
+      - CVFF_USD_DEBIT_ACCOUNT_ID_HEX
+      - CVFF_USD_CREDIT_ACCOUNT_ID_HEX
+      - CVFF_NGN_LEDGER
+      - CVFF_USD_LEDGER
+      - CVFF_FEE_CODE
+      - CVFF_COST_CODE
+      - CVFF_CUSTODIAL_FEE_BPS
+    secretEnv:
+      - DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  outbox-publisher:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    daprAppId: cvff-outbox-publisher
+    env:
+      KAFKA_BROKERS: ""
+      # cvff.disbursement.v1 envelope topic; classification FIDUCIARY_SEGREGATED.
+      KAFKA_TOPIC: ""
+      OUTBOX_POLL_INTERVAL_SECONDS: "5"
+      OUTBOX_BATCH_SIZE: "100"
+    requiredEnv:
+      - KAFKA_BROKERS
+      - KAFKA_TOPIC
+      - OUTBOX_POLL_INTERVAL_SECONDS
+      - OUTBOX_BATCH_SIZE
+    secretEnv:
+      - DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+networkPolicy:
+  enabled: true
+  # CVFF fiduciary segregation: no other workstream namespace may connect in.
+  # Only the approved edge namespace may reach intent-api.
+  allowedIngressNamespaces: []
+  allowedEgress:
+    - namespace: kube-system
+      ports: [53]
+      protocols: ["UDP", "TCP"]
+    # blueeconomy-platform (Temporal/Kafka/Keycloak) and the TigerBeetle
+    # namespace are appended by the environment values file. No ferries/ports
+    # egress rule is ever permitted for this workstream.
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    path: /metrics
+    interval: 30s
+    labels:
+      blueeconomy.platform/workstream: cvff
+      blueeconomy.platform/classification: fiduciary-segregated
+  podMonitor:
+    enabled: true
+    labels:
+      blueeconomy.platform/workstream: cvff
+      blueeconomy.platform/classification: fiduciary-segregated
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1

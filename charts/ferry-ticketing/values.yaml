@@ -1,0 +1,186 @@
+# Ferry ticketing (Workstream B). Non-production-safe baseline only.
+# Every credential is delivered exclusively through ExternalSecrets; no
+# placeholder or inline credential is permitted anywhere in this chart.
+nameOverride: ""
+fullnameOverride: ""
+workstream: ferries
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# ExternalSecrets contract. storeRef.name must reference the approved
+# ClusterSecretStore (Azure Key Vault provider on AKS / Azure Government:
+# vault endpoint suffix vault.usgovcloudapi.net, workload-identity auth).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  # Map of environment variable name -> remote key path in the external store.
+  # Every entry listed in a component's secretEnv must exist here.
+  keys: {}
+
+dapr:
+  enabled: true
+  appProtocol: http
+  # Dapr sidecar metrics are scraped by the per-workstream PodMonitor.
+  metricsPort: 9090
+
+# Temporal connection shared by workers. Defaults target the platform
+# Temporal frontend rendered by charts/temporal in blueeconomy-platform.
+temporal:
+  address: "temporal-frontend.blueeconomy-platform.svc.cluster.local:7233"
+  namespace: ferry
+
+components:
+  ferry-api:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    port: 8080
+    service:
+      enabled: true
+      type: ClusterIP
+    daprAppId: ferry-api
+    probes:
+      livenessPath: /healthz
+      readinessPath: /readyz
+    env:
+      FERRY_LISTEN_ADDRESS: ":8080"
+      FERRY_MANIFEST_COMPLETENESS_KPI: "0.95"
+      # jwt mode validates Keycloak RS256 tokens against the ferries realm JWKS.
+      FERRY_AUTH_MODE: "jwt"
+      FERRY_OIDC_ISSUER: ""
+      FERRY_OIDC_AUDIENCE: ""
+      FERRY_OIDC_JWKS_URL: ""
+      FERRY_TB_ADDRESS: ""
+      FERRY_TB_CLUSTER_ID: ""
+      FERRY_TB_LEDGER: ""
+      FERRY_TB_CODE: ""
+      FERRY_TB_PASSENGER_CLEARING_ACCOUNT: ""
+      FERRY_TB_OPERATOR_REVENUE_ACCOUNT: ""
+      FERRY_TB_AGENT_FLOAT_ACCOUNT: ""
+      FERRY_TB_PENDING_TIMEOUT_SECONDS: "120"
+    requiredEnv:
+      - FERRY_OIDC_ISSUER
+      - FERRY_OIDC_AUDIENCE
+      - FERRY_OIDC_JWKS_URL
+      - FERRY_TB_ADDRESS
+      - FERRY_TB_CLUSTER_ID
+      - FERRY_TB_LEDGER
+      - FERRY_TB_CODE
+      - FERRY_TB_PASSENGER_CLEARING_ACCOUNT
+      - FERRY_TB_OPERATOR_REVENUE_ACCOUNT
+      - FERRY_TB_AGENT_FLOAT_ACCOUNT
+    secretEnv:
+      - FERRY_DATABASE_URL
+      - FERRY_MANIFEST_SALT
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  ferry-worker:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    daprAppId: ferry-worker
+    temporalEnv:
+      enabled: true
+    env:
+      TEMPORAL_TASK_QUEUE: ferry-ticket
+    requiredEnv:
+      - TEMPORAL_TASK_QUEUE
+    secretEnv:
+      - FERRY_DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  outbox-publisher:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    daprAppId: ferry-outbox-publisher
+    env:
+      KAFKA_BROKERS: ""
+      OUTBOX_POLL_INTERVAL_SECONDS: "5"
+      OUTBOX_BATCH_SIZE: "100"
+    requiredEnv:
+      - KAFKA_BROKERS
+      - OUTBOX_POLL_INTERVAL_SECONDS
+      - OUTBOX_BATCH_SIZE
+    secretEnv:
+      - FERRY_DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+networkPolicy:
+  enabled: true
+  # Namespaces whose ingress controllers may reach ferry-api (e.g. APISIX edge).
+  allowedIngressNamespaces: []
+  # Ordered egress allowances outside this namespace. Everything else is denied.
+  allowedEgress:
+    - namespace: kube-system
+      ports: [53]
+      protocols: ["UDP", "TCP"]
+    # PostgreSQL (CloudNativePG), Kafka (Strimzi), Temporal, Keycloak and Redis
+    # namespaces are appended here by the environment values file, e.g.:
+    # - namespace: blueeconomy-platform
+    #   ports: [5432, 9092, 7233, 8080, 6379]
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    path: /metrics
+    interval: 30s
+    labels:
+      blueeconomy.platform/workstream: ferries
+  podMonitor:
+    # Scrapes the Dapr sidecar metrics port for every component pod.
+    enabled: true
+    labels:
+      blueeconomy.platform/workstream: ferries
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1

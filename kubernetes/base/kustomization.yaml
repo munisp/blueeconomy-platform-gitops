@@ -4,3 +4,6 @@ resources:
   - namespaces/platform.yaml
   - namespaces/security.yaml
   - namespaces/recovery.yaml
+  - namespaces/ports.yaml
+  - namespaces/ferries.yaml
+  - namespaces/cvff.yaml

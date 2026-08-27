@@ -1,0 +1,53 @@
+# Argo CD AppProject for the BlueEconomy shared platform layer.
+# Restricts which repositories and cluster destinations these Applications
+# may use (least-privilege GitOps).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: blueeconomy-platform
+  namespace: argocd
+  labels:
+    blueeconomy.platform/layer: shared-platform
+spec:
+  description: >-
+    BlueEconomy shared-platform deployment layer: workstream services, Dapr
+    components, Temporal, Keycloak realms and observability configuration.
+  sourceRepos:
+    - https://github.com/munisp/blueeconomy-platform-gitops.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: blueeconomy-platform
+    - server: https://kubernetes.default.svc
+      namespace: blueeconomy-security
+    - server: https://kubernetes.default.svc
+      namespace: blueeconomy-ports
+    - server: https://kubernetes.default.svc
+      namespace: blueeconomy-ferries
+    - server: https://kubernetes.default.svc
+      namespace: blueeconomy-cvff
+  # Namespaces are managed by the platform-base Application
+  # (kubernetes/base); charts create no other cluster-scoped resources.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: "*"
+    - group: apps
+      kind: "*"
+    - group: batch
+      kind: "*"
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+    - group: policy
+      kind: PodDisruptionBudget
+    - group: rbac.authorization.k8s.io
+      kind: "*"
+    - group: external-secrets.io
+      kind: ExternalSecret
+    - group: dapr.io
+      kind: Component
+    - group: monitoring.coreos.com
+      kind: "*"
+  orphanedResources:
+    warn: true

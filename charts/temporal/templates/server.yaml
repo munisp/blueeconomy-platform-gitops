@@ -1,0 +1,115 @@
+{{- $fullName := include "temporal.fullname" . -}}
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "temporal.serviceAccountName" . }}
+  labels:
+    {{- include "temporal.labels" . | nindent 4 }}
+  {{- with .Values.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: false
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "temporal.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.server.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "temporal.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "temporal.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "temporal.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: temporal
+          image: {{ printf "%s@%s" .Values.image.repository .Values.image.digest | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["server", "start"]
+          ports:
+            - name: frontend
+              containerPort: {{ .Values.server.frontendPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.server.metricsPort }}
+              protocol: TCP
+          env:
+            - name: SERVICES
+              value: {{ join ";" .Values.server.services | quote }}
+            - name: DB
+              value: {{ .Values.persistence.driver | quote }}
+            - name: DB_PORT
+              value: {{ .Values.persistence.port | quote }}
+            - name: POSTGRES_SEEDS
+              value: {{ .Values.persistence.host | quote }}
+            - name: DBNAME
+              value: {{ .Values.persistence.database | quote }}
+            - name: VISIBILITY_DBNAME
+              value: {{ .Values.persistence.visibilityDatabase | quote }}
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.persistence.credentialsSecretName | quote }}
+                  key: {{ .Values.persistence.userKey | quote }}
+            - name: POSTGRES_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.persistence.credentialsSecretName | quote }}
+                  key: {{ .Values.persistence.passwordKey | quote }}
+            - name: PROMETHEUS_ENDPOINT
+              value: "0.0.0.0:{{ .Values.server.metricsPort }}"
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          readinessProbe:
+            grpc:
+              port: {{ .Values.server.frontendPort }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: frontend
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "temporal.name" . }}-frontend
+  labels:
+    {{- include "temporal.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: grpc-frontend
+      port: {{ .Values.server.frontendPort }}
+      targetPort: frontend
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.server.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "temporal.selectorLabels" . | nindent 4 }}

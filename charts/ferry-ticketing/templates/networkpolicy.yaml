@@ -1,0 +1,82 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $fullName := include "ferry-ticketing.fullname" . -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "ferry-ticketing.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "ferry-ticketing.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    # Same-namespace service-to-service traffic only.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "ferry-ticketing.selectorLabels" . | nindent 14 }}
+    # Approved ingress edge namespaces (e.g. APISIX) to HTTP components.
+    {{- range .Values.networkPolicy.allowedIngressNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: 8080
+    {{- end }}
+    # Prometheus scraping of Dapr sidecar metrics from the platform namespace.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: blueeconomy-platform
+      ports:
+        - protocol: TCP
+          port: {{ .Values.dapr.metricsPort }}
+  egress:
+    # Dapr sidecar placement and control plane (cluster-local svc IPs are
+    # handled by the CNI; Dapr uses the Kubernetes API via the sidecar's own
+    # service account, which remains disabled here — components are invoked
+    # by app-id through the Dapr control plane mTLS mesh).
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "ferry-ticketing.selectorLabels" . | nindent 14 }}
+    {{- range .Values.networkPolicy.allowedEgress }}
+    {{- $rule := . }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $rule.namespace | quote }}
+      ports:
+        {{- range $proto := (default (list "TCP") $rule.protocols) }}
+        {{- range $port := $rule.ports }}
+        - protocol: {{ $proto }}
+          port: {{ $port }}
+        {{- end }}
+        {{- end }}
+    {{- end }}
+{{- end }}
+{{- if .Values.podDisruptionBudget.enabled }}
+---
+{{- range $name, $component := .Values.components }}
+{{- if and $component.enabled (gt (int $component.replicas) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ printf "%s-%s" (include "ferry-ticketing.fullname" $) $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "ferry-ticketing.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name | quote }}
+spec:
+  maxUnavailable: {{ $.Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "ferry-ticketing.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $name | quote }}
+---
+{{- end }}
+{{- end }}
+{{- end }}

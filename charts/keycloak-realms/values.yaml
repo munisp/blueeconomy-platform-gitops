@@ -1,0 +1,113 @@
+# Keycloak workstream realms. Realm definitions are rendered into ConfigMaps
+# and applied by a keycloak-config-cli Job (Argo CD PostSync hook).
+# Fail-closed: no admin credentials, image tags or hostnames are defaulted.
+nameOverride: ""
+fullnameOverride: ""
+
+keycloak:
+  # In-cluster base URL of the operator-managed Keycloak instance.
+  # Azure Government note: no sovereign endpoint involved here; this is the
+  # cluster-local service DNS name.
+  baseUrl: ""
+
+importJob:
+  # keycloak-config-cli image (pinned by digest only).
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+  backoffLimit: 6
+
+# Admin credentials for the import Job are synced from the external store
+# into adminCredentials.secretName via the ExternalSecret rendered below.
+adminCredentials:
+  secretName: keycloak-admin-credentials
+  userKey: username
+  passwordKey: password
+
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  # Keys synced into adminCredentials.secretName (username/password).
+  keys: {}
+
+# Token policy applied to every realm. accessTokenLifespan is enforced
+# fail-closed at render time: values above 300 seconds are rejected.
+tokenPolicy:
+  accessTokenLifespan: 300
+  ssoSessionIdleTimeout: 900
+  ssoSessionMaxLifespan: 3600
+  accessCodeLifespan: 60
+
+# Each realm entry:
+#   name: Keycloak realm name
+#   workstreamNamespace: namespace receiving the client-secret ExternalSecrets
+#   roles: realm roles per the approved workstream role catalogue
+#   clients: confidential service clients. secretRemoteKey points at the
+#     Azure Key Vault object holding the client secret; the realm JSON uses
+#     the keycloak-config-cli "*********" leave-unchanged sentinel, so no
+#     secret material ever appears in this repository or in the ConfigMap.
+realms:
+  - name: blueeconomy-ports-ecallup
+    workstreamNamespace: blueeconomy-ports
+    roles:
+      - trucker
+      - operator
+      - npa-officer
+      - auditor
+      - fmmbe-oversight
+      - icrc-observer
+    clients:
+      - clientId: port-interoperability-api
+      - clientId: ussd-gateway
+      - clientId: booking-worker
+  - name: blueeconomy-ferries
+    workstreamNamespace: blueeconomy-ferries
+    roles:
+      - passenger
+      - operator
+      - agent-cashier
+      - niwa-officer
+      - state-officer
+      - nimasa-observer
+      - auditor
+      - fmmbe-oversight
+    clients:
+      - clientId: ferry-api
+      - clientId: ferry-worker
+      - clientId: ferry-outbox-publisher
+  - name: blueeconomy-cvff
+    workstreamNamespace: blueeconomy-cvff
+    roles:
+      - nimasa-approver
+      - pli-primary
+      - pli-secondary
+      - pli-tertiary
+      - receiving-bank-officer
+      - beneficiary
+      - cbn-observer
+      - independent-auditor
+      - fmmbe-oversight
+      - icrc-observer
+    clients:
+      - clientId: intent-api
+      - clientId: cvff-worker
+      - clientId: cvff-outbox-publisher
+
+networkPolicy:
+  enabled: true
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]

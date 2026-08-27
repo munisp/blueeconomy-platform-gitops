@@ -136,3 +136,46 @@ components:
     deployment_gate:
       - Approved database encryption, storage class, backup object store, recovery objective and access model.
       - Measured workload sizing and real restore verification in the authorised non-production target.
+  - name: prometheus
+    purpose: Metrics collection, alerting rules and per-workstream ServiceMonitor/PodMonitor scraping
+    upstream:
+      type: helm_chart
+      repository: https://prometheus-community.github.io/helm-charts
+      chart: prometheus-community/prometheus
+      chart_version: 29.27.0
+      app_version: 3.14.0
+      # SHA-256 verified against the release tarball published by the upstream index.
+      artifact_sha256: 1a4694c2f0a6a778d634c13e5434079fcfb3abacf33ae0f95814f84098602edd
+      official_documentation: https://prometheus.io/docs/prometheus/latest/installation/
+    deployment_gate:
+      - Approved retention, storage class, remote-write and sovereign data-residency model.
+      - Approved scrape/alert rule inventory and per-workstream ServiceMonitor label contract.
+      - Real Thanos/object-storage or equivalent long-term-retention design for audit evidence.
+  - name: opentelemetry-collector
+    purpose: Vendor-neutral trace/metric/log collection and enrichment for all workstreams
+    upstream:
+      type: helm_chart
+      repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+      chart: open-telemetry/opentelemetry-collector
+      chart_version: 0.171.0
+      app_version: 0.158.0
+      # SHA-256 verified against the release tarball published by the upstream index.
+      artifact_sha256: 5526010c00b6319ced10dd9e711149b10d5539dfa1e23ee22546648f7f702352
+      official_documentation: https://opentelemetry.io/docs/platforms/kubernetes/helm/collector/
+    deployment_gate:
+      - Approved OTLP ingestion endpoints, tenant/attribute enrichment and sampling policy.
+      - Approved exporter set (Prometheus remote-write, OpenSearch, Tempo-equivalent) and secret references.
+      - CVFF telemetry labelled FIDUCIARY_SEGREGATED and routed only to the segregated indexes.
+  - name: argo-cd
+    purpose: Declarative GitOps controller reconciling this repository onto the authorised cluster
+    upstream:
+      type: kustomize_manifest
+      repository: https://github.com/argoproj/argo-cd
+      ref: e258ee23c3e52266d407572f4bcdfe7d9ed36cb5
+      version_tag: v3.5.2
+      path: manifests/cluster-install
+      official_documentation: https://argo-cd.readthedocs.io/en/stable/operator-manual/installation/
+    deployment_gate:
+      - Ministry decision on controller placement (in-cluster versus dedicated management cluster).
+      - Approved SSO/OIDC integration with Keycloak, RBAC policy and notification/audit routing.
+      - Approved AppProject restrictions (source repos, destinations, cluster-resource allow-list).

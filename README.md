@@ -11,3 +11,34 @@ Run the local source validation with:
 ```bash
 bash scripts/validate-manifests.sh
 ```
+
+## Shared-platform deployment layer
+
+The repository is reconciled by **Argo CD** (`gitops/argocd/`, pinned in
+`components/upstream-components.lock.yaml`; see `docs/gitops-controller-argocd.md`).
+The shared-platform layer adds:
+
+- `charts/ferry-ticketing`, `charts/port-interoperability`,
+  `charts/financial-controls`, `charts/security-operations` — workstream
+  service charts (fail-closed values, digest-pinned images, restricted PSA,
+  default-deny NetworkPolicies, ExternalSecrets-only credentials, Dapr sidecar
+  annotations, per-workstream ServiceMonitor/PodMonitor).
+- `charts/dapr-components` — per-workstream Dapr components (Kafka pub/sub
+  with documented Fluvio variant, Redis hot + PostgreSQL durable state,
+  Kubernetes + Azure Key Vault secret stores). Rendered once per workstream
+  with scopes restricted to that workstream's app-ids; the cvff release is
+  hard-restricted to cvff app-ids (fiduciary segregation).
+- `charts/temporal` — Temporal server plus bootstrap Job registering the
+  `cvff`, `ecallup` and `ferry` workflow namespaces; worker Deployments are
+  wired in the service charts.
+- `charts/keycloak-realms` — the three workstream realms with the approved
+  role catalogues, enforced short-TTL token policy (access token lifespan
+  ≤ 300 s) and confidential service clients delivered via ExternalSecrets
+  (realm JSON uses the leave-unchanged secret sentinel).
+- `kubernetes/base/namespaces/{ports,ferries,cvff}.yaml` — workstream
+  namespaces with restricted PSA and default-deny NetworkPolicies; cvff
+  additionally denies cross-workstream ingress.
+- Observability pins (Prometheus, OpenTelemetry Collector, OpenSearch) in
+  `components/upstream-components.lock.yaml`.
+- Azure Government / AKS landing-zone assumptions:
+  `docs/azure-government-landing-zone.md`.

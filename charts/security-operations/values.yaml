@@ -1,0 +1,128 @@
+# Security operations: detection engine + OpenCTI bridge.
+# NOTE: the feature/detection-engine source branch was not present in the
+# audit workspace when this chart was authored; the environment contract
+# below follows the documented service shape (Kafka in, security.alerts.v1
+# out, OpenSearch evidence store, OpenCTI enrichment). The owning team must
+# verify every env name against the merged service source before production
+# approval. All credentials are ExternalSecrets-only.
+nameOverride: ""
+fullnameOverride: ""
+workstream: security
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# ExternalSecrets contract. storeRef.name must reference the approved
+# ClusterSecretStore (Azure Key Vault provider on AKS / Azure Government:
+# vault endpoint suffix vault.usgovcloudapi.net, workload-identity auth).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+dapr:
+  enabled: true
+  appProtocol: http
+  metricsPort: 9090
+
+components:
+  detection-engine:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    daprAppId: detection-engine
+    env:
+      KAFKA_BROKERS: ""
+      # Alert topic per platform event catalogue.
+      SECURITY_ALERTS_TOPIC: security.alerts.v1
+      OPENSEARCH_URL: ""
+      OPENSEARCH_ALERTS_INDEX: security-alerts
+    requiredEnv:
+      - KAFKA_BROKERS
+      - SECURITY_ALERTS_TOPIC
+      - OPENSEARCH_URL
+      - OPENSEARCH_ALERTS_INDEX
+    secretEnv:
+      - OPENSEARCH_SERVICE_CREDENTIALS
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 1Gi
+
+  opencti-bridge:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    daprAppId: opencti-bridge
+    env:
+      OPENCTI_URL: ""
+      KAFKA_BROKERS: ""
+      SECURITY_ALERTS_TOPIC: security.alerts.v1
+    requiredEnv:
+      - OPENCTI_URL
+      - KAFKA_BROKERS
+      - SECURITY_ALERTS_TOPIC
+    secretEnv:
+      - OPENCTI_API_TOKEN
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+networkPolicy:
+  enabled: true
+  allowedIngressNamespaces: []
+  allowedEgress:
+    - namespace: kube-system
+      ports: [53]
+      protocols: ["UDP", "TCP"]
+    # Kafka and OpenSearch/OpenCTI namespaces are appended by the environment
+    # values file. The security namespace never egresses to workstream pods.
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    path: /metrics
+    interval: 30s
+    labels:
+      blueeconomy.platform/workstream: security
+  podMonitor:
+    enabled: true
+    labels:
+      blueeconomy.platform/workstream: security
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1

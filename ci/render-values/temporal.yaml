@@ -1,0 +1,22 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digests and
+# illustrative endpoints.
+image:
+  repository: temporalio/server
+  digest: sha256:663122ee03820f97bb2a9ef1d7991f217997f1ca44ebed3b84bb542bb294056e
+adminTools:
+  repository: temporalio/admin-tools
+  digest: sha256:1a52ab3a90b6c03af0076fda87c458c18f710c547f6288d877a8ff81a26ffeef
+
+persistence:
+  host: postgres-rw.blueeconomy-platform.svc.cluster.local
+  credentialsSecretName: temporal-persistence-credentials
+  userKey: username
+  passwordKey: password
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    username: temporal/render-fixture/db-username
+    password: temporal/render-fixture/db-password

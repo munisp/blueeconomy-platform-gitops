@@ -1,0 +1,23 @@
+{{- $digest := required "temporal.image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest" -}}
+{{- end -}}
+{{- $repo := required "image.repository is required (temporalio/server)" .Values.image.repository -}}
+{{- $adDigest := required "adminTools.digest is required" .Values.adminTools.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $adDigest) -}}
+{{- fail "adminTools.digest must be an immutable lower-case sha256 digest" -}}
+{{- end -}}
+{{- $adRepo := required "adminTools.repository is required (temporalio/admin-tools)" .Values.adminTools.repository -}}
+{{- $host := required "persistence.host is required" .Values.persistence.host -}}
+{{- $cred := required "persistence.credentialsSecretName is required" .Values.persistence.credentialsSecretName -}}
+{{- $uk := required "persistence.userKey is required" .Values.persistence.userKey -}}
+{{- $pk := required "persistence.passwordKey is required" .Values.persistence.passwordKey -}}
+{{- $store := required "externalSecrets.storeRef.name is required" .Values.externalSecrets.storeRef.name -}}
+{{- if empty .Values.namespaces -}}
+{{- fail "namespaces must list the approved Temporal workflow namespaces" -}}
+{{- end -}}
+{{- range $ns := .Values.namespaces -}}
+{{- if or (not $ns.name) (lt (int $ns.retentionDays) 1) -}}
+{{- fail "each namespaces entry requires a name and retentionDays >= 1" -}}
+{{- end -}}
+{{- end -}}

@@ -1,0 +1,33 @@
+# Platform-base Application: reconciles kubernetes/base (namespaces with
+# restricted PSA labels and default-deny NetworkPolicies, including the
+# fiduciarily-segregated blueeconomy-cvff namespace) via Kustomize.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: blueeconomy-platform-base
+  namespace: argocd
+  labels:
+    blueeconomy.platform/layer: shared-platform
+spec:
+  project: blueeconomy-platform
+  source:
+    repoURL: https://github.com/munisp/blueeconomy-platform-gitops.git
+    targetRevision: main
+    path: kubernetes/base
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: blueeconomy-platform
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # This Application intentionally creates the platform namespaces.
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+  revisionHistoryLimit: 5

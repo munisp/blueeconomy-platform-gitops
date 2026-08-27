@@ -1,0 +1,214 @@
+# Port interoperability / eCallUp 2.0 (Workstream A).
+# Every credential is delivered exclusively through ExternalSecrets; no
+# placeholder or inline credential is permitted anywhere in this chart.
+nameOverride: ""
+fullnameOverride: ""
+workstream: ports
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# ExternalSecrets contract. storeRef.name must reference the approved
+# ClusterSecretStore (Azure Key Vault provider on AKS / Azure Government:
+# vault endpoint suffix vault.usgovcloudapi.net, workload-identity auth).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+dapr:
+  enabled: true
+  appProtocol: http
+  metricsPort: 9090
+
+# Temporal connection for the API and booking worker (ecallup namespace).
+temporal:
+  address: "temporal-frontend.blueeconomy-platform.svc.cluster.local:7233"
+  namespace: ecallup
+
+components:
+  api:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    port: 8080
+    service:
+      enabled: true
+      type: ClusterIP
+    daprAppId: port-interoperability-api
+    temporalEnv:
+      enabled: true
+    env:
+      PORT: "8080"
+      MIGRATION_PATH: ""
+      AUTH_MODE: loopback_trusted_proxy
+      TENANT_GATEWAY_ISS: ""
+      TENANT_GATEWAY_AUD: ""
+      NSW_JWKS_URL: ""
+      NSW_JWKS_PIN_SHA256: ""
+      NSW_ALLOWED_KIDS: ""
+      NSW_ISSUER: ""
+      NSW_AUDIENCE: ""
+      MOJALOOP_BASE_URL: ""
+      TEMPORAL_TASK_QUEUE: ecallup-booking
+      FGN_SHARE_BASIS_POINTS: ""
+    requiredEnv:
+      - PORT
+      - MIGRATION_PATH
+      - AUTH_MODE
+      - TENANT_GATEWAY_ISS
+      - TENANT_GATEWAY_AUD
+      - NSW_JWKS_URL
+      - NSW_JWKS_PIN_SHA256
+      - NSW_ALLOWED_KIDS
+      - NSW_ISSUER
+      - NSW_AUDIENCE
+      - MOJALOOP_BASE_URL
+      - TEMPORAL_TASK_QUEUE
+      - FGN_SHARE_BASIS_POINTS
+    secretEnv:
+      - DATABASE_URL
+      - TENANT_GATEWAY_KEY
+      - MOJALOOP_BEARER_TOKEN
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  ussd-gateway:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    port: 8081
+    service:
+      enabled: true
+      type: ClusterIP
+    daprAppId: ussd-gateway
+    env:
+      PORT: "8081"
+      MIGRATION_PATH: ""
+      USSD_TENANT_ID: ""
+      USSD_SESSION_TTL_SECONDS: "300"
+    requiredEnv:
+      - PORT
+      - MIGRATION_PATH
+      - USSD_TENANT_ID
+    secretEnv:
+      - REDIS_URL
+      - DATABASE_URL
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+  booking-worker:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    daprAppId: booking-worker
+    temporalEnv:
+      enabled: true
+    env:
+      TEMPORAL_TASK_QUEUE: ecallup-booking
+      TIGERBEETLE_CLUSTER_ID: ""
+      TIGERBEETLE_ADDRESSES: ""
+    requiredEnv:
+      - TEMPORAL_TASK_QUEUE
+      - TIGERBEETLE_CLUSTER_ID
+      - TIGERBEETLE_ADDRESSES
+    secretEnv:
+      - DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  outbox-publisher:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    daprAppId: ports-outbox-publisher
+    env:
+      KAFKA_BROKERS: ""
+      OUTBOX_BATCH_SIZE: "100"
+      OUTBOX_POLL_INTERVAL: "5"
+    requiredEnv:
+      - KAFKA_BROKERS
+      - OUTBOX_BATCH_SIZE
+      - OUTBOX_POLL_INTERVAL
+    secretEnv:
+      - DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+networkPolicy:
+  enabled: true
+  allowedIngressNamespaces: []
+  allowedEgress:
+    - namespace: kube-system
+      ports: [53]
+      protocols: ["UDP", "TCP"]
+    # PostgreSQL/Kafka/Temporal/Keycloak/Redis namespaces are appended by the
+    # environment values file. No cvff egress rule is ever permitted here.
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    path: /metrics
+    interval: 30s
+    labels:
+      blueeconomy.platform/workstream: ports
+  podMonitor:
+    enabled: true
+    labels:
+      blueeconomy.platform/workstream: ports
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1

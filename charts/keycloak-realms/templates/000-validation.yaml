@@ -1,0 +1,31 @@
+{{- $digest := required "keycloakRealms.importJob.image.digest is required" .Values.importJob.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "importJob.digest must be an immutable lower-case sha256 digest" -}}
+{{- end -}}
+{{- $repo := required "importJob.repository is required" .Values.importJob.repository -}}
+{{- $base := required "keycloak.baseUrl is required (HTTPS in-cluster Keycloak service URL)" .Values.keycloak.baseUrl -}}
+{{- if not (hasPrefix "https://" $base) -}}
+{{- fail "keycloak.baseUrl must be an HTTPS URL" -}}
+{{- end -}}
+{{- $store := required "externalSecrets.storeRef.name is required" .Values.externalSecrets.storeRef.name -}}
+{{- if empty .Values.realms -}}
+{{- fail "realms must list the approved workstream realms" -}}
+{{- end -}}
+{{- $maxTTL := int .Values.tokenPolicy.accessTokenLifespan -}}
+{{- if gt $maxTTL 300 -}}
+{{- fail "tokenPolicy.accessTokenLifespan must be 300 seconds or less (short-TTL token policy)" -}}
+{{- end -}}
+{{- range $realm := .Values.realms -}}
+{{- if not $realm.name -}}
+{{- fail "every realms entry requires a name" -}}
+{{- end -}}
+{{- if empty $realm.roles -}}
+{{- fail (printf "realm %s must define its approved realm roles" $realm.name) -}}
+{{- end -}}
+{{- if empty $realm.clients -}}
+{{- fail (printf "realm %s must define its confidential service clients" $realm.name) -}}
+{{- end -}}
+{{- if not $realm.workstreamNamespace -}}
+{{- fail (printf "realm %s requires workstreamNamespace for client-secret ExternalSecrets" $realm.name) -}}
+{{- end -}}
+{{- end -}}
