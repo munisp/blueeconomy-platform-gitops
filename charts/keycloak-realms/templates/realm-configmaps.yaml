@@ -9,5 +9,5 @@ metadata:
     blueeconomy.platform/realm: {{ $realm.name | quote }}
 data:
   {{ $realm.name }}.json: |
-    {{- include "keycloak-realms.realmJson" (dict "realm" $realm "policy" $.Values.tokenPolicy) | nindent 4 }}
+    {{- include "keycloak-realms.realmJson" (dict "realm" $realm "policy" $.Values.tokenPolicy "redirects" $.Values.publicClientRedirects) | nindent 4 }}
 {{- end }}

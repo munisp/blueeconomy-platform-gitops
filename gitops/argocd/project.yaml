@@ -14,6 +14,9 @@ spec:
     components, Temporal, Keycloak realms and observability configuration.
   sourceRepos:
     - https://github.com/munisp/blueeconomy-platform-gitops.git
+    # Authorised environment repository referenced by the ApplicationSet
+    # multi-source $values ref (approved environment values only).
+    - https://github.com/munisp/blueeconomy-platform-env.git
   destinations:
     - server: https://kubernetes.default.svc
       namespace: blueeconomy-platform
@@ -25,6 +28,20 @@ spec:
       namespace: blueeconomy-ferries
     - server: https://kubernetes.default.svc
       namespace: blueeconomy-cvff
+    - server: https://kubernetes.default.svc
+      namespace: blueeconomy-seafarer
+    - server: https://kubernetes.default.svc
+      namespace: blueeconomy-fisheries
+    - server: https://kubernetes.default.svc
+      namespace: blueeconomy-isr
+    - server: https://kubernetes.default.svc
+      namespace: blueeconomy-recovery
+    - server: https://kubernetes.default.svc
+      namespace: blueeco-tigerbeetle-prod
+    - server: https://kubernetes.default.svc
+      namespace: blueeco-mojaloop-prod
+    - server: https://kubernetes.default.svc
+      namespace: blueeco-geo-prod
   # Namespaces are managed by the platform-base Application
   # (kubernetes/base); charts create no other cluster-scoped resources.
   clusterResourceWhitelist:

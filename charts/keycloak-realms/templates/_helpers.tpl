@@ -22,6 +22,7 @@ real secret material exists only in the external secret store.
 {{- define "keycloak-realms.realmJson" -}}
 {{- $realm := index . "realm" -}}
 {{- $policy := index . "policy" -}}
+{{- $redirects := index . "redirects" -}}
 {{- $roles := list -}}
 {{- range $r := $realm.roles -}}
 {{- $roles = append $roles (dict "name" $r) -}}
@@ -42,6 +43,25 @@ real secret material exists only in the external secret store.
 {{- if $clearance -}}
 {{- $_ := set $client "defaultClientScopes" (list "clearance") -}}
 {{- end -}}
+{{- $clients = append $clients $client -}}
+{{- end -}}
+{{- /* Public clients (browser/mobile): authorization-code flow with PKCE
+       S256 mandatory, exact-match redirect allowlist, no secret, no
+       service account, no implicit/direct-access grants. Validation in
+       000-validation.yaml enforces the redirect allowlist and URI rules. */ -}}
+{{- range $pc := (default (list) $realm.publicClients) -}}
+{{- $client := dict
+  "clientId" $pc.clientId
+  "protocol" "openid-connect"
+  "publicClient" true
+  "standardFlowEnabled" true
+  "implicitFlowEnabled" false
+  "directAccessGrantsEnabled" false
+  "serviceAccountsEnabled" false
+  "redirectUris" (index $redirects $pc.clientId)
+  "webOrigins" (default (list) $pc.webOrigins)
+  "attributes" (dict "pkce.code.challenge.method" "S256")
+-}}
 {{- $clients = append $clients $client -}}
 {{- end -}}
 {{- $doc := dict

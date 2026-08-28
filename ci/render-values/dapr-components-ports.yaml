@@ -1,0 +1,37 @@
+# CI render-gate fixture ONLY (ports workstream variant). NOT deployable.
+# ports scopes are restricted to the port-interoperability app-ids; widening
+# is rejected by the chart's scope segregation gate.
+workstream:
+  name: ports
+  appIds:
+    - port-interoperability-api
+    - ussd-gateway
+    - booking-worker
+    - ports-outbox-publisher
+
+pubsub:
+  kafka:
+    brokers: kafka.blueeconomy-platform.svc.cluster.local:9092
+
+state:
+  hot:
+    redisHost: redis-master.blueeconomy-platform.svc.cluster.local:6379
+    passwordSecretKeyRef:
+      name: dapr-ports-components
+      key: redis-password
+  durable:
+    connectionStringSecretKeyRef:
+      name: dapr-ports-components
+      key: postgres-connection-string
+
+secretStores:
+  azureKeyVault:
+    vaultName: blueeco-usgov-kv
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    redis-password: ports/render-fixture/redis-password
+    postgres-connection-string: ports/render-fixture/postgres-connection-string

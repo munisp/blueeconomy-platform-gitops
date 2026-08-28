@@ -47,7 +47,7 @@ grep -q 'pod-security.kubernetes.io/enforce: restricted' "$repo_root/kubernetes/
 for chart in tigerbeetle mojaloop-overlay sedona-spark-jobs core-services regional-dr \
   ferry-ticketing financial-controls port-interoperability security-operations \
   credential-verification fisheries-traceability maritime-intelligence \
-  dapr-components temporal keycloak-realms; do
+  dapr-components temporal keycloak-realms beneficiary-portal; do
   test -s "$repo_root/charts/$chart/Chart.yaml"
   test -s "$repo_root/charts/$chart/values.yaml"
 done
@@ -91,19 +91,20 @@ assert_default_render_fails_closed maritime-intelligence 'api.image.repository i
 assert_default_render_fails_closed dapr-components 'workstream.name is required'
 assert_default_render_fails_closed temporal 'temporal.image.digest is required'
 assert_default_render_fails_closed keycloak-realms 'externalSecrets.storeRef.name is required'
+assert_default_render_fails_closed beneficiary-portal 'image.repository is required'
 
 # Positive render gates: every shared-platform chart must render fully with
 # its CI render fixture (fail-closed defaults exercised separately above).
 for chart in ferry-ticketing financial-controls port-interoperability security-operations \
   credential-verification fisheries-traceability maritime-intelligence \
-  temporal keycloak-realms; do
+  temporal keycloak-realms beneficiary-portal; do
   helm template render-gate "$repo_root/charts/$chart" \
     --kube-version "$helm_kube_version" \
     -f "$repo_root/ci/render-values/$chart.yaml" > /dev/null
 done
 
 # Dapr component layer: render every per-workstream fixture (the base cvff
-# fixture plus the seafarer/fisheries/isr phase-2 fixtures).
+# fixture plus the ports/ferries and seafarer/fisheries/isr phase-2 fixtures).
 for fixture in "$repo_root"/ci/render-values/dapr-components*.yaml; do
   helm template render-gate "$repo_root/charts/dapr-components" \
     --kube-version "$helm_kube_version" \
@@ -164,6 +165,37 @@ if helm template render-gate "$repo_root/charts/dapr-components" \
 fi
 grep -Fq 'not an isr app-id' "$output"
 rm -f "$output"
+
+# Scope segregation gates for the remaining workstreams: widening ports,
+# ferries, seafarer or fisheries Dapr component scopes to a foreign app-id
+# is rejected at render time, exactly like the cvff/isr gates above.
+for ws in ports ferries seafarer fisheries; do
+  output="$(mktemp)"
+  if helm template render-gate "$repo_root/charts/dapr-components" \
+      --kube-version "$helm_kube_version" \
+      -f "$repo_root/ci/render-values/dapr-components-$ws.yaml" \
+      --set 'workstream.appIds[0]=ferry-api' > /dev/null 2>"$output"; then
+    if [ "$ws" = ferries ]; then
+      # ferry-api is a valid ferries app-id; widen with a foreign one instead.
+      rm -f "$output"
+      output="$(mktemp)"
+      if helm template render-gate "$repo_root/charts/dapr-components" \
+          --kube-version "$helm_kube_version" \
+          -f "$repo_root/ci/render-values/dapr-components-$ws.yaml" \
+          --set 'workstream.appIds[0]=intent-api' > /dev/null 2>"$output"; then
+        echo "dapr-components rendered a $ws release scoped to a non-$ws app-id" >&2
+        rm -f "$output"
+        exit 1
+      fi
+    else
+      echo "dapr-components rendered a $ws release scoped to a non-$ws app-id" >&2
+      rm -f "$output"
+      exit 1
+    fi
+  fi
+  grep -Fq "not a $ws app-id" "$output"
+  rm -f "$output"
+done
 
 # ISR clearance gate: removing the classification clearance user attribute /
 # client scope from the blueeconomy-isr realm is rejected at render time.
@@ -268,4 +300,4 @@ helm template core-services "$workspace/charts/core-services" --kube-version "$h
 HELM_KUBE_VERSION="$helm_kube_version" bash "$repo_root/scripts/validate-mojaloop-overlay-security.sh"
 HELM_KUBE_VERSION="$helm_kube_version" bash "$repo_root/scripts/validate-regional-dr.sh"
 
-printf '%s\n' 'Validated GitOps base manifests, workstream namespaces (ports/ferries/cvff with fiduciary segregation; seafarer/fisheries/isr with ISR national-security segregation), recovery namespace, upstream source locks (incl. Prometheus, OpenTelemetry Collector, Argo CD), chart sources, fail-closed value gates, shared-platform render fixtures (incl. phase-2 service charts and per-workstream Dapr fixtures), helm lint for every chart, Keycloak short-TTL, ISR clearance and CVFF/ISR scope gates, ISR outbox-mode and cold-chain breach-SLA gates, Kafka topic namespace prefixes, Argo CD project/ApplicationSet manifests, regional DR contract, Mojaloop security overrides and umbrella dependencies.'
+printf '%s\n' 'Validated GitOps base manifests, workstream namespaces (ports/ferries/cvff with fiduciary segregation; seafarer/fisheries/isr with ISR national-security segregation), core-service namespaces (tigerbeetle/mojaloop/geo), recovery namespace, upstream source locks (incl. Prometheus, OpenTelemetry Collector, Argo CD), chart sources (incl. beneficiary-portal), fail-closed value gates, shared-platform render fixtures (incl. phase-2 service charts, beneficiary-portal and all six per-workstream Dapr fixtures), helm lint for every chart, Keycloak short-TTL, PKCE public-client redirect allowlists, ISR clearance and all six workstream Dapr scope-segregation gates, ISR outbox-mode and cold-chain breach-SLA gates, Kafka topic namespace prefixes, Argo CD project/ApplicationSet manifests, regional DR contract, Mojaloop security overrides and umbrella dependencies.'

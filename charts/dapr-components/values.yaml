@@ -5,11 +5,15 @@ workstream:
   # ports | ferries | cvff | seafarer | fisheries | isr
   name: ""
   # Dapr app-ids allowed to use every component rendered by this release.
-  # For cvff this MUST be exactly the cvff app-ids (enforced by the chart):
-  #   [intent-api, cvff-worker, cvff-outbox-publisher]
-  # For isr this MUST be exactly the maritime-intelligence app-ids (enforced
-  # by the chart):
-  #   [maritime-intelligence-api, isr-worker, isr-outbox-publisher]
+  # Every workstream is hard-restricted to its own approved app-ids
+  # (enforced fail-closed by the chart):
+  #   ports:     [port-interoperability-api, ussd-gateway, booking-worker,
+  #               ports-outbox-publisher]
+  #   ferries:   [ferry-api, ferry-worker, ferry-outbox-publisher]
+  #   cvff:      [intent-api, cvff-worker, cvff-outbox-publisher]
+  #   seafarer:  [credential-verification-api, seafarer-credential-worker]
+  #   fisheries: [trace-api, trace-worker, fisheries-outbox-publisher]
+  #   isr:       [maritime-intelligence-api, isr-worker, isr-outbox-publisher]
   appIds: []
 
 pubsub:

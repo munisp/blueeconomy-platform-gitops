@@ -54,6 +54,24 @@ tokenPolicy:
 #     mapping that attribute to the access-token "clearance" claim consumed
 #     by the maritime-intelligence service. Only labels are declared here;
 #     no classified data ever appears in this repository.
+#   publicClients: browser/mobile public clients (authorization-code flow
+#     with PKCE S256 enforced, no client secret, no service account, no
+#     direct-access or implicit grants). Redirect URIs are an exact-match
+#     allowlist read from the top-level publicClientRedirects map below:
+#     HTTPS URIs only, plus the code-fixed "blueeconomy://" custom scheme
+#     registered by the mobile app (blueeconomy-mobile/app.config.ts). The
+#     national-security ISR realm may never declare public clients
+#     (enforced fail-closed by the chart's validation gate).
+# Public-client redirect-URI allowlists, keyed by clientId. Mobile URIs use
+# the code-fixed custom scheme and are therefore part of the approved
+# platform baseline; browser URIs (e.g. the beneficiary portal) are
+# environment hostnames and are intentionally NOT defaulted — the
+# environment repository must supply the approved allowlist, and rendering
+# fails closed until it does.
+publicClientRedirects:
+  blueeconomy-mobile:
+    - blueeconomy://
+  beneficiary-portal: []
 realms:
   - name: blueeconomy-ports-ecallup
     workstreamNamespace: blueeconomy-ports
@@ -68,6 +86,9 @@ realms:
       - clientId: port-interoperability-api
       - clientId: ussd-gateway
       - clientId: booking-worker
+    # Mobile field-ops app: trucker persona (eCallUp slot booking).
+    publicClients:
+      - clientId: blueeconomy-mobile
   - name: blueeconomy-ferries
     workstreamNamespace: blueeconomy-ferries
     roles:
@@ -83,6 +104,9 @@ realms:
       - clientId: ferry-api
       - clientId: ferry-worker
       - clientId: ferry-outbox-publisher
+    # Mobile field-ops app: ferry passenger and gate/inspector personas.
+    publicClients:
+      - clientId: blueeconomy-mobile
   - name: blueeconomy-cvff
     workstreamNamespace: blueeconomy-cvff
     roles:
@@ -92,6 +116,8 @@ realms:
       - pli-tertiary
       - receiving-bank-officer
       - beneficiary
+      # CVFF beneficiary API (self-service application status/documents).
+      - cvff-beneficiary
       - cbn-observer
       - independent-auditor
       - fmmbe-oversight
@@ -100,6 +126,14 @@ realms:
       - clientId: intent-api
       - clientId: cvff-worker
       - clientId: cvff-outbox-publisher
+    # beneficiary-portal: CVFF beneficiary self-service web portal
+    # (blueeconomy-beneficiary-portal; OIDC authorization-code + PKCE public
+    # client, oidc-client-ts). Its redirect-URI allowlist is an approved
+    # environment hostname supplied via publicClientRedirects.
+    # blueeconomy-mobile: beneficiary persona (CVFF application status).
+    publicClients:
+      - clientId: beneficiary-portal
+      - clientId: blueeconomy-mobile
   # Workstream D: seafarer CoC credentialing (credential-verification).
   - name: blueeconomy-seafarer
     workstreamNamespace: blueeconomy-seafarer
@@ -115,6 +149,9 @@ realms:
     clients:
       - clientId: credential-verification-api
       - clientId: seafarer-credential-worker
+    # Mobile field-ops app: seafarer persona (CoC wallet).
+    publicClients:
+      - clientId: blueeconomy-mobile
   # Workstream E: fisheries and cold-chain traceability.
   - name: blueeconomy-fisheries
     workstreamNamespace: blueeconomy-fisheries
@@ -129,10 +166,21 @@ realms:
       - auditor
       - fmmbe-oversight
       - icrc-observer
+      # Shore-side cold-chain gateway ingestion: enforced by trace-api on
+      # POST /v1/consignments/{id}/telemetry
+      # (blueeconomy-fisheries-traceability RoleColdChainGateway).
+      - coldchain-gateway
     clients:
       - clientId: trace-api
       - clientId: trace-worker
       - clientId: fisheries-outbox-publisher
+      # Confidential client for the vessel/shore telemetry gateways calling
+      # the cold-chain ingestion endpoint. Secret delivered only via the
+      # ExternalSecret (fisheries/clients/coldchain-gateway-secret).
+      - clientId: coldchain-gateway
+    # Mobile field-ops app: fisher persona (catch entry/sync).
+    publicClients:
+      - clientId: blueeconomy-mobile
   # Workstream F: Deep Blue ISR analytics (national-security controlled).
   # The clearance user attribute and client scope are mandatory for this
   # realm and enforced fail-closed by the chart's validation gate.

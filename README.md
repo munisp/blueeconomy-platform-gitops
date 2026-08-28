@@ -26,15 +26,24 @@ The shared-platform layer adds:
 - `charts/dapr-components` — per-workstream Dapr components (Kafka pub/sub
   with documented Fluvio variant, Redis hot + PostgreSQL durable state,
   Kubernetes + Azure Key Vault secret stores). Rendered once per workstream
-  with scopes restricted to that workstream's app-ids; the cvff release is
-  hard-restricted to cvff app-ids (fiduciary segregation).
+  with scopes restricted to that workstream's app-ids; every release is
+  hard-restricted to its own approved app-ids (cvff fiduciary segregation,
+  isr national-security segregation).
+- `charts/beneficiary-portal` — CVFF beneficiary self-service web portal
+  (static SPA behind the APISIX edge, TLS-only ingress, read-only root
+  filesystem). OIDC discovery is served via a ConfigMap-backed
+  `platform-config.json` pointing at the `beneficiary-portal` PKCE public
+  client of the cvff realm; no secret material exists in the workload.
 - `charts/temporal` — Temporal server plus bootstrap Job registering the
   `cvff`, `ecallup` and `ferry` workflow namespaces; worker Deployments are
   wired in the service charts.
-- `charts/keycloak-realms` — the three workstream realms with the approved
-  role catalogues, enforced short-TTL token policy (access token lifespan
-  ≤ 300 s) and confidential service clients delivered via ExternalSecrets
-  (realm JSON uses the leave-unchanged secret sentinel).
+- `charts/keycloak-realms` — the six workstream realms (ports, ferries,
+  cvff, seafarer, fisheries, isr) with the approved role catalogues,
+  enforced short-TTL token policy (access token lifespan ≤ 300 s),
+  confidential service clients delivered via ExternalSecrets (realm JSON
+  uses the leave-unchanged secret sentinel) and PKCE-S256 public clients
+  (beneficiary-portal on the cvff realm, blueeconomy-mobile on the five
+  user-facing realms) with exact-match redirect-URI allowlists.
 - `kubernetes/base/namespaces/{ports,ferries,cvff}.yaml` — workstream
   namespaces with restricted PSA and default-deny NetworkPolicies; cvff
   additionally denies cross-workstream ingress.

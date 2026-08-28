@@ -1,0 +1,13 @@
+apiVersion: v2
+name: beneficiary-portal
+description: >-
+  CVFF beneficiary self-service web portal (blueeconomy-beneficiary-portal:
+  nginx static bundle configured by a deployment-provided
+  platform-config.json). Authentication is OIDC authorization-code + PKCE
+  against the blueeconomy-cvff realm public client. Fail-closed: renders
+  only with approved environment values, a digest-pinned image and the
+  approved ingress/TLS configuration.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.28.0-0"

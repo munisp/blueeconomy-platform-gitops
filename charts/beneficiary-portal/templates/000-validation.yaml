@@ -1,0 +1,53 @@
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+{{- $repository := required "image.repository is required" .Values.image.repository -}}
+{{- $oidc := .Values.platformConfig.oidc -}}
+{{- $authority := required "platformConfig.oidc.authority is required (HTTPS Keycloak issuer of the blueeconomy-cvff realm)" $oidc.authority -}}
+{{- if not (hasPrefix "https://" $authority) -}}
+{{- fail "platformConfig.oidc.authority must be an HTTPS URL" -}}
+{{- end -}}
+{{- /* OIDC discipline: the portal authenticates exclusively as the
+       beneficiary-portal public client of the blueeconomy-cvff realm
+       (charts/keycloak-realms publicClients stanza, PKCE S256). */ -}}
+{{- if not (hasSuffix "/realms/blueeconomy-cvff" $authority) -}}
+{{- fail "platformConfig.oidc.authority must be the blueeconomy-cvff realm issuer (suffix /realms/blueeconomy-cvff)" -}}
+{{- end -}}
+{{- if ne $oidc.clientId "beneficiary-portal" -}}
+{{- fail "platformConfig.oidc.clientId must be beneficiary-portal (the public client registered in the blueeconomy-cvff realm)" -}}
+{{- end -}}
+{{- $redirect := required "platformConfig.oidc.redirectUri is required" $oidc.redirectUri -}}
+{{- if not (hasPrefix "https://" $redirect) -}}
+{{- fail "platformConfig.oidc.redirectUri must be an HTTPS URL" -}}
+{{- end -}}
+{{- if $oidc.postLogoutRedirectUri -}}
+{{- if not (hasPrefix "https://" $oidc.postLogoutRedirectUri) -}}
+{{- fail "platformConfig.oidc.postLogoutRedirectUri must be an HTTPS URL" -}}
+{{- end -}}
+{{- end -}}
+{{- $scope := required "platformConfig.oidc.scope is required" $oidc.scope -}}
+{{- $api := .Values.platformConfig.cvffApi -}}
+{{- $baseUrl := required "platformConfig.cvffApi.baseUrl is required (HTTPS CVFF beneficiary API route behind the gateway)" $api.baseUrl -}}
+{{- if not (hasPrefix "https://" $baseUrl) -}}
+{{- fail "platformConfig.cvffApi.baseUrl must be an HTTPS URL" -}}
+{{- end -}}
+{{- $poll := int $api.pollIntervalMs -}}
+{{- if or (lt $poll 1000) (gt $poll 300000) -}}
+{{- fail "platformConfig.cvffApi.pollIntervalMs must be between 1000 and 300000" -}}
+{{- end -}}
+{{- $maxBytes := int $api.maxDocumentBytes -}}
+{{- if or (lt $maxBytes 1) (gt $maxBytes 67108864) -}}
+{{- fail "platformConfig.cvffApi.maxDocumentBytes must be between 1 and 67108864" -}}
+{{- end -}}
+{{- if empty $api.documentContentTypes -}}
+{{- fail "platformConfig.cvffApi.documentContentTypes must list the approved document MIME types" -}}
+{{- end -}}
+{{- if .Values.ingress.enabled -}}
+{{- $host := required "ingress.host is required (approved public portal hostname)" .Values.ingress.host -}}
+{{- if contains "*" $host -}}
+{{- fail "ingress.host must be an exact approved hostname (wildcards are prohibited)" -}}
+{{- end -}}
+{{- $class := required "ingress.className is required (the approved APISIX ingress class)" .Values.ingress.className -}}
+{{- $tlsSecret := required "ingress.tls.secretName is required (TLS is mandatory at the portal edge)" .Values.ingress.tls.secretName -}}
+{{- end -}}

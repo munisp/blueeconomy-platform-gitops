@@ -5,23 +5,22 @@
 {{- if empty .Values.workstream.appIds -}}
 {{- fail "workstream.appIds must list the approved Dapr app-ids for this workstream" -}}
 {{- end -}}
-{{- /* Fiduciary segregation: the cvff release may never widen beyond the
-       three cvff app-ids, regardless of supplied environment values. */ -}}
-{{- if eq $ws "cvff" -}}
+{{- /* Scope segregation: every workstream release is hard-restricted to its
+       own approved Dapr app-ids, regardless of supplied environment values.
+       cvff: fiduciary segregation. isr: national-security segregation. */ -}}
+{{- $approvedAppIds := dict
+  "ports" (list "port-interoperability-api" "ussd-gateway" "booking-worker" "ports-outbox-publisher")
+  "ferries" (list "ferry-api" "ferry-worker" "ferry-outbox-publisher")
+  "cvff" (list "intent-api" "cvff-worker" "cvff-outbox-publisher")
+  "seafarer" (list "credential-verification-api" "seafarer-credential-worker")
+  "fisheries" (list "trace-api" "trace-worker" "fisheries-outbox-publisher")
+  "isr" (list "maritime-intelligence-api" "isr-worker" "isr-outbox-publisher")
+-}}
+{{- $allowed := index $approvedAppIds $ws -}}
+{{- $article := ternary "an" "a" (eq $ws "isr") -}}
 {{- range $appId := .Values.workstream.appIds -}}
-{{- if not (has $appId (list "intent-api" "cvff-worker" "cvff-outbox-publisher")) -}}
-{{- fail (printf "workstream.appIds entry %q is not a cvff app-id; cvff components are restricted to intent-api, cvff-worker and cvff-outbox-publisher" $appId) -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
-{{- /* National-security segregation: the isr release is scoped exclusively to
-       the maritime-intelligence app-ids, regardless of supplied environment
-       values. */ -}}
-{{- if eq $ws "isr" -}}
-{{- range $appId := .Values.workstream.appIds -}}
-{{- if not (has $appId (list "maritime-intelligence-api" "isr-worker" "isr-outbox-publisher")) -}}
-{{- fail (printf "workstream.appIds entry %q is not an isr app-id; isr components are restricted to maritime-intelligence-api, isr-worker and isr-outbox-publisher" $appId) -}}
-{{- end -}}
+{{- if not (has $appId $allowed) -}}
+{{- fail (printf "workstream.appIds entry %q is not %s %s app-id; %s components are restricted to %s" $appId $article $ws $ws (join ", " $allowed)) -}}
 {{- end -}}
 {{- end -}}
 {{- $store := required "externalSecrets.storeRef.name is required" .Values.externalSecrets.storeRef.name -}}

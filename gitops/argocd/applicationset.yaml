@@ -39,6 +39,26 @@ spec:
             namespace: blueeconomy-platform
           - chart: keycloak-realms
             namespace: blueeconomy-security
+          - chart: beneficiary-portal
+            namespace: blueeconomy-cvff
+          # Core platform services (docs/core-services-deployment-guide.md):
+          # TigerBeetle sub-ledger, Mojaloop release-control overlay and
+          # Sedona Spark jobs each render into their approved namespace.
+          - chart: tigerbeetle
+            namespace: blueeco-tigerbeetle-prod
+          - chart: mojaloop-overlay
+            namespace: blueeco-mojaloop-prod
+          - chart: sedona-spark-jobs
+            namespace: blueeco-geo-prod
+          # Umbrella release for coordinated core-service deployments;
+          # dependencies are disabled by default until production formation
+          # approval lands in the environment values.
+          - chart: core-services
+            namespace: blueeconomy-platform
+          # Regional DR recovery contract (failover approvals, drill
+          # evidence) reconciled into the recovery namespace.
+          - chart: regional-dr
+            namespace: blueeconomy-recovery
           # Dapr component layer: one release per workstream, rendered into
           # that workstream's namespace with its exact app-id scopes.
           - chart: dapr-components

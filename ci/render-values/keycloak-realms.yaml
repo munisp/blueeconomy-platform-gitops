@@ -14,3 +14,11 @@ externalSecrets:
   keys:
     username: keycloak/render-fixture/admin-username
     password: keycloak/render-fixture/admin-password
+
+# Browser public-client redirect allowlists are environment hostnames and
+# are never defaulted by the chart; the fixture stands in for the approved
+# environment values. The blueeconomy-mobile custom-scheme redirect is
+# code-fixed and already part of the chart baseline.
+publicClientRedirects:
+  beneficiary-portal:
+    - https://beneficiary-portal.render-fixture.example.invalid/auth/callback
