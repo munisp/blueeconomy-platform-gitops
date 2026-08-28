@@ -1,0 +1,75 @@
+# Backup/DR machinery. This chart fulfills the charts/regional-dr recovery
+# contract: backups that can actually be immutable, restored and drilled.
+# Cloud-agnostic and Azure Government deployable: S3-compatible storage is
+# addressed through a generic endpoint; Azure Blob/ADLS through the azure
+# provider with a USGov storage account. No AWS-only APIs.
+# Fail-closed: schedule, storage endpoint and immutabilityDays are required.
+nameOverride: ""
+fullnameOverride: ""
+
+# Pinned upstream Velero chart pin. The Velero server itself deploys from
+# this source-locked release (release-contract ConfigMap below); this chart
+# reconciles the Schedule/BackupStorageLocation CRs against it.
+upstream:
+  chartName: ""
+  chartVersion: ""
+  repository: ""
+
+backup:
+  # Immutability window (days) applied at the storage layer (S3 Object Lock
+  # / Azure Blob immutable policy). MUST equal the regional-dr contract
+  # value; the render gate enforces the match against
+  # consistency.regionalDRImmutabilityDays below.
+  immutabilityDays: 0
+  # Cross-check value: the approved regionalDR.backup.immutabilityDays from
+  # the environment values for charts/regional-dr. Render-gated equal to
+  # backup.immutabilityDays so the machinery can never drift from the
+  # contract.
+  consistency:
+    regionalDRImmutabilityDays: 0
+
+storage:
+  # s3-compatible: any S3 API endpoint (incl. on-prem/object-lock-capable
+  # stores). azure: Azure Blob/ADLS (Azure Government storage account).
+  provider: s3-compatible
+  bucket: ""
+  prefix: blueeconomy
+  # Generic endpoint for s3-compatible providers (https URL). Required when
+  # provider=s3-compatible.
+  endpoint: ""
+  # Azure Blob settings (required when provider=azure).
+  azure:
+    storageAccount: ""
+    resourceGroup: ""
+  # Credentials arrive only via ExternalSecrets/Key Vault; this is the name
+  # of the synced Secret the Velero/WAL-G workloads reference.
+  credentialsSecretRef:
+    name: ""
+
+velero:
+  # Scheduled cluster backups. Every entry: name, cron schedule (render-
+  # gated), includedNamespaces, ttlDays.
+  schedules: []
+
+walG:
+  # Continuous Postgres archiving: WAL-G archive-side configuration plus a
+  # per-cluster base-backup CronJob. The Postgres clusters themselves set
+  # archive_command to wal-g wal-push against the rendered ConfigMap env.
+  enabled: true
+  image:
+    repository: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  # Cron for wal-g backup-push (full base backup) per cluster.
+  baseBackupSchedule: ""
+  # Postgres clusters to archive. name/namespace/service all required.
+  clusters: []
+
+restoreTest:
+  # CronJob-based restore-test harness: restores the latest Velero backup
+  # into an ephemeral namespace, runs validation queries, reports, tears
+  # down. Feeds the regional-dr restoreDrillMaxAgeHours evidence.
+  enabled: true
+  schedule: ""
+  # Ephemeral namespace prefix for restore tests.
+  namespacePrefix: restore-test

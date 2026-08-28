@@ -51,3 +51,42 @@ The shared-platform layer adds:
   `components/upstream-components.lock.yaml`.
 - Azure Government / AKS landing-zone assumptions:
   `docs/azure-government-landing-zone.md`.
+
+## Battle-hardened edge and recovery layer
+
+Closes the three structural gaps from the platform security posture review
+(edge/DDoS designed but not deployed, event-bus signature key distribution,
+DR contract without machinery):
+
+- `charts/cilium` — values wrapper and release contract for the pinned
+  upstream Cilium CNI: kube-proxy replacement, Hubble flow observability
+  (relay + UI), Tetragon runtime enforcement (process-exec and
+  file-integrity TracingPolicies for tigerbeetle, financial-controls and
+  keycloak pods), per-workstream L3/L4 CiliumNetworkPolicies (default-deny
+  plus explicit allows mirroring the Dapr app-id scope model; TigerBeetle
+  egress is render-gated to the cvff workstream only), L7 HTTP-aware
+  policies for the ingress path, and standalone XDP-accelerated
+  LoadBalancer DDoS mitigation. Node kernel baseline (>= 5.4, no io_uring
+  requirement) is render-gated.
+- `charts/caddy` — Caddy TLS-terminating edge in front of APISIX, promoted
+  from the umbrella design-stage kustomize: automated TLS (ACME DNS-01 via
+  the Azure DNS solver abstraction or the platform-internal CA), the
+  promoted security-header set, request-size/timeout caps, edge mTLS for
+  partner/NSW routes, the OpenAppSec WAF contract flag (render gate refuses
+  to disable it) and the OIDC relying-party contract for admin consoles.
+  Integration topology: `docs/edge-topology.md`.
+- `charts/opa-policies` — reconciled OPA layer promoted from the umbrella
+  seed: the platform policy packs (`http.rego` edge hook, `cvff.rego`
+  four-party SoD, `admin.rego` tenant scoping, `clearance.rego`
+  classification gating) in an immutable ConfigMap, the OPA server, the
+  APISIX opa-plugin hook contract, and the producer-signature key directory
+  (Ed25519 public keys for all eight platform producers, render-gated —
+  no key material is defaulted or fabricated) consumed by
+  security-operations and data-platform via `KEY_DIRECTORY_PATH` mount.
+- `charts/backup-dr` — DR machinery fulfilling the `charts/regional-dr`
+  contract: Velero scheduled cluster backups (pinned upstream release
+  contract + reconciled Schedule/BackupStorageLocation CRs), WAL-G
+  continuous Postgres archiving to immutable S3-compatible/ADLS storage
+  (`immutabilityDays` render-gated equal to the regional-dr contract), a
+  CronJob restore-test harness, and the restore runbook
+  `docs/dr-restore.md`.

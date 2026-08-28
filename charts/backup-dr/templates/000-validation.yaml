@@ -1,0 +1,83 @@
+{{- /* Fail-closed approval gates for the backup/DR machinery. */ -}}
+{{- $chartName := required "backup-dr upstream.chartName is required (source-locked velero pin)" .Values.upstream.chartName -}}
+{{- $chartVersion := required "backup-dr upstream.chartVersion is required" .Values.upstream.chartVersion -}}
+{{- $repository := required "backup-dr upstream.repository is required" .Values.upstream.repository -}}
+{{- if not (hasPrefix "https://" $repository) -}}
+{{- fail "backup-dr upstream.repository must be an HTTPS Helm repository URL" -}}
+{{- end -}}
+
+{{- /* Immutability must exist (>0) and must match the regional-dr recovery
+       contract exactly -- machinery cannot drift from the contract. */ -}}
+{{- $immutability := int .Values.backup.immutabilityDays -}}
+{{- if le $immutability 0 -}}
+{{- fail "backup.immutabilityDays is required and must be positive (immutable backup store)" -}}
+{{- end -}}
+{{- $contract := int .Values.backup.consistency.regionalDRImmutabilityDays -}}
+{{- if le $contract 0 -}}
+{{- fail "backup.consistency.regionalDRImmutabilityDays is required (the approved regionalDR.backup.immutabilityDays value)" -}}
+{{- end -}}
+{{- if ne $immutability $contract -}}
+{{- fail "backup.immutabilityDays must match the regional-dr contract (backup.consistency.regionalDRImmutabilityDays)" -}}
+{{- end -}}
+
+{{- if not (has .Values.storage.provider (list "s3-compatible" "azure")) -}}
+{{- fail "storage.provider must be s3-compatible or azure" -}}
+{{- end -}}
+{{- $bucket := required "storage.bucket is required" .Values.storage.bucket -}}
+{{- if eq .Values.storage.provider "s3-compatible" -}}
+{{- $endpoint := required "storage.endpoint is required for provider=s3-compatible (generic S3 endpoint)" .Values.storage.endpoint -}}
+{{- if not (hasPrefix "https://" $endpoint) -}}
+{{- fail "storage.endpoint must be an HTTPS URL" -}}
+{{- end -}}
+{{- else -}}
+{{- $sa := required "storage.azure.storageAccount is required for provider=azure" .Values.storage.azure.storageAccount -}}
+{{- $rg := required "storage.azure.resourceGroup is required for provider=azure" .Values.storage.azure.resourceGroup -}}
+{{- end -}}
+{{- $cred := required "storage.credentialsSecretRef.name is required (ExternalSecret-synced backup storage credentials)" .Values.storage.credentialsSecretRef.name -}}
+
+{{- $cronRe := "^\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+$" -}}
+{{- if empty .Values.velero.schedules -}}
+{{- fail "velero.schedules must list at least one scheduled cluster backup" -}}
+{{- end -}}
+{{- range $s := .Values.velero.schedules -}}
+{{- if not $s.name -}}
+{{- fail "every velero.schedules entry requires a name" -}}
+{{- end -}}
+{{- if not (regexMatch $cronRe ($s.schedule | default "")) -}}
+{{- fail (printf "velero.schedules.%s schedule is required (five-field cron)" ($s.name | default "<missing>")) -}}
+{{- end -}}
+{{- if empty $s.includedNamespaces -}}
+{{- fail (printf "velero.schedules.%s includedNamespaces must not be empty" $s.name) -}}
+{{- end -}}
+{{- if le (int ($s.ttlDays | default 0)) 0 -}}
+{{- fail (printf "velero.schedules.%s ttlDays must be positive" $s.name) -}}
+{{- end -}}
+{{- if lt (int $s.ttlDays) $immutability -}}
+{{- fail (printf "velero.schedules.%s ttlDays must be >= backup.immutabilityDays (backups must outlive the immutability window)" $s.name) -}}
+{{- end -}}
+{{- end -}}
+
+{{- if .Values.walG.enabled -}}
+{{- $digest := required "walG.image.digest is required when walG.enabled=true" .Values.walG.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "walG.image.digest must be an immutable lower-case sha256 digest" -}}
+{{- end -}}
+{{- $repo := required "walG.image.repository is required when walG.enabled=true" .Values.walG.image.repository -}}
+{{- if not (regexMatch $cronRe (.Values.walG.baseBackupSchedule | default "")) -}}
+{{- fail "walG.baseBackupSchedule is required (five-field cron)" -}}
+{{- end -}}
+{{- if empty .Values.walG.clusters -}}
+{{- fail "walG.clusters must list the Postgres clusters to archive" -}}
+{{- end -}}
+{{- range $c := .Values.walG.clusters -}}
+{{- if or (not $c.name) (not $c.namespace) (not $c.service) -}}
+{{- fail "every walG.clusters entry requires name, namespace and service" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- if .Values.restoreTest.enabled -}}
+{{- if not (regexMatch $cronRe (.Values.restoreTest.schedule | default "")) -}}
+{{- fail "restoreTest.schedule is required (five-field cron)" -}}
+{{- end -}}
+{{- end -}}

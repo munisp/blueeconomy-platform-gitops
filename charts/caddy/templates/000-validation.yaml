@@ -1,0 +1,75 @@
+{{- /* Fail-closed approval gates for the Caddy edge. */ -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest" -}}
+{{- end -}}
+{{- $repo := required "image.repository is required (approved Caddy build with caddy-dns/azure and rate_limit modules)" .Values.image.repository -}}
+
+{{- $dnsName := "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$" -}}
+{{- $publicHost := required "domains.publicHost is required (public edge hostname)" .Values.domains.publicHost -}}
+{{- if not (regexMatch $dnsName $publicHost) -}}
+{{- fail "domains.publicHost must be a DNS hostname" -}}
+{{- end -}}
+{{- $adminHost := required "domains.adminHost is required (management-network admin hostname)" .Values.domains.adminHost -}}
+{{- if not (regexMatch $dnsName $adminHost) -}}
+{{- fail "domains.adminHost must be a DNS hostname" -}}
+{{- end -}}
+{{- if eq $publicHost $adminHost -}}
+{{- fail "domains.publicHost and domains.adminHost must be distinct listeners" -}}
+{{- end -}}
+
+{{- $upstreamRe := "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?:[0-9]+$" -}}
+{{- $apisix := required "upstreams.apisix.address is required (APISIX gateway host:port)" .Values.upstreams.apisix.address -}}
+{{- if not (regexMatch $upstreamRe $apisix) -}}
+{{- fail "upstreams.apisix.address must be an in-cluster host:port" -}}
+{{- end -}}
+{{- $apisixAdmin := required "upstreams.apisixAdmin.address is required (APISIX admin host:port)" .Values.upstreams.apisixAdmin.address -}}
+{{- if not (regexMatch $upstreamRe $apisixAdmin) -}}
+{{- fail "upstreams.apisixAdmin.address must be an in-cluster host:port" -}}
+{{- end -}}
+
+{{- if not (has .Values.tls.mode (list "acme" "internal")) -}}
+{{- fail "tls.mode must be acme or internal" -}}
+{{- end -}}
+{{- if eq .Values.tls.mode "acme" -}}
+{{- $email := required "tls.acme.email is required in acme mode" .Values.tls.acme.email -}}
+{{- if not (contains "@" $email) -}}
+{{- fail "tls.acme.email must be an email address" -}}
+{{- end -}}
+{{- if ne .Values.tls.acme.dnsProvider.name "azuredns" -}}
+{{- fail "tls.acme.dnsProvider.name must be azuredns (only the Azure DNS solver abstraction is approved)" -}}
+{{- end -}}
+{{- $cred := required "tls.acme.dnsProvider.credentialsSecretRef.name is required in acme mode (ExternalSecret-synced Azure DNS credentials)" .Values.tls.acme.dnsProvider.credentialsSecretRef.name -}}
+{{- end -}}
+{{- $partnerCA := required "tls.partnerMtls.caSecretRef.name is required (partner CA bundle for /partner and /v1/nsw edge mTLS)" .Values.tls.partnerMtls.caSecretRef.name -}}
+
+{{- if not .Values.openappsec.required -}}
+{{- fail "openappsec.required must remain true (OpenAppSec WAF contract flag; see charts/mojaloop-overlay)" -}}
+{{- end -}}
+
+{{- $discovery := required "keycloak.discoveryUrl is required (OIDC RP discovery for admin consoles)" .Values.keycloak.discoveryUrl -}}
+{{- if not (hasPrefix "https://" $discovery) -}}
+{{- fail "keycloak.discoveryUrl must be an HTTPS URL" -}}
+{{- end -}}
+
+{{- $maxBody := int .Values.security.maxBodySizeMB -}}
+{{- if or (le $maxBody 0) (gt $maxBody 2) -}}
+{{- fail "security.maxBodySizeMB must be between 1 and 2 (the approved edge body cap is 2MB)" -}}
+{{- end -}}
+{{- $events := int .Values.security.rateLimit.events -}}
+{{- if or (le $events 0) (gt $events 60) -}}
+{{- fail "security.rateLimit.events must be between 1 and 60 per window (the approved coarse edge ceiling is 60/min)" -}}
+{{- end -}}
+{{- if le (int .Values.security.rateLimit.windowSeconds) 0 -}}
+{{- fail "security.rateLimit.windowSeconds must be positive" -}}
+{{- end -}}
+{{- if le (int .Values.security.proxy.readTimeoutSeconds) 0 -}}
+{{- fail "security.proxy.readTimeoutSeconds must be positive" -}}
+{{- end -}}
+{{- if le (int .Values.security.proxy.writeTimeoutSeconds) 0 -}}
+{{- fail "security.proxy.writeTimeoutSeconds must be positive" -}}
+{{- end -}}
+
+{{- if .Values.externalSecrets.keys -}}
+{{- $store := required "externalSecrets.storeRef.name is required when externalSecrets.keys are declared" .Values.externalSecrets.storeRef.name -}}
+{{- end -}}

@@ -59,6 +59,20 @@ spec:
           # evidence) reconciled into the recovery namespace.
           - chart: regional-dr
             namespace: blueeconomy-recovery
+          # Backup/DR machinery fulfilling the regional-dr contract:
+          # Velero schedules, WAL-G archiving, restore-test harness.
+          - chart: backup-dr
+            namespace: blueeconomy-recovery
+          # Battle-hardened edge layer (docs/edge-topology.md): Cilium CNI
+          # wrapper with XDP DDoS mitigation, Hubble and Tetragon (node
+          # level), the Caddy TLS edge in front of APISIX, and the OPA
+          # policy packs + producer-signature key directory.
+          - chart: cilium
+            namespace: kube-system
+          - chart: caddy
+            namespace: blueeconomy-security
+          - chart: opa-policies
+            namespace: blueeconomy-security
           # Dapr component layer: one release per workstream, rendered into
           # that workstream's namespace with its exact app-id scopes.
           - chart: dapr-components

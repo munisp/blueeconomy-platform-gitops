@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caddy-edge
+  labels:
+    {{- include "caddy.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "caddy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "caddy.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "caddy.serviceAccountName" . }}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: caddy
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+          ports:
+            - containerPort: 443
+              name: https
+          {{- if and (eq .Values.tls.mode "acme") .Values.externalSecrets.keys }}
+          envFrom:
+            # Azure DNS solver credentials (AZURE_*), synced from Azure Key
+            # Vault by the ExternalSecret in externalsecret.yaml.
+            - secretRef:
+                name: {{ .Values.tls.acme.dnsProvider.credentialsSecretRef.name }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/caddy
+              readOnly: true
+            - name: partner-ca
+              mountPath: /etc/caddy/partner-ca
+              readOnly: true
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "caddy.fullname" . }}-config
+        - name: partner-ca
+          secret:
+            secretName: {{ .Values.tls.partnerMtls.caSecretRef.name }}
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: caddy-edge
+  labels:
+    {{- include "caddy.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "caddy.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: https
+      port: 443
+      targetPort: https
+---
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "caddy.serviceAccountName" . }}
+  labels:
+    {{- include "caddy.labels" . | nindent 4 }}
+{{- end }}

@@ -1,0 +1,93 @@
+{{- if .Values.tetragon.enabled }}
+{{- range $p := .Values.tetragonPolicies }}
+{{- if eq $p.type "process-exec" }}
+---
+# Runtime enforcement ({{ $p.namespace }}): trace every execve in the
+# sensitive pods whose binary is outside the approved exec allowlist.
+# Events flow to Hubble/Tetragon export and from there to
+# security-operations.
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: {{ $p.name }}
+  annotations:
+    blueeconomy.platform/target-namespace: {{ $p.namespace | quote }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- range $k, $v := $p.podSelector }}
+      {{ $k }}: {{ $v | quote }}
+      {{- end }}
+  kprobes:
+    - call: security_bprm_check
+      syscall: false
+      return: true
+      args:
+        - index: 0
+          type: linux_binprm
+      returnArg:
+        index: 0
+        type: int
+      selectors:
+        - matchBinaries:
+            - operator: NotIn
+              values:
+                {{- range $p.allowedBinaries }}
+                - {{ . | quote }}
+                {{- end }}
+          matchActions:
+            - action: Post
+    - call: sys_execve
+      syscall: true
+      selectors:
+        - matchBinaries:
+            - operator: NotIn
+              values:
+                {{- range $p.allowedBinaries }}
+                - {{ . | quote }}
+                {{- end }}
+          matchActions:
+            - action: Post
+{{- else }}
+---
+# Runtime enforcement ({{ $p.namespace }}): file-integrity tracing on the
+# approved watched paths. Any write (MAY_WRITE) to a watched path from the
+# sensitive pods is traced; ransomware-style mass writes surface here even
+# if the writer holds legitimate pod credentials.
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: {{ $p.name }}
+  annotations:
+    blueeconomy.platform/target-namespace: {{ $p.namespace | quote }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- range $k, $v := $p.podSelector }}
+      {{ $k }}: {{ $v | quote }}
+      {{- end }}
+  kprobes:
+    - call: security_file_permission
+      syscall: false
+      args:
+        - index: 0
+          type: file
+        - index: 1
+          type: int
+      selectors:
+        - matchArgs:
+            - index: 0
+              operator: Prefix
+              values:
+                {{- range $p.watchedPaths }}
+                - {{ . | quote }}
+                {{- end }}
+            - index: 1
+              operator: Mask
+              values:
+                - "2" # MAY_WRITE
+          matchActions:
+            - action: Post
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,46 @@
+{{- /* Fail-closed approval gates for the OPA policy layer. */ -}}
+{{- $digest := required "opa.image.digest is required" .Values.opa.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "opa.image.digest must be an immutable lower-case sha256 digest" -}}
+{{- end -}}
+{{- $repo := required "opa.image.repository is required (openpolicyagent/opa or the approved mirror)" .Values.opa.image.repository -}}
+
+{{- if not (hasPrefix "blueeconomy/" .Values.apisixHook.policy) -}}
+{{- fail "apisixHook.policy must be a blueeconomy/* policy path" -}}
+{{- end -}}
+
+{{- /* Producer-signature key directory: every approved producer kid must
+       carry a base64url Ed25519 public key (32 bytes -> 43 unpadded
+       base64url chars). Keys are sourced from Azure Key Vault via the
+       authorised environment values; they are never defaulted or
+       fabricated here. */ -}}
+{{- $expected := list
+  "financial-controls-1"
+  "port-interoperability-1"
+  "ferry-ticketing-1"
+  "admin-service-1"
+  "maritime-intelligence-1"
+  "maritime-evidence-1"
+  "fisheries-traceability-1"
+  "waterway-safety-1"
+-}}
+{{- if empty .Values.keyDirectory.producers -}}
+{{- fail "keyDirectory.producers must list every approved platform producer kid" -}}
+{{- end -}}
+{{- range $kid := $expected -}}
+{{- if not (has $kid $.Values.keyDirectory.producers) -}}
+{{- fail (printf "keyDirectory.producers is missing approved producer kid %q" $kid) -}}
+{{- end -}}
+{{- end -}}
+{{- range $kid := .Values.keyDirectory.producers -}}
+{{- if not (has $kid $expected) -}}
+{{- fail (printf "keyDirectory.producers entry %q is not an approved platform producer kid" $kid) -}}
+{{- end -}}
+{{- $pub := index $.Values.keyDirectory.publicKeys $kid | default "" -}}
+{{- if empty $pub -}}
+{{- fail (printf "keyDirectory.publicKeys.%s is required (base64url Ed25519 public key from the producer key ceremony, delivered via Azure Key Vault environment values)" $kid) -}}
+{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9_-]{43}$" $pub) -}}
+{{- fail (printf "keyDirectory.publicKeys.%s must be a base64url Ed25519 public key (32 bytes, 43 unpadded base64url characters)" $kid) -}}
+{{- end -}}
+{{- end -}}

@@ -33,3 +33,9 @@ networkPolicy:
       ports: [9092]
     - namespace: blueeconomy-security
       ports: [9200, 8080]
+
+# Key-directory consumption wiring (ConfigMap rendered by charts/opa-policies).
+keyDirectory:
+  enabled: true
+  configMapName: render-gate-opa-policies-key-directory
+  mountPath: /etc/blueeconomy/key-directory

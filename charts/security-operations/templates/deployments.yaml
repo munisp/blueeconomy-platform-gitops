@@ -70,6 +70,10 @@ spec:
                   name: {{ $secretName | quote }}
                   key: {{ $key | quote }}
             {{- end }}
+            {{- if $.Values.keyDirectory.enabled }}
+            - name: KEY_DIRECTORY_PATH
+              value: {{ $.Values.keyDirectory.mountPath | quote }}
+            {{- end }}
             {{- if and (hasKey $component "temporalEnv") $component.temporalEnv }}
             - name: {{ $component.temporalEnv.addressKey | default "TEMPORAL_ADDRESS" | quote }}
               value: {{ $temporal.address | quote }}
@@ -103,8 +107,21 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if $.Values.keyDirectory.enabled }}
+            # Producer-signature key directory (charts/opa-policies): the
+            # service reads KEY_DIRECTORY_PATH/key-directory.json to verify
+            # envelope provenance.signature fail-closed.
+            - name: producer-key-directory
+              mountPath: {{ $.Values.keyDirectory.mountPath }}
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if $.Values.keyDirectory.enabled }}
+        - name: producer-key-directory
+          configMap:
+            name: {{ $.Values.keyDirectory.configMapName }}
+        {{- end }}
 {{- end }}
 {{- end }}

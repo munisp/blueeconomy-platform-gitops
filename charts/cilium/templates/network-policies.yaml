@@ -1,0 +1,98 @@
+{{- if .Values.networkPolicies.enabled }}
+{{- $pg := .Values.networkPolicies.postgres }}
+{{- $kafka := .Values.networkPolicies.kafka }}
+{{- $temporal := .Values.networkPolicies.temporal }}
+{{- $tb := .Values.networkPolicies.tigerbeetle }}
+{{- range $ws := .Values.networkPolicies.workstreams }}
+---
+# Default-deny L3/L4 for every pod in the workstream namespace. The explicit
+# allow policies below are the only openings.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: default-deny-ingress-egress
+  namespace: {{ $ws.namespace }}
+  labels:
+    blueeconomy.platform/workstream: {{ $ws.name }}
+spec:
+  endpointSelector: {}
+  ingress: []
+  egress: []
+---
+# Explicit allows for the workstream's approved app-ids (the Dapr scope
+# catalogue mirrored at the eBPF layer):
+#   ingress: same-namespace pods only (apisix ingress is granted separately
+#            by the L7 HTTP-aware policy);
+#   egress:  DNS, this workstream's postgres, the platform Kafka and Temporal
+#            frontends, and -- cvff only, fiduciary segregation -- TigerBeetle.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-workstream-{{ $ws.name }}
+  namespace: {{ $ws.namespace }}
+  labels:
+    blueeconomy.platform/workstream: {{ $ws.name }}
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          {{- range $ws.appIds }}
+          - {{ . | quote }}
+          {{- end }}
+  ingress:
+    - fromEndpoints:
+        - {}
+  egress:
+    # DNS only to the cluster resolver.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    # Owning workstream pods may reach their postgres endpoint only.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $pg.namespace }}
+      toPorts:
+        - ports:
+            - port: {{ $pg.port | quote }}
+              protocol: TCP
+    # Platform event bus (Dapr pubsub) and workflow frontend.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $kafka.namespace }}
+      toPorts:
+        - ports:
+            - port: {{ $kafka.port | quote }}
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $temporal.namespace }}
+      toPorts:
+        - ports:
+            - port: {{ $temporal.port | quote }}
+              protocol: TCP
+    {{- if $ws.tigerbeetleAccess }}
+    # Fiduciary segregation: TigerBeetle egress exists ONLY in the cvff
+    # allow policy. The render gate rejects any other workstream declaring
+    # tigerbeetleAccess.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $tb.namespace }}
+      toPorts:
+        - ports:
+            - port: {{ $tb.port | quote }}
+              protocol: TCP
+    {{- end }}
+{{- end }}
+{{- end }}

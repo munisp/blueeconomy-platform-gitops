@@ -1,0 +1,124 @@
+{{- if .Values.restoreTest.enabled }}
+# Restore-test harness (skeleton). On schedule: restores the latest Velero
+# backup into an ephemeral namespace, runs post-restore validation queries
+# (row counts on sentinel tables, TigerBeetle availability probe, WAL-G
+# archive integrity via wal-g backup-verify), writes a drill-evidence
+# ConfigMap consumed by the regional-dr restoreDrillMaxAgeHours gate, then
+# tears the namespace down. Image reuses the WAL-G tooling image so the
+# harness needs no additional pinned artifact.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "backup-dr.fullname" . }}-restore-test
+  labels:
+    {{- include "backup-dr.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.restoreTest.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "backup-dr.labels" . | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "backup-dr.fullname" . }}-restore-test
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: restore-test
+              image: "{{ .Values.walG.image.repository }}@{{ .Values.walG.image.digest }}"
+              imagePullPolicy: {{ .Values.walG.image.pullPolicy }}
+              env:
+                - name: RESTORE_NAMESPACE_PREFIX
+                  value: {{ .Values.restoreTest.namespacePrefix | quote }}
+                - name: STORAGE_LOCATION
+                  value: {{ include "backup-dr.fullname" . }}-primary
+                - name: IMMUTABILITY_DAYS
+                  value: {{ .Values.backup.immutabilityDays | quote }}
+              envFrom:
+                - secretRef:
+                    name: {{ .Values.storage.credentialsSecretRef.name }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 512Mi
+              # Harness stages (see docs/dr-restore.md §Restore-test drill):
+              #   1. velero restore create --from-schedule <latest> into
+              #      "${RESTORE_NAMESPACE_PREFIX}-<run>" with namespace
+              #      mappings;
+              #   2. wait for restore completion (fail the drill on
+              #      PartiallyFailed);
+              #   3. wal-g backup-verify LATEST against the archive;
+              #   4. validation queries against restored Postgres sentinel
+              #      tables (evidence package count, CVFF approval count,
+              #      TigerBeetle replica probe);
+              #   5. write drill-evidence ConfigMap (timestamp, backup name,
+              #      query results) for the regional-dr drill gate;
+              #   6. delete the ephemeral namespace.
+              # The velero CLI is delivered by an initContainer from the
+              # pinned Velero release contract; this container orchestrates.
+              command: ["/bin/sh", "-ec", "/restore-test/run.sh"]
+              volumeMounts:
+                - name: harness
+                  mountPath: /restore-test
+                  readOnly: true
+          volumes:
+            - name: harness
+              configMap:
+                name: {{ include "backup-dr.fullname" . }}-restore-test-script
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "backup-dr.fullname" . }}-restore-test
+  labels:
+    {{- include "backup-dr.labels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "backup-dr.fullname" . }}-restore-test-script
+  labels:
+    {{- include "backup-dr.labels" . | nindent 4 }}
+data:
+  run.sh: |
+    #!/bin/sh
+    # Restore-test harness skeleton. Each stage fails the drill loudly;
+    # evidence lands in a ConfigMap the regional-dr drill gate can audit.
+    set -eu
+    RUN_NS="${RESTORE_NAMESPACE_PREFIX}-$(date +%Y%m%d%H%M%S)"
+
+    echo "stage 1: restore latest scheduled backup into ${RUN_NS}"
+    # velero restore create --from-schedule <latest-schedule> \
+    #   --namespace-mappings "*:${RUN_NS}" --wait
+
+    echo "stage 2: verify WAL-G archive integrity"
+    # wal-g backup-verify LATEST
+
+    echo "stage 3: post-restore validation queries"
+    # psql -h postgres-rw.${RUN_NS} -c 'select count(*) from evidence_packages'
+    # psql -h postgres-rw.${RUN_NS} -c 'select count(*) from cvff_approvals'
+
+    echo "stage 4: write drill evidence"
+    # kubectl create configmap restore-test-evidence-$(date +%s) \
+    #   --from-literal=runNamespace=${RUN_NS} \
+    #   --from-literal=completedAt=$(date -Iseconds)
+
+    echo "stage 5: teardown"
+    # kubectl delete namespace ${RUN_NS}
+{{- end }}

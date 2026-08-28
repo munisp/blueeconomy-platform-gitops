@@ -1,0 +1,43 @@
+# Release contract for the pinned upstream cilium/cilium chart. The
+# platform-base tooling renders the upstream chart with exactly these values;
+# any change is a reviewed change to this file, not an ad-hoc helm --set.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cilium.fullname" . }}-release-contract
+  labels:
+    {{- include "cilium.labels" . | nindent 4 }}
+  annotations:
+    blueeconomy.platform/kernel-min-version: {{ .Values.kernel.minVersion | quote }}
+    blueeconomy.platform/io-uring-required: "false"
+data:
+  upstream-chart.json: |
+    {{- dict
+        "chartName" .Values.upstream.chartName
+        "chartVersion" .Values.upstream.chartVersion
+        "repository" .Values.upstream.repository
+    | toPrettyJson | nindent 4 }}
+  cilium-values.yaml: |
+    kubeProxyReplacement: {{ .Values.cni.kubeProxyReplacement }}
+    routingMode: {{ .Values.cni.routingMode }}
+    {{- if eq .Values.cni.routingMode "tunnel" }}
+    tunnelProtocol: {{ .Values.cni.tunnelProtocol }}
+    {{- end }}
+    bpf:
+      masquerade: {{ .Values.cni.bpfMasquerade }}
+    loadBalancer:
+      standalone: {{ .Values.ddosMitigation.loadBalancer.standalone }}
+      acceleration: {{ .Values.ddosMitigation.loadBalancer.acceleration }}
+      mode: {{ .Values.ddosMitigation.loadBalancer.mode }}
+      algorithm: {{ .Values.ddosMitigation.algorithm }}
+    hubble:
+      enabled: {{ .Values.hubble.enabled }}
+      relay:
+        enabled: {{ .Values.hubble.relay.enabled }}
+        replicas: {{ .Values.hubble.relay.replicas }}
+      ui:
+        enabled: {{ .Values.hubble.ui.enabled }}
+        replicas: {{ .Values.hubble.ui.replicas }}
+    tetragon:
+      enabled: {{ .Values.tetragon.enabled }}
+    policyEnforcementMode: always

@@ -1,0 +1,73 @@
+{{- if .Values.ingressPath.enabled }}
+{{- $edgeNs := .Values.ingressPath.edgeNamespace }}
+{{- $apisixNs := .Values.ingressPath.apisixNamespace }}
+{{- $apisixPort := .Values.ingressPath.apisixPort }}
+{{- $svcPort := .Values.ingressPath.l7ServicePort }}
+---
+# L7 ingress path, hop 1: the Caddy edge (TLS termination, security headers,
+# body cap, coarse rate limit) may speak HTTP ONLY to the APISIX gateway
+# listener. The OpenAppSec agent enforces WAF inside the APISIX pod per its
+# contract flag; see docs/edge-topology.md.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: l7-allow-caddy-to-apisix
+  namespace: {{ $apisixNs }}
+  labels:
+    {{- include "cilium.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: apisix
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $edgeNs }}
+            app.kubernetes.io/name: caddy-edge
+      toPorts:
+        - ports:
+            - port: {{ $apisixPort | quote }}
+              protocol: TCP
+          rules:
+            http:
+              - method: "GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS"
+                path: "^/"
+{{- range $ws := .Values.networkPolicies.workstreams }}
+---
+# L7 ingress path, hop 2 ({{ $ws.name }}): APISIX may reach only the approved
+# /v1/* API surface of this workstream's app pods. Identity-aware authz,
+# per-scope rate limits and OPA policy are enforced by APISIX upstream of
+# this hop; the Dapr sidecar mTLS mesh governs east-west traffic below it.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: l7-allow-apisix-to-{{ $ws.name }}
+  namespace: {{ $ws.namespace }}
+  labels:
+    blueeconomy.platform/workstream: {{ $ws.name }}
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          {{- range $ws.appIds }}
+          - {{ . | quote }}
+          {{- end }}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $apisixNs }}
+            app.kubernetes.io/name: apisix
+      toPorts:
+        - ports:
+            - port: {{ $svcPort | quote }}
+              protocol: TCP
+          rules:
+            http:
+              - method: "GET|POST|PUT"
+                path: "^/v1/"
+              - method: "GET"
+                path: "^/healthz$"
+{{- end }}
+{{- end }}

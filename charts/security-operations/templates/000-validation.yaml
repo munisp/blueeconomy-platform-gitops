@@ -19,3 +19,9 @@
 {{- end }}
 {{- end }}
 {{- $store := required "externalSecrets.storeRef.name is required" .Values.externalSecrets.storeRef.name -}}
+{{- if .Values.keyDirectory.enabled -}}
+{{- $kd := required "keyDirectory.configMapName is required when keyDirectory.enabled=true (opa-policies key-directory ConfigMap)" .Values.keyDirectory.configMapName -}}
+{{- if not (hasPrefix "/" .Values.keyDirectory.mountPath) -}}
+{{- fail "keyDirectory.mountPath must be an absolute path" -}}
+{{- end -}}
+{{- end -}}

@@ -1,0 +1,102 @@
+# Caddy edge (TLS termination) in front of APISIX. Topology and per-layer
+# enforcement: docs/edge-topology.md.
+#
+# The image must be the approved Caddy build carrying the caddy-dns/azure
+# (ACME DNS-01) and rate_limit modules; it is digest-pinned only.
+# Fail-closed: nothing deployable is defaulted.
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+replicas: 3
+
+serviceAccount:
+  create: true
+  name: ""
+
+domains:
+  # Public edge hostname (client APIs, portal, partner/NSW routes).
+  publicHost: ""
+  # Admin console listener, reachable only from the management network
+  # (enforced by the landing-zone load balancer, not by Caddy).
+  adminHost: ""
+
+upstreams:
+  # APISIX gateway listener (host:port, in-cluster DNS). The OpenAppSec
+  # agent inspects traffic inside the APISIX pod per its contract flag.
+  apisix:
+    address: ""
+  # APISIX admin/control upstream for the admin console listener.
+  apisixAdmin:
+    address: ""
+
+tls:
+  # acme: public certificates via ACME DNS-01. internal: platform-internal
+  # CA (Caddy local issuer) for non-public endpoints.
+  mode: acme
+  acme:
+    # ACME account contact. Render-gated.
+    email: ""
+    # DNS-01 solver abstraction. Only the Azure DNS provider is approved
+    # (Azure Government compatible); any additional provider requires a
+    # Design Authority decision recorded in this file.
+    dnsProvider:
+      name: azuredns
+      # Azure DNS credentials are synced from Azure Key Vault by the
+      # ExternalSecret below; Caddy reads AZURE_* environment variables
+      # from the synced Secret. No secret material in this repository.
+      credentialsSecretRef:
+        name: ""
+  # Edge mTLS for /partner/* and /v1/nsw/* routes: CA bundle verifying
+  # partner client certificates, mounted from this Secret key.
+  partnerMtls:
+    caSecretRef:
+      name: ""
+      key: ca.crt
+
+openappsec:
+  # Contract flag mirroring charts/mojaloop-overlay: the OpenAppSec WAF
+  # agent integration in the APISIX pod must remain asserted. The render
+  # gate refuses to disable it.
+  required: true
+
+keycloak:
+  # OIDC relying-party configuration for the admin consoles: the APISIX
+  # openid-connect plugin (bearer-only for APIs, authorization-code for
+  # consoles) discovers the realm from this URL. HTTPS only.
+  discoveryUrl: ""
+
+security:
+  # Request-body cap at the edge. The platform approved maximum is 2MB;
+  # larger values are rejected at render time.
+  maxBodySizeMB: 2
+  # Coarse edge rate limit per remote host on /v1/*; APISIX applies
+  # identity-aware limits below this. The approved ceiling is 60/min.
+  rateLimit:
+    events: 60
+    windowSeconds: 60
+  proxy:
+    readTimeoutSeconds: 30
+    writeTimeoutSeconds: 30
+
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  # Keys synced into the ACME Azure DNS credentials Secret:
+  #   AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET /
+  #   AZURE_SUBSCRIPTION_ID / AZURE_RESOURCE_GROUP
+  keys: {}
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi

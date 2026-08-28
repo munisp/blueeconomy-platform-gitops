@@ -1,0 +1,55 @@
+# Platform policy packs, promoted from the umbrella seed kustomize into an
+# immutable, reconciled ConfigMap. These mirror the rules the services embed;
+# the APISIX opa plugin enforces the coarse-grained edge decision against
+# them.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "opa-policies.fullname" . }}-bundle
+  labels:
+    {{- include "opa-policies.labels" . | nindent 4 }}
+immutable: true
+data:
+  http.rego: |
+    {{- .Files.Get "policies/http.rego" | nindent 4 }}
+  cvff.rego: |
+    {{- .Files.Get "policies/cvff.rego" | nindent 4 }}
+  admin.rego: |
+    {{- .Files.Get "policies/admin.rego" | nindent 4 }}
+  clearance.rego: |
+    {{- .Files.Get "policies/clearance.rego" | nindent 4 }}
+---
+# Producer-signature key directory: {kid: base64url-ed25519-pubkey} for every
+# approved platform producer. Mounted read-only at KEY_DIRECTORY_PATH by
+# security-operations and data-platform to verify provenance.signature on
+# the canonical event envelope. Public material only -- the corresponding
+# private keys never leave the producer key ceremony / Key Vault.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "opa-policies.keyDirectoryName" . }}
+  labels:
+    {{- include "opa-policies.labels" . | nindent 4 }}
+  annotations:
+    blueeconomy.platform/consumed-by: security-operations,data-platform
+    blueeconomy.platform/mount-env: KEY_DIRECTORY_PATH
+immutable: true
+data:
+  key-directory.json: |
+    {{- .Values.keyDirectory.publicKeys | toPrettyJson | nindent 4 }}
+---
+# APISIX opa-plugin hook contract: the approved wiring for the pinned
+# upstream APISIX release's `opa` plugin on every route.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "opa-policies.fullname" . }}-apisix-hook
+  labels:
+    {{- include "opa-policies.labels" . | nindent 4 }}
+data:
+  apisix-opa-plugin.json: |
+    {{- dict
+        "plugin" "opa"
+        "host" (printf "http://%s:%v" (include "opa-policies.serviceName" .) .Values.apisixHook.servicePort)
+        "policy" .Values.apisixHook.policy
+    | toPrettyJson | nindent 4 }}

@@ -47,7 +47,8 @@ grep -q 'pod-security.kubernetes.io/enforce: restricted' "$repo_root/kubernetes/
 for chart in tigerbeetle mojaloop-overlay sedona-spark-jobs core-services regional-dr \
   ferry-ticketing financial-controls port-interoperability security-operations \
   credential-verification fisheries-traceability maritime-intelligence \
-  dapr-components temporal keycloak-realms beneficiary-portal; do
+  dapr-components temporal keycloak-realms beneficiary-portal \
+  cilium caddy opa-policies backup-dr; do
   test -s "$repo_root/charts/$chart/Chart.yaml"
   test -s "$repo_root/charts/$chart/values.yaml"
 done
@@ -92,12 +93,17 @@ assert_default_render_fails_closed dapr-components 'workstream.name is required'
 assert_default_render_fails_closed temporal 'temporal.image.digest is required'
 assert_default_render_fails_closed keycloak-realms 'externalSecrets.storeRef.name is required'
 assert_default_render_fails_closed beneficiary-portal 'image.repository is required'
+assert_default_render_fails_closed cilium 'cilium upstream.chartName is required'
+assert_default_render_fails_closed caddy 'image.digest is required'
+assert_default_render_fails_closed opa-policies 'opa.image.digest is required'
+assert_default_render_fails_closed backup-dr 'backup-dr upstream.chartName is required'
 
 # Positive render gates: every shared-platform chart must render fully with
 # its CI render fixture (fail-closed defaults exercised separately above).
 for chart in ferry-ticketing financial-controls port-interoperability security-operations \
   credential-verification fisheries-traceability maritime-intelligence \
-  temporal keycloak-realms beneficiary-portal; do
+  temporal keycloak-realms beneficiary-portal \
+  cilium caddy opa-policies backup-dr; do
   helm template render-gate "$repo_root/charts/$chart" \
     --kube-version "$helm_kube_version" \
     -f "$repo_root/ci/render-values/$chart.yaml" > /dev/null
@@ -252,6 +258,77 @@ fi
 grep -Fq '60 seconds or less' "$output"
 rm -f "$output"
 
+# Cilium fiduciary segregation gate: TigerBeetle egress may only exist in the
+# cvff workstream policy; any other workstream declaring tigerbeetleAccess is
+# rejected at render time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/cilium" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/cilium.yaml" \
+    --set 'networkPolicies.workstreams[0].tigerbeetleAccess=true' > /dev/null 2>"$output"; then
+  echo 'cilium rendered a non-cvff workstream with TigerBeetle egress' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'fiduciary segregation' "$output"
+rm -f "$output"
+
+# Cilium kernel baseline gate: node kernels below 5.4 are rejected at render
+# time (kube-proxy replacement and XDP require >= 5.4).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/cilium" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/cilium.yaml" \
+    --set 'kernel.minVersion=4.19' > /dev/null 2>"$output"; then
+  echo 'cilium rendered with a kernel baseline below 5.4' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'kernel.minVersion' "$output"
+rm -f "$output"
+
+# OpenAppSec contract-flag gate: disabling the WAF integration flag on the
+# Caddy edge is rejected at render time (mirrors the mojaloop-overlay flag).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/caddy" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/caddy.yaml" \
+    --set 'openappsec.required=false' > /dev/null 2>"$output"; then
+  echo 'caddy rendered with the OpenAppSec contract flag disabled' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'openappsec.required must remain true' "$output"
+rm -f "$output"
+
+# Producer key-directory gate: an opa-policies release missing any approved
+# producer public key is rejected at render time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/opa-policies" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/opa-policies.yaml" \
+    --set 'keyDirectory.publicKeys.waterway-safety-1=' > /dev/null 2>"$output"; then
+  echo 'opa-policies rendered with a missing producer public key' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'keyDirectory.publicKeys.waterway-safety-1 is required' "$output"
+rm -f "$output"
+
+# DR immutability consistency gate: backup-dr immutabilityDays drifting from
+# the regional-dr recovery contract is rejected at render time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/backup-dr" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/backup-dr.yaml" \
+    --set 'backup.consistency.regionalDRImmutabilityDays=14' > /dev/null 2>"$output"; then
+  echo 'backup-dr rendered with immutabilityDays not matching the regional-dr contract' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'must match the regional-dr contract' "$output"
+rm -f "$output"
+
 # Kafka topic namespace gate: every topic literal in the GitOps layer must
 # use an approved workstream prefix, and each phase-2 scope (seafarer,
 # fisheries, coldchain, export, maritime.isr) must be represented.
@@ -300,4 +377,4 @@ helm template core-services "$workspace/charts/core-services" --kube-version "$h
 HELM_KUBE_VERSION="$helm_kube_version" bash "$repo_root/scripts/validate-mojaloop-overlay-security.sh"
 HELM_KUBE_VERSION="$helm_kube_version" bash "$repo_root/scripts/validate-regional-dr.sh"
 
-printf '%s\n' 'Validated GitOps base manifests, workstream namespaces (ports/ferries/cvff with fiduciary segregation; seafarer/fisheries/isr with ISR national-security segregation), core-service namespaces (tigerbeetle/mojaloop/geo), recovery namespace, upstream source locks (incl. Prometheus, OpenTelemetry Collector, Argo CD), chart sources (incl. beneficiary-portal), fail-closed value gates, shared-platform render fixtures (incl. phase-2 service charts, beneficiary-portal and all six per-workstream Dapr fixtures), helm lint for every chart, Keycloak short-TTL, PKCE public-client redirect allowlists, ISR clearance and all six workstream Dapr scope-segregation gates, ISR outbox-mode and cold-chain breach-SLA gates, Kafka topic namespace prefixes, Argo CD project/ApplicationSet manifests, regional DR contract, Mojaloop security overrides and umbrella dependencies.'
+printf '%s\n' 'Validated GitOps base manifests, workstream namespaces (ports/ferries/cvff with fiduciary segregation; seafarer/fisheries/isr with ISR national-security segregation), core-service namespaces (tigerbeetle/mojaloop/geo), recovery namespace, upstream source locks (incl. Prometheus, OpenTelemetry Collector, Argo CD), chart sources (incl. beneficiary-portal and the battle-hardened edge charts cilium/caddy/opa-policies/backup-dr), fail-closed value gates, shared-platform render fixtures (incl. phase-2 service charts, beneficiary-portal, all six per-workstream Dapr fixtures and the edge-chart fixtures), helm lint for every chart, Keycloak short-TTL, PKCE public-client redirect allowlists, ISR clearance and all six workstream Dapr scope-segregation gates, ISR outbox-mode and cold-chain breach-SLA gates, Cilium fiduciary-segregation and kernel-baseline gates, the Caddy OpenAppSec contract-flag gate, the OPA producer key-directory gate, the backup-dr immutability consistency gate, Kafka topic namespace prefixes, Argo CD project/ApplicationSet manifests, regional DR contract, Mojaloop security overrides and umbrella dependencies.'

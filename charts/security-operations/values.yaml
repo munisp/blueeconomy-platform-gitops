@@ -126,3 +126,16 @@ monitoring:
 podDisruptionBudget:
   enabled: true
   maxUnavailable: 1
+
+# Producer-signature key directory consumption. The ConfigMap rendered by
+# charts/opa-policies ({kid: base64url-ed25519-pubkey} for every approved
+# platform producer) is mounted read-only at KEY_DIRECTORY_PATH so the
+# detection engine verifies provenance.signature on every consumed event
+# envelope instead of trusting network location. data-platform consumes the
+# same ConfigMap (see the consumer wiring notes in charts/opa-policies).
+keyDirectory:
+  enabled: false
+  # Name of the opa-policies key-directory ConfigMap
+  # (<opa-policies release fullname>-key-directory).
+  configMapName: ""
+  mountPath: /etc/blueeconomy/key-directory
