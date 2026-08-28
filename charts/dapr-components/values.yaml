@@ -2,11 +2,14 @@
 # renders this chart into that workstream's namespace. Fail-closed: no
 # brokers, hosts, vault names or store references are defaulted.
 workstream:
-  # ports | ferries | cvff
+  # ports | ferries | cvff | seafarer | fisheries | isr
   name: ""
   # Dapr app-ids allowed to use every component rendered by this release.
   # For cvff this MUST be exactly the cvff app-ids (enforced by the chart):
   #   [intent-api, cvff-worker, cvff-outbox-publisher]
+  # For isr this MUST be exactly the maritime-intelligence app-ids (enforced
+  # by the chart):
+  #   [maritime-intelligence-api, isr-worker, isr-outbox-publisher]
   appIds: []
 
 pubsub:

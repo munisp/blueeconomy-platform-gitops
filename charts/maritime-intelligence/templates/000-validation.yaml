@@ -1,0 +1,61 @@
+{{- range $name, $component := .Values.components }}
+{{- if $component.enabled }}
+{{- $digest := required (printf "%s.image.digest is required" $name) $component.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail (printf "%s.image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" $name) -}}
+{{- end -}}
+{{- $repository := required (printf "%s.image.repository is required" $name) $component.image.repository -}}
+{{- $env := default dict $component.env -}}
+{{- range $envName := (default (list) $component.requiredEnv) -}}
+{{- if eq (printf "%v" (get $env $envName)) "" -}}
+{{- fail (printf "%s.%s must be set to an approved environment value" $name $envName) -}}
+{{- end -}}
+{{- end -}}
+{{- range $secretName := (default (list) $component.secretEnv) -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $secretName) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because %s consumes it via secretEnv" $secretName $name) -}}
+{{- end -}}
+{{- end -}}
+{{- range $secretKey := (dig "secretMount" "keys" (list) $component) -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $secretKey) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because %s mounts it via secretMount" $secretKey $name) -}}
+{{- end -}}
+{{- end -}}
+{{- /* OIDC discipline: the issuer and JWKS endpoints are HTTPS only. */ -}}
+{{- if hasKey $env "OIDC_JWKS_URL" -}}
+{{- if and (ne (printf "%v" (get $env "OIDC_JWKS_URL")) "") (not (hasPrefix "https://" (printf "%v" (get $env "OIDC_JWKS_URL")))) -}}
+{{- fail (printf "%s.OIDC_JWKS_URL must be an HTTPS URL" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- if hasKey $env "OIDC_ISSUER" -}}
+{{- if and (ne (printf "%v" (get $env "OIDC_ISSUER")) "") (not (hasPrefix "https://" (printf "%v" (get $env "OIDC_ISSUER")))) -}}
+{{- fail (printf "%s.OIDC_ISSUER must be an HTTPS URL" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- /* ISR-mode gates: only keycloak_rs256 authentication is deployable (the
+       loopback trusted-proxy mode is a local edge contract, never a cluster
+       deployment mode). */ -}}
+{{- if hasKey $env "AUTH_MODE" -}}
+{{- if and (ne (printf "%v" (get $env "AUTH_MODE")) "") (ne (printf "%v" (get $env "AUTH_MODE")) "keycloak_rs256") -}}
+{{- fail (printf "%s.AUTH_MODE must be keycloak_rs256 for the ISR cluster release" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- if hasKey $env "OUTBOX_SOURCE" -}}
+{{- if ne (printf "%v" (get $env "OUTBOX_SOURCE")) "isr" -}}
+{{- fail "outbox-publisher.OUTBOX_SOURCE must be isr; this chart renders the ISR outbox mode only" -}}
+{{- end -}}
+{{- if ne (printf "%v" (get $env "KAFKA_TOPIC")) "" -}}
+{{- fail "outbox-publisher.KAFKA_TOPIC must be unset in isr mode; topics come from outbox rows" -}}
+{{- end -}}
+{{- end -}}
+{{- if hasKey $env "KAFKA_TRANSPORT" -}}
+{{- if not (has (printf "%v" (get $env "KAFKA_TRANSPORT")) (list "local_plaintext" "tls")) -}}
+{{- fail "outbox-publisher.KAFKA_TRANSPORT must be local_plaintext or tls" -}}
+{{- end -}}
+{{- if eq (printf "%v" (get $env "KAFKA_TRANSPORT")) "tls" -}}
+{{- fail "outbox-publisher.KAFKA_TRANSPORT=tls requires Ministry-approved TLS/SASL configuration before enablement" -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+{{- end }}
+{{- $store := required "externalSecrets.storeRef.name is required" .Values.externalSecrets.storeRef.name -}}

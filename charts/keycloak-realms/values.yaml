@@ -48,6 +48,12 @@ tokenPolicy:
 #     Azure Key Vault object holding the client secret; the realm JSON uses
 #     the keycloak-config-cli "*********" leave-unchanged sentinel, so no
 #     secret material ever appears in this repository or in the ConfigMap.
+#   clearanceScope (ISR realm only): when enabled, the realm declares a
+#     "clearance" user attribute restricted to the approved classification
+#     labels and a "clearance" client scope (default on every realm client)
+#     mapping that attribute to the access-token "clearance" claim consumed
+#     by the maritime-intelligence service. Only labels are declared here;
+#     no classified data ever appears in this repository.
 realms:
   - name: blueeconomy-ports-ecallup
     workstreamNamespace: blueeconomy-ports
@@ -94,6 +100,67 @@ realms:
       - clientId: intent-api
       - clientId: cvff-worker
       - clientId: cvff-outbox-publisher
+  # Workstream D: seafarer CoC credentialing (credential-verification).
+  - name: blueeconomy-seafarer
+    workstreamNamespace: blueeconomy-seafarer
+    roles:
+      - seafarer-trainee
+      - seafarer
+      - employer
+      - psc-inspector
+      - nimasa-approver
+      - mlep-operator
+      - auditor
+      - fmmbe-oversight
+    clients:
+      - clientId: credential-verification-api
+      - clientId: seafarer-credential-worker
+  # Workstream E: fisheries and cold-chain traceability.
+  - name: blueeconomy-fisheries
+    workstreamNamespace: blueeconomy-fisheries
+    roles:
+      - fisher
+      - vessel-captain
+      - processor
+      - exporter
+      - importer-ro
+      - fmma-inspector
+      - niwa-officer
+      - auditor
+      - fmmbe-oversight
+      - icrc-observer
+    clients:
+      - clientId: trace-api
+      - clientId: trace-worker
+      - clientId: fisheries-outbox-publisher
+  # Workstream F: Deep Blue ISR analytics (national-security controlled).
+  # The clearance user attribute and client scope are mandatory for this
+  # realm and enforced fail-closed by the chart's validation gate.
+  - name: blueeconomy-isr
+    workstreamNamespace: blueeconomy-isr
+    roles:
+      - nimasa-officer
+      - defence-hq-observer
+      - nn-officer
+      - onsa-observer
+      - marine-police
+      - fleet-operator
+      - insurer-aggregator-ro
+      - auditor
+      - fmmbe-oversight
+      - icrc-observer
+    clearanceScope:
+      enabled: true
+      # Approved classification labels only (attribute option list).
+      levels:
+        - UNCLASSIFIED
+        - RESTRICTED
+        - CONFIDENTIAL
+        - SECRET
+    clients:
+      - clientId: maritime-intelligence-api
+      - clientId: isr-worker
+      - clientId: isr-outbox-publisher
 
 networkPolicy:
   enabled: true

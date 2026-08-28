@@ -32,15 +32,21 @@ test "$sha_count" -ge 9
 
 # Shared-platform namespaces: each must ship a Namespace plus a default-deny
 # NetworkPolicy; cvff additionally requires the cross-workstream ingress denial.
-for ns in ports ferries cvff; do
+for ns in ports ferries cvff seafarer fisheries isr; do
   grep -q 'kind: Namespace' "$repo_root/kubernetes/base/namespaces/$ns.yaml"
   grep -q 'kind: NetworkPolicy' "$repo_root/kubernetes/base/namespaces/$ns.yaml"
 done
 grep -q 'deny-cross-workstream-ingress' "$repo_root/kubernetes/base/namespaces/cvff.yaml"
 grep -q 'fiduciary-segregated' "$repo_root/kubernetes/base/namespaces/cvff.yaml"
+# ISR namespace: same cross-workstream segregation as cvff, plus the
+# national-security-controlled classification label and restricted PSA.
+grep -q 'deny-cross-workstream-ingress' "$repo_root/kubernetes/base/namespaces/isr.yaml"
+grep -q 'national-security-controlled' "$repo_root/kubernetes/base/namespaces/isr.yaml"
+grep -q 'pod-security.kubernetes.io/enforce: restricted' "$repo_root/kubernetes/base/namespaces/isr.yaml"
 
 for chart in tigerbeetle mojaloop-overlay sedona-spark-jobs core-services regional-dr \
   ferry-ticketing financial-controls port-interoperability security-operations \
+  credential-verification fisheries-traceability maritime-intelligence \
   dapr-components temporal keycloak-realms; do
   test -s "$repo_root/charts/$chart/Chart.yaml"
   test -s "$repo_root/charts/$chart/values.yaml"
@@ -79,6 +85,9 @@ assert_default_render_fails_closed ferry-ticketing 'ferry-api.image.repository i
 assert_default_render_fails_closed financial-controls 'cvff-worker.image.repository is required'
 assert_default_render_fails_closed port-interoperability 'api.image.repository is required'
 assert_default_render_fails_closed security-operations 'detection-engine.image.repository is required'
+assert_default_render_fails_closed credential-verification 'credential-api.image.repository is required'
+assert_default_render_fails_closed fisheries-traceability 'image.repository is required'
+assert_default_render_fails_closed maritime-intelligence 'api.image.repository is required'
 assert_default_render_fails_closed dapr-components 'workstream.name is required'
 assert_default_render_fails_closed temporal 'temporal.image.digest is required'
 assert_default_render_fails_closed keycloak-realms 'externalSecrets.storeRef.name is required'
@@ -86,10 +95,33 @@ assert_default_render_fails_closed keycloak-realms 'externalSecrets.storeRef.nam
 # Positive render gates: every shared-platform chart must render fully with
 # its CI render fixture (fail-closed defaults exercised separately above).
 for chart in ferry-ticketing financial-controls port-interoperability security-operations \
-  dapr-components temporal keycloak-realms; do
+  credential-verification fisheries-traceability maritime-intelligence \
+  temporal keycloak-realms; do
   helm template render-gate "$repo_root/charts/$chart" \
     --kube-version "$helm_kube_version" \
     -f "$repo_root/ci/render-values/$chart.yaml" > /dev/null
+done
+
+# Dapr component layer: render every per-workstream fixture (the base cvff
+# fixture plus the seafarer/fisheries/isr phase-2 fixtures).
+for fixture in "$repo_root"/ci/render-values/dapr-components*.yaml; do
+  helm template render-gate "$repo_root/charts/dapr-components" \
+    --kube-version "$helm_kube_version" \
+    -f "$fixture" > /dev/null
+done
+
+# helm lint every chart. Fail-closed default values lint clean for all
+# charts except the two covered by their own dedicated gates below:
+# regional-dr (JSON-schema approval gate, exercised by
+# validate-regional-dr.sh) and core-services (umbrella chart requiring a
+# dependency build, linted after helm dependency build at the end of this
+# script).
+for chart_dir in "$repo_root"/charts/*/; do
+  chart_name="$(basename "$chart_dir")"
+  case "$chart_name" in
+    regional-dr|core-services) continue ;;
+  esac
+  helm lint "$chart_dir" --kube-version "$helm_kube_version" > /dev/null
 done
 
 # Short-TTL token policy gate: access token lifespans above 300s are rejected.
@@ -118,6 +150,94 @@ if helm template render-gate "$repo_root/charts/dapr-components" \
 fi
 grep -Fq 'not a cvff app-id' "$output"
 rm -f "$output"
+
+# ISR national-security segregation gate: widening isr Dapr component scopes
+# to a non-isr app-id is rejected at render time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/dapr-components" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/dapr-components-isr.yaml" \
+    --set 'workstream.appIds[0]=ferry-api' > /dev/null 2>"$output"; then
+  echo 'dapr-components rendered an isr release scoped to a non-isr app-id' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'not an isr app-id' "$output"
+rm -f "$output"
+
+# ISR clearance gate: removing the classification clearance user attribute /
+# client scope from the blueeconomy-isr realm is rejected at render time.
+isr_no_clearance="$(mktemp)"
+cat > "$isr_no_clearance" <<'EOF'
+realms:
+  - name: blueeconomy-isr
+    workstreamNamespace: blueeconomy-isr
+    roles:
+      - nimasa-officer
+    clearanceScope:
+      enabled: false
+    clients:
+      - clientId: maritime-intelligence-api
+EOF
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/keycloak-realms" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/keycloak-realms.yaml" \
+    -f "$isr_no_clearance" > /dev/null 2>"$output"; then
+  echo 'keycloak-realms rendered the isr realm without the clearance scope' >&2
+  rm -f "$output" "$isr_no_clearance"
+  exit 1
+fi
+grep -Fq 'clearanceScope.enabled=true' "$output"
+rm -f "$output" "$isr_no_clearance"
+
+# ISR outbox-mode gate: the maritime-intelligence release must stay in
+# OUTBOX_SOURCE=isr mode with no fixed KAFKA_TOPIC (topics come from outbox
+# rows, maritime.isr.* prefix).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/maritime-intelligence" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/maritime-intelligence.yaml" \
+    --set 'components.outbox-publisher.env.KAFKA_TOPIC=maritime.isr.v1' > /dev/null 2>"$output"; then
+  echo 'maritime-intelligence rendered with a fixed KAFKA_TOPIC in isr mode' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'KAFKA_TOPIC must be unset in isr mode' "$output"
+rm -f "$output"
+
+# Cold-chain breach-alert KPI gate: breach SLAs above the approved 60-second
+# platform KPI are rejected at render time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/fisheries-traceability" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/fisheries-traceability.yaml" \
+    --set 'components.trace-api.env.FISHERIES_BREACH_ALERT_SLA_SECONDS=120' > /dev/null 2>"$output"; then
+  echo 'fisheries-traceability rendered with a breach-alert SLA above the 60s platform KPI' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq '60 seconds or less' "$output"
+rm -f "$output"
+
+# Kafka topic namespace gate: every topic literal in the GitOps layer must
+# use an approved workstream prefix, and each phase-2 scope (seafarer,
+# fisheries, coldchain, export, maritime.isr) must be represented.
+python3 - "$repo_root" <<'PYEOF'
+import pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+topic_re = re.compile(r"\b[a-z][a-z0-9]*(?:\.[a-z0-9]+)+\.v\d+\b")
+approved = ("cvff.", "security.", "seafarer.", "fisheries.", "coldchain.", "export.", "maritime.isr.")
+phase2 = ("seafarer.", "fisheries.", "coldchain.", "export.", "maritime.isr.")
+topics = set()
+for scope in ("charts", "ci", "kubernetes", "gitops"):
+    for path in sorted((root / scope).rglob("*.yaml")):
+        topics.update(topic_re.findall(path.read_text()))
+violations = sorted(t for t in topics if not t.startswith(approved))
+assert not violations, f"topic literals outside approved namespace prefixes: {violations}"
+missing = [p for p in phase2 if not any(t.startswith(p) for t in topics)]
+assert not missing, f"no topic literal found for phase-2 prefixes: {missing}"
+PYEOF
 
 # Argo CD manifests must be present, well-formed YAML of the expected kinds.
 # ApplicationSet goTemplate directives are stripped before parsing.
@@ -148,4 +268,4 @@ helm template core-services "$workspace/charts/core-services" --kube-version "$h
 HELM_KUBE_VERSION="$helm_kube_version" bash "$repo_root/scripts/validate-mojaloop-overlay-security.sh"
 HELM_KUBE_VERSION="$helm_kube_version" bash "$repo_root/scripts/validate-regional-dr.sh"
 
-printf '%s\n' 'Validated GitOps base manifests, workstream namespaces (ports/ferries/cvff with fiduciary segregation), recovery namespace, upstream source locks (incl. Prometheus, OpenTelemetry Collector, Argo CD), chart sources, fail-closed value gates, shared-platform render fixtures, Keycloak short-TTL and CVFF scope gates, Argo CD project/ApplicationSet manifests, regional DR contract, Mojaloop security overrides and umbrella dependencies.'
+printf '%s\n' 'Validated GitOps base manifests, workstream namespaces (ports/ferries/cvff with fiduciary segregation; seafarer/fisheries/isr with ISR national-security segregation), recovery namespace, upstream source locks (incl. Prometheus, OpenTelemetry Collector, Argo CD), chart sources, fail-closed value gates, shared-platform render fixtures (incl. phase-2 service charts and per-workstream Dapr fixtures), helm lint for every chart, Keycloak short-TTL, ISR clearance and CVFF/ISR scope gates, ISR outbox-mode and cold-chain breach-SLA gates, Kafka topic namespace prefixes, Argo CD project/ApplicationSet manifests, regional DR contract, Mojaloop security overrides and umbrella dependencies.'

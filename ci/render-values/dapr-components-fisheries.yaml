@@ -1,0 +1,34 @@
+# CI render-gate fixture ONLY (fisheries workstream variant). NOT deployable.
+workstream:
+  name: fisheries
+  appIds:
+    - trace-api
+    - trace-worker
+    - fisheries-outbox-publisher
+
+pubsub:
+  kafka:
+    brokers: kafka.blueeconomy-platform.svc.cluster.local:9092
+
+state:
+  hot:
+    redisHost: redis-master.blueeconomy-platform.svc.cluster.local:6379
+    passwordSecretKeyRef:
+      name: dapr-fisheries-components
+      key: redis-password
+  durable:
+    connectionStringSecretKeyRef:
+      name: dapr-fisheries-components
+      key: postgres-connection-string
+
+secretStores:
+  azureKeyVault:
+    vaultName: blueeco-usgov-kv
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    redis-password: fisheries/render-fixture/redis-password
+    postgres-connection-string: fisheries/render-fixture/postgres-connection-string

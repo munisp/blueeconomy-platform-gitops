@@ -76,6 +76,15 @@ namespaces:
   - name: ferry
     retentionDays: 30
     description: "Ferry ticket safety telematics workflows"
+  - name: seafarer
+    retentionDays: 30
+    description: "Seafarer CoC credential lifecycle workflows"
+  - name: fisheries
+    retentionDays: 30
+    description: "Fisheries chain-of-custody workflows"
+  - name: isr
+    retentionDays: 30
+    description: "ISR response workflows (national-security controlled)"
 
 externalSecrets:
   storeRef:
@@ -92,6 +101,9 @@ networkPolicy:
     - blueeconomy-cvff
     - blueeconomy-ferries
     - blueeconomy-ports
+    - blueeconomy-seafarer
+    - blueeconomy-fisheries
+    - blueeconomy-isr
 
 monitoring:
   podMonitor:

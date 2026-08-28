@@ -1,0 +1,50 @@
+# CI render-gate fixture ONLY. These values exist so that `helm template`
+# exercises the full chart during validation. They are NOT deployable: the
+# image digests are synthetic and the environment endpoints are illustrative.
+# Real environment values live in the authorised environment repository.
+# Classification discipline: labels and identifiers only; no track data,
+# detection payloads or classified content in this fixture.
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    DATABASE_URL: isr/render-fixture/database-url
+
+components:
+  api:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/maritime-intelligence-api
+      digest: sha256:9151247fef0e1d0f4c32ff6cae94a6ac267cb107688cc72ccddb3e65bc214e69
+    env:
+      OIDC_ISSUER: https://keycloak.blueeconomy-platform.svc.cluster.local/realms/blueeconomy-isr
+      OIDC_AUDIENCE: maritime-intelligence-api
+      OIDC_JWKS_URL: https://keycloak.blueeconomy-platform.svc.cluster.local/realms/blueeconomy-isr/protocol/openid-connect/certs
+      MIGRATION_PATH: /migrations/0001.sql,/migrations/0002.sql,/migrations/0003.sql,/migrations/0004.sql,/migrations/0005.sql,/migrations/0006.sql,/migrations/0007.sql,/migrations/0008.sql,/migrations/0009.sql
+      TIGERBEETLE_ADDRESS: tigerbeetle.blueeco-tigerbeetle-prod.svc.cluster.local:3000
+      TIGERBEETLE_CLUSTER_ID: "0"
+  isr-worker:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/isr-worker
+      digest: sha256:1727536e8da66b304b239ba6b92bd8bc706b8e9e3aa8cecf127a4739107f3e7a
+  outbox-publisher:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/isr-outbox-publisher
+      digest: sha256:43ece680d55d884adf731b733d3745c57abf3ce7eb3b43ea1e335370f9a0fc99
+    env:
+      KAFKA_BROKERS: kafka.blueeconomy-platform.svc.cluster.local:9092
+      OUTBOX_WORKER_ID: isr-outbox-render-fixture
+
+networkPolicy:
+  allowedEgress:
+    - namespace: kube-system
+      ports: [53]
+      protocols: ["UDP", "TCP"]
+    - namespace: blueeconomy-platform
+      ports: [5432, 9092, 7233, 8080]
+    - namespace: blueeco-tigerbeetle-prod
+      ports: [3000]
+
+monitoring:
+  serviceMonitor:
+    enabled: true

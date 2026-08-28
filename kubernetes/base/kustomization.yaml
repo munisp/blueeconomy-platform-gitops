@@ -7,3 +7,6 @@ resources:
   - namespaces/ports.yaml
   - namespaces/ferries.yaml
   - namespaces/cvff.yaml
+  - namespaces/seafarer.yaml
+  - namespaces/fisheries.yaml
+  - namespaces/isr.yaml

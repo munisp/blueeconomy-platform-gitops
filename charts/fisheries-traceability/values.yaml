@@ -1,0 +1,246 @@
+# Fisheries and cold-chain traceability (Workstream E). Non-production-safe
+# baseline only: trace-api, trace-worker (Temporal ChainOfCustodyWorkflow)
+# and the transactional outbox publisher.
+# Every credential is delivered exclusively through ExternalSecrets; no
+# placeholder or inline credential is permitted anywhere in this chart.
+# Event topics published by this workstream (transactional outbox):
+#   fisheries.catch.v1, coldchain.telemetry.v1, export.consignment.v1
+nameOverride: ""
+fullnameOverride: ""
+workstream: fisheries
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# ExternalSecrets contract. storeRef.name must reference the approved
+# ClusterSecretStore (Azure Key Vault provider on AKS / Azure Government:
+# vault endpoint suffix vault.usgovcloudapi.net, workload-identity auth).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  # Map of environment variable name -> remote key path in the external store.
+  # Every entry listed in a component's secretEnv or secretMount.keys must
+  # exist here.
+  keys: {}
+
+dapr:
+  enabled: true
+  appProtocol: http
+  # Dapr sidecar metrics are scraped by the per-workstream PodMonitor.
+  metricsPort: 9090
+
+# Temporal connection shared by trace-api and trace-worker. Defaults target
+# the platform Temporal frontend rendered by charts/temporal in
+# blueeconomy-platform.
+temporal:
+  address: "temporal-frontend.blueeconomy-platform.svc.cluster.local:7233"
+  namespace: fisheries
+
+components:
+  trace-api:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    port: 8080
+    service:
+      enabled: true
+      type: ClusterIP
+    daprAppId: trace-api
+    probes:
+      livenessPath: /healthz
+      readinessPath: /readyz
+    env:
+      FISHERIES_LISTEN_ADDRESS: ":8080"
+      # jwt mode validates Keycloak RS256 tokens against the fisheries realm
+      # JWKS; the authorizer is fail-closed.
+      FISHERIES_AUTH_MODE: "jwt"
+      FISHERIES_OIDC_ISSUER: ""
+      FISHERIES_OIDC_AUDIENCE: ""
+      FISHERIES_OIDC_JWKS_URL: ""
+      # Operator-approved catch-location bounding box (Nigerian waters / EEZ).
+      FISHERIES_GPS_LAT_MIN: ""
+      FISHERIES_GPS_LAT_MAX: ""
+      FISHERIES_GPS_LON_MIN: ""
+      FISHERIES_GPS_LON_MAX: ""
+      FISHERIES_OFFLINE_MAX_AGE_HOURS: "72"
+      FISHERIES_CUSTODY_QUANTITY_TOLERANCE_PCT: "2.5"
+      FISHERIES_FRAUD_CAPACITY_FACTOR: "1.2"
+      FISHERIES_FRAUD_SPECIES_ZSCORE: "3"
+      FISHERIES_FRAUD_SPECIES_MIN_SAMPLES: "30"
+      FISHERIES_FRAUD_MAX_SPEED_KNOTS: "45"
+      # Platform KPI: breach alerts must surface within 60s; the chart
+      # rejects any value above that at render time.
+      FISHERIES_BREACH_ALERT_SLA_SECONDS: "60"
+      FISHERIES_TB_ADDRESS: ""
+      FISHERIES_TB_CLUSTER_ID: ""
+      FISHERIES_TB_LEDGER: ""
+      FISHERIES_TB_CODE: ""
+      FISHERIES_TB_EXPORTER_CLEARING_ACCOUNT: ""
+      FISHERIES_TB_FEE_REVENUE_ACCOUNT: ""
+      FISHERIES_TB_EVENT_CLEARING_ACCOUNT: ""
+      FISHERIES_TB_EVENT_ATTESTATION_ACCOUNT: ""
+      FISHERIES_TB_PENDING_TIMEOUT_SECONDS: "120"
+      FISHERIES_FEE_NGN_MINOR_PER_TONNE: ""
+      FISHERIES_MOJALOOP_BASE_URL: ""
+      FISHERIES_MOJALOOP_SOURCE: ""
+      FISHERIES_MOJALOOP_DESTINATION: ""
+      FISHERIES_MOJALOOP_SIGNING_KEY_FILE: "/run/secrets/blueeconomy/fisheries-traceability/MOJALOOP_SIGNING_JWK"
+      FISHERIES_MOJALOOP_SIGNING_KEY_ID: ""
+      TEMPORAL_TASK_QUEUE: fisheries-custody
+    requiredEnv:
+      - FISHERIES_OIDC_ISSUER
+      - FISHERIES_OIDC_AUDIENCE
+      - FISHERIES_OIDC_JWKS_URL
+      - FISHERIES_GPS_LAT_MIN
+      - FISHERIES_GPS_LAT_MAX
+      - FISHERIES_GPS_LON_MIN
+      - FISHERIES_GPS_LON_MAX
+      - FISHERIES_TB_ADDRESS
+      - FISHERIES_TB_CLUSTER_ID
+      - FISHERIES_TB_LEDGER
+      - FISHERIES_TB_CODE
+      - FISHERIES_TB_EXPORTER_CLEARING_ACCOUNT
+      - FISHERIES_TB_FEE_REVENUE_ACCOUNT
+      - FISHERIES_TB_EVENT_CLEARING_ACCOUNT
+      - FISHERIES_TB_EVENT_ATTESTATION_ACCOUNT
+      - FISHERIES_FEE_NGN_MINOR_PER_TONNE
+      - FISHERIES_MOJALOOP_BASE_URL
+      - FISHERIES_MOJALOOP_SOURCE
+      - FISHERIES_MOJALOOP_DESTINATION
+      - FISHERIES_MOJALOOP_SIGNING_KEY_ID
+      - TEMPORAL_TASK_QUEUE
+    secretEnv:
+      - FISHERIES_DATABASE_URL
+    # Mojaloop FSPIOP signing key, delivered as a file from the
+    # ExternalSecrets-synced release secret (never inline, never an env var).
+    secretMount:
+      path: /run/secrets/blueeconomy/fisheries-traceability
+      keys:
+        - MOJALOOP_SIGNING_JWK
+    temporalEnv:
+      enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  trace-worker:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    daprAppId: trace-worker
+    temporalEnv:
+      enabled: true
+    env:
+      TEMPORAL_TASK_QUEUE: fisheries-custody
+      FISHERIES_TB_ADDRESS: ""
+      FISHERIES_TB_LEDGER: ""
+      FISHERIES_TB_CODE: ""
+      FISHERIES_TB_EXPORTER_CLEARING_ACCOUNT: ""
+      FISHERIES_TB_FEE_REVENUE_ACCOUNT: ""
+      FISHERIES_TB_EVENT_CLEARING_ACCOUNT: ""
+      FISHERIES_TB_EVENT_ATTESTATION_ACCOUNT: ""
+      FISHERIES_TB_PENDING_TIMEOUT_SECONDS: "120"
+    requiredEnv:
+      - TEMPORAL_TASK_QUEUE
+      - FISHERIES_TB_ADDRESS
+      - FISHERIES_TB_LEDGER
+      - FISHERIES_TB_CODE
+      - FISHERIES_TB_EXPORTER_CLEARING_ACCOUNT
+      - FISHERIES_TB_FEE_REVENUE_ACCOUNT
+      - FISHERIES_TB_EVENT_CLEARING_ACCOUNT
+      - FISHERIES_TB_EVENT_ATTESTATION_ACCOUNT
+    secretEnv:
+      - FISHERIES_DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  outbox-publisher:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    daprAppId: fisheries-outbox-publisher
+    env:
+      KAFKA_BROKERS: ""
+      OUTBOX_POLL_INTERVAL_SECONDS: "5"
+      OUTBOX_BATCH_SIZE: "100"
+    requiredEnv:
+      - KAFKA_BROKERS
+      - OUTBOX_POLL_INTERVAL_SECONDS
+      - OUTBOX_BATCH_SIZE
+    secretEnv:
+      - FISHERIES_DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+networkPolicy:
+  enabled: true
+  # Namespaces whose ingress controllers may reach trace-api (e.g. APISIX edge).
+  allowedIngressNamespaces: []
+  # Ordered egress allowances outside this namespace. Everything else is denied.
+  allowedEgress:
+    - namespace: kube-system
+      ports: [53]
+      protocols: ["UDP", "TCP"]
+    # PostgreSQL (CloudNativePG), Kafka (Strimzi), Temporal, Keycloak,
+    # TigerBeetle and Mojaloop edge namespaces are appended here by the
+    # environment values file.
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    path: /metrics
+    interval: 30s
+    labels:
+      blueeconomy.platform/workstream: fisheries
+  podMonitor:
+    # Scrapes the Dapr sidecar metrics port for every component pod.
+    enabled: true
+    labels:
+      blueeconomy.platform/workstream: fisheries
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1

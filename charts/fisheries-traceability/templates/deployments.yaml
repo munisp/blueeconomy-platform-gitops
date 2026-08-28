@@ -1,0 +1,123 @@
+{{- $fullName := include "fisheries-traceability.fullname" . -}}
+{{- $secretName := include "fisheries-traceability.secretName" . -}}
+{{- $temporal := .Values.temporal -}}
+{{- range $name, $component := .Values.components }}
+{{- if $component.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ printf "%s-%s" $fullName $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "fisheries-traceability.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name | quote }}
+spec:
+  replicas: {{ $component.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "fisheries-traceability.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $name | quote }}
+  template:
+    metadata:
+      labels:
+        {{- include "fisheries-traceability.selectorLabels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $name | quote }}
+        blueeconomy.platform/workstream: {{ $.Values.workstream | quote }}
+      {{- if $.Values.dapr.enabled }}
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: {{ required (printf "%s.daprAppId is required when dapr.enabled=true" $name) $component.daprAppId | quote }}
+        dapr.io/app-protocol: {{ $.Values.dapr.appProtocol | quote }}
+        dapr.io/enable-metrics: "true"
+        dapr.io/metrics-port: {{ $.Values.dapr.metricsPort | quote }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "fisheries-traceability.serviceAccountName" $ }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml $.Values.podSecurityContext | nindent 8 }}
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ $name | quote }}
+          image: {{ printf "%s@%s" (required (printf "%s.image.repository is required" $name) $component.image.repository) (required (printf "%s.image.digest is required" $name) $component.image.digest) | quote }}
+          imagePullPolicy: {{ $component.image.pullPolicy }}
+          {{- if $component.service }}
+          {{- if $component.service.enabled }}
+          ports:
+            - name: http
+              containerPort: {{ $component.port }}
+              protocol: TCP
+          {{- end }}
+          {{- end }}
+          env:
+            {{- range $key, $value := (default dict $component.env) }}
+            - name: {{ $key | quote }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- range $key := (default (list) $component.secretEnv) }}
+            - name: {{ $key | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ $key | quote }}
+            {{- end }}
+            {{- if and (hasKey $component "temporalEnv") $component.temporalEnv }}
+            - name: {{ $component.temporalEnv.addressKey | default "TEMPORAL_ADDRESS" | quote }}
+              value: {{ $temporal.address | quote }}
+            - name: {{ $component.temporalEnv.namespaceKey | default "TEMPORAL_NAMESPACE" | quote }}
+              value: {{ $temporal.namespace | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml $component.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $.Values.securityContext | nindent 12 }}
+          {{- if and $component.service $component.service.enabled $component.probes }}
+          startupProbe:
+            httpGet:
+              path: {{ $component.probes.livenessPath }}
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: {{ $component.probes.readinessPath }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: {{ $component.probes.livenessPath }}
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- with $component.secretMount }}
+            # File-delivered secret material (e.g. signing keys) from the
+            # ExternalSecrets-synced release secret; never inline.
+            - name: shared-secret-files
+              mountPath: {{ .path | quote }}
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- with $component.secretMount }}
+        - name: shared-secret-files
+          secret:
+            secretName: {{ $secretName | quote }}
+            defaultMode: 0440
+        {{- end }}
+{{- end }}
+{{- end }}

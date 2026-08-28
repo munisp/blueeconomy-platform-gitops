@@ -29,6 +29,12 @@ spec:
             namespace: blueeconomy-cvff
           - chart: security-operations
             namespace: blueeconomy-security
+          - chart: credential-verification
+            namespace: blueeconomy-seafarer
+          - chart: fisheries-traceability
+            namespace: blueeconomy-fisheries
+          - chart: maritime-intelligence
+            namespace: blueeconomy-isr
           - chart: temporal
             namespace: blueeconomy-platform
           - chart: keycloak-realms
@@ -47,6 +53,18 @@ spec:
             name: dapr-components-cvff
             namespace: blueeconomy-cvff
             workstream: cvff
+          - chart: dapr-components
+            name: dapr-components-seafarer
+            namespace: blueeconomy-seafarer
+            workstream: seafarer
+          - chart: dapr-components
+            name: dapr-components-fisheries
+            namespace: blueeconomy-fisheries
+            workstream: fisheries
+          - chart: dapr-components
+            name: dapr-components-isr
+            namespace: blueeconomy-isr
+            workstream: isr
   template:
     metadata:
       name: '{{ .name | default .chart }}'

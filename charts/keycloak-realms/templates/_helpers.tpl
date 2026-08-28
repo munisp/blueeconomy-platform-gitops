@@ -26,9 +26,10 @@ real secret material exists only in the external secret store.
 {{- range $r := $realm.roles -}}
 {{- $roles = append $roles (dict "name" $r) -}}
 {{- end -}}
+{{- $clearance := dig "clearanceScope" "enabled" false $realm -}}
 {{- $clients := list -}}
 {{- range $c := $realm.clients -}}
-{{- $clients = append $clients (dict
+{{- $client := dict
   "clientId" $c.clientId
   "protocol" "openid-connect"
   "publicClient" false
@@ -37,9 +38,13 @@ real secret material exists only in the external secret store.
   "directAccessGrantsEnabled" false
   "secret" "*********"
   "attributes" (dict "client.secret.creation.time" "0")
-) -}}
+-}}
+{{- if $clearance -}}
+{{- $_ := set $client "defaultClientScopes" (list "clearance") -}}
 {{- end -}}
-{{- dict
+{{- $clients = append $clients $client -}}
+{{- end -}}
+{{- $doc := dict
   "realm" $realm.name
   "enabled" true
   "sslRequired" "external"
@@ -53,5 +58,36 @@ real secret material exists only in the external secret store.
   "ssoSessionMaxLifespan" (int $policy.ssoSessionMaxLifespan)
   "roles" (dict "realm" $roles)
   "clients" $clients
-| toPrettyJson -}}
+-}}
+{{- if $clearance -}}
+{{- /* Clearance discipline: the user attribute is admin-managed only (no
+       self-service), option-validated against the approved label set, and
+       mapped to the access-token "clearance" claim by the clearance client
+       scope. Labels only; no classified data in this repository. */ -}}
+{{- $_ := set $doc "userProfile" (dict "attributes" (list (dict
+  "name" "clearance"
+  "displayName" "Security clearance"
+  "required" (dict "roles" (list "admin"))
+  "permissions" (dict "view" (list "admin") "edit" (list "admin"))
+  "validations" (dict "options" (dict "options" $realm.clearanceScope.levels))
+))) -}}
+{{- $_ := set $doc "clientScopes" (list (dict
+  "name" "clearance"
+  "protocol" "openid-connect"
+  "attributes" (dict "include.in.token.scope" "true" "display.on.consent.screen" "false")
+  "protocolMappers" (list (dict
+    "name" "clearance"
+    "protocol" "openid-connect"
+    "protocolMapper" "oidc-usermodel-attribute-mapper"
+    "config" (dict
+      "user.attribute" "clearance"
+      "claim.name" "clearance"
+      "jsonType.label" "String"
+      "id.token.claim" "false"
+      "access.token.claim" "true"
+      "userinfo.token.claim" "true")
+  ))
+)) -}}
+{{- end -}}
+{{- $doc | toPrettyJson -}}
 {{- end -}}

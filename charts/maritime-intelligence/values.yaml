@@ -1,0 +1,205 @@
+# Maritime intelligence — Deep Blue ISR analytics mode (Workstream F,
+# national-security controlled). Deployed ONLY into blueeconomy-isr, which
+# carries the deny-cross-workstream-ingress policy and the
+# national-security-controlled classification label.
+# This release renders the ISR mode only: the outbox publisher runs with
+# OUTBOX_SOURCE=isr and Dapr components are scoped exclusively to the
+# maritime-intelligence app-ids.
+# Classification discipline: this repository carries labels and identifiers
+# only. No track data, detection payloads or classified content may appear
+# in values, fixtures or comments — the mandatory classification labels
+# (UNCLASSIFIED/RESTRICTED/CONFIDENTIAL/SECRET) are enforced by the service
+# and the keycloak-realms clearance scope, not by data in this chart.
+# Event topics are read from outbox rows at runtime (maritime.isr.* prefix,
+# e.g. maritime.isr.v1); no topic name is configured here.
+# Every credential is delivered exclusively through ExternalSecrets; no
+# placeholder or inline credential is permitted anywhere in this chart.
+nameOverride: ""
+fullnameOverride: ""
+workstream: isr
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# ExternalSecrets contract. storeRef.name must reference the approved
+# ClusterSecretStore (Azure Key Vault provider on AKS / Azure Government:
+# vault endpoint suffix vault.usgovcloudapi.net, workload-identity auth).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  # Map of environment variable name -> remote key path in the external store.
+  # Every entry listed in a component's secretEnv or secretMount.keys must
+  # exist here.
+  keys: {}
+
+dapr:
+  enabled: true
+  appProtocol: http
+  # Dapr sidecar metrics are scraped by the per-workstream PodMonitor.
+  metricsPort: 9090
+
+# Temporal connection for the ISR response worker (ISRResponseWorkflow:
+# alert -> analyst classification -> dispatch -> interdiction -> outcome).
+# Defaults target the platform Temporal frontend rendered by charts/temporal
+# in blueeconomy-platform.
+temporal:
+  address: "temporal-frontend.blueeconomy-platform.svc.cluster.local:7233"
+  namespace: isr
+
+components:
+  api:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    port: 8080
+    service:
+      enabled: true
+      type: ClusterIP
+    daprAppId: maritime-intelligence-api
+    probes:
+      livenessPath: /healthz
+      readinessPath: /readyz
+    env:
+      PORT: "8080"
+      # keycloak_rs256 mode verifies Keycloak RS256 bearer tokens against the
+      # isr realm JWKS and enforces the clearance claim; observer, auditor
+      # and insurer roles are denied every mutating route.
+      AUTH_MODE: "keycloak_rs256"
+      OIDC_ISSUER: ""
+      OIDC_AUDIENCE: ""
+      OIDC_JWKS_URL: ""
+      # Comma-separated, ordered migration paths inside the image.
+      MIGRATION_PATH: ""
+      # Dual-control outcome ledger. Required for the ISR release: the
+      # outcome rail must never silently degrade to 503 in deployment.
+      TIGERBEETLE_ADDRESS: ""
+      TIGERBEETLE_CLUSTER_ID: ""
+    requiredEnv:
+      - AUTH_MODE
+      - OIDC_ISSUER
+      - OIDC_AUDIENCE
+      - OIDC_JWKS_URL
+      - MIGRATION_PATH
+      - TIGERBEETLE_ADDRESS
+      - TIGERBEETLE_CLUSTER_ID
+    secretEnv:
+      - DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  isr-worker:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    daprAppId: isr-worker
+    temporalEnv:
+      enabled: true
+    env:
+      TEMPORAL_TASK_QUEUE: isr-response
+    requiredEnv:
+      - TEMPORAL_TASK_QUEUE
+    secretEnv:
+      - DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  outbox-publisher:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    daprAppId: isr-outbox-publisher
+    env:
+      # ISR mode is fixed by the chart: topics come from outbox rows and
+      # KAFKA_TOPIC must stay unset (service-enforced contract).
+      OUTBOX_SOURCE: "isr"
+      KAFKA_BROKERS: ""
+      OUTBOX_WORKER_ID: ""
+      OUTBOX_POLL_INTERVAL: "500ms"
+      OUTBOX_LEASE: "60s"
+      OUTBOX_MAX_BACKOFF: "5m"
+      # KAFKA_TRANSPORT=tls requires Ministry-approved TLS/SASL configuration
+      # before enablement; the chart rejects any other value at render time.
+      KAFKA_TRANSPORT: "local_plaintext"
+    requiredEnv:
+      - OUTBOX_SOURCE
+      - KAFKA_BROKERS
+      - OUTBOX_WORKER_ID
+    secretEnv:
+      - DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+networkPolicy:
+  enabled: true
+  # Namespaces whose ingress controllers may reach the ISR API. The namespace
+  # default-deny plus deny-cross-workstream-ingress policies still apply;
+  # entries here must be approved edge namespaces only.
+  allowedIngressNamespaces: []
+  # Ordered egress allowances outside this namespace. Everything else is denied.
+  allowedEgress:
+    - namespace: kube-system
+      ports: [53]
+      protocols: ["UDP", "TCP"]
+    # PostgreSQL (CloudNativePG), Kafka (Strimzi), Temporal, Keycloak and
+    # TigerBeetle namespaces are appended here by the environment values file.
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    path: /metrics
+    interval: 30s
+    labels:
+      blueeconomy.platform/workstream: isr
+  podMonitor:
+    # Scrapes the Dapr sidecar metrics port for every component pod.
+    enabled: true
+    labels:
+      blueeconomy.platform/workstream: isr
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1

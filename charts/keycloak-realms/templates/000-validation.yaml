@@ -28,4 +28,24 @@
 {{- if not $realm.workstreamNamespace -}}
 {{- fail (printf "realm %s requires workstreamNamespace for client-secret ExternalSecrets" $realm.name) -}}
 {{- end -}}
+{{- /* Classification-clearance gate. The ISR realm must declare the clearance
+       user attribute/client scope; any realm declaring it may only use the
+       approved classification labels. */ -}}
+{{- if $realm.clearanceScope -}}
+{{- if $realm.clearanceScope.enabled -}}
+{{- if empty $realm.clearanceScope.levels -}}
+{{- fail (printf "realm %s clearanceScope.levels must list the approved classification labels" $realm.name) -}}
+{{- end -}}
+{{- range $level := $realm.clearanceScope.levels -}}
+{{- if not (has $level (list "UNCLASSIFIED" "RESTRICTED" "CONFIDENTIAL" "SECRET")) -}}
+{{- fail (printf "realm %s clearanceScope level %q is not an approved classification label (UNCLASSIFIED, RESTRICTED, CONFIDENTIAL, SECRET)" $realm.name $level) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if eq $realm.name "blueeconomy-isr" -}}
+{{- if not (and $realm.clearanceScope $realm.clearanceScope.enabled) -}}
+{{- fail "realm blueeconomy-isr requires clearanceScope.enabled=true (classification clearance user attribute and client scope are mandatory for the ISR realm)" -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
