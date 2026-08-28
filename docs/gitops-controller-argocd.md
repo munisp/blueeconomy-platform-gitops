@@ -48,5 +48,6 @@ Approved values arrive from the authorised environment repository
 3. Apply `gitops/argocd/application-platform-base.yaml` (creates namespaces).
 4. Apply `gitops/argocd/applicationset.yaml`.
 5. Provision the environment repository with approved per-chart values and
-   the Azure Key Vault `ClusterSecretStore` (see
+   the landing zone's secret backend `ClusterSecretStore` (any
+   ESO-supported provider; the Azure Key Vault variant is documented in
    `docs/azure-government-landing-zone.md`).

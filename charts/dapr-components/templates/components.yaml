@@ -134,10 +134,51 @@ spec:
   metadata:
     - name: vaultName
       value: {{ .Values.secretStores.azureKeyVault.vaultName | quote }}
-    # Azure Government: AzureUSGovernmentCloud maps to login.microsoftonline.us
-    # and vault.usgovcloudapi.net endpoints in the Dapr Azure SDK.
+    # Azure landing-zone option: AzureUSGovernmentCloud maps to
+    # login.microsoftonline.us / vault.usgovcloudapi.net endpoints in the
+    # Dapr Azure SDK; AzurePublicCloud selects the commercial endpoints.
     - name: azureEnvironment
       value: {{ .Values.secretStores.azureKeyVault.azureEnvironment | quote }}
 scopes:
   {{- toYaml $scopes | nindent 2 }}
+{{- end }}
+{{- if .Values.secretStores.hashicorpVault.enabled }}
+---
+# HashiCorp Vault secret-store option (self-hosted or managed). Token is
+# read from the ExternalSecrets-synced Secret; no token material in git.
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: {{ $ws }}-secrets-vault
+  labels:
+    {{- include "dapr-components.labels" . | nindent 4 }}
+    blueeconomy.platform/component-role: secret-store
+spec:
+  type: secretstores.hashicorp.vault
+  version: v1
+  metadata:
+    - name: vaultAddr
+      value: {{ .Values.secretStores.hashicorpVault.server | quote }}
+    - name: vaultToken
+      secretKeyRef:
+        name: {{ .Values.secretStores.hashicorpVault.tokenSecretRef.name | quote }}
+        key: {{ .Values.secretStores.hashicorpVault.tokenSecretRef.key | quote }}
+scopes:
+  {{- toYaml $scopes | nindent 2 }}
+{{- end }}
+{{- if .Values.secretStores.external.enabled }}
+---
+# Operator-managed ClusterSecretStore declaration (any ESO-supported
+# provider). Secrets synced through it are consumed via the
+# secretstores.kubernetes component above; this ConfigMap records the
+# selected store for audit and Argo CD diff visibility.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $ws }}-external-secret-store
+  labels:
+    {{- include "dapr-components.labels" . | nindent 4 }}
+    blueeconomy.platform/component-role: secret-store
+data:
+  clusterSecretStore: {{ .Values.secretStores.external.storeRef.name | quote }}
 {{- end }}

@@ -37,8 +37,9 @@ apisixHook:
 #   - data-platform (lakehouse ingest verification)
 #
 # SOURCING: public keys are generated OUT OF BAND by the producer key
-# ceremony, published to Azure Key Vault (Azure Government:
-# vault.usgovcloudapi.net) as non-secret public material, and land in the
+# ceremony, published to the sovereign landing zone's secret store (any
+# ESO-supported backend, e.g. Azure Key Vault or HashiCorp Vault) as
+# non-secret public material, and land in the
 # authorised environment values via ExternalSecrets references. They are
 # intentionally NOT defaulted here and MUST NOT be fabricated; every entry
 # is render-gated as a base64url Ed25519 public key (32 bytes, 43 chars).

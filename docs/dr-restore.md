@@ -20,7 +20,7 @@ contract.
   (contract-enforced), platform base applied
   (`kubernetes/base`, Argo CD pointing at this repository).
 - Backup storage credentials synced into the recovery namespace via the
-  approved ExternalSecrets path (Key Vault, USGov cloud).
+  approved ExternalSecrets path (the landing zone's secret store).
 - The immutable backup store (S3 Object Lock / Azure Blob immutable policy,
   retention = `immutabilityDays`) is readable from the recovery region.
 

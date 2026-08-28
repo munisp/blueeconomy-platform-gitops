@@ -39,9 +39,16 @@ data:
     	import platform_security
     	encode zstd gzip
     	{{- if eq .Values.tls.mode "acme" }}
+    	{{- if has .Values.tls.acme.dnsProvider.name (list "rfc2136" "azuredns" "route53" "cloudflare" "googleclouddns" "digitalocean") }}
     	tls {
     		dns {{ .Values.tls.acme.dnsProvider.name }}
     	}
+    	{{- else }}
+    	# internal-ca / manual issuance: no ACME. The certificate is issued
+    	# by cert-manager (internal-ca) or supplied by the operator (manual)
+    	# and mounted from the edge TLS Secret (see deployment.yaml).
+    	tls /etc/caddy/tls/tls.crt /etc/caddy/tls/tls.key
+    	{{- end }}
     	{{- end }}
     	# Edge mTLS is mandatory for authority/partner APIs; the public
     	# portal is routed separately.
@@ -81,9 +88,16 @@ data:
     {{ .Values.domains.adminHost }} {
     	import platform_security
     	{{- if eq .Values.tls.mode "acme" }}
+    	{{- if has .Values.tls.acme.dnsProvider.name (list "rfc2136" "azuredns" "route53" "cloudflare" "googleclouddns" "digitalocean") }}
     	tls {
     		dns {{ .Values.tls.acme.dnsProvider.name }}
     	}
+    	{{- else }}
+    	# internal-ca / manual issuance: no ACME. The certificate is issued
+    	# by cert-manager (internal-ca) or supplied by the operator (manual)
+    	# and mounted from the edge TLS Secret (see deployment.yaml).
+    	tls /etc/caddy/tls/tls.crt /etc/caddy/tls/tls.key
+    	{{- end }}
     	{{- end }}
     	reverse_proxy {{ .Values.upstreams.apisixAdmin.address }}
     }

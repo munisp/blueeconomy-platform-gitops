@@ -103,10 +103,27 @@ assert_default_render_fails_closed backup-dr 'backup-dr upstream.chartName is re
 for chart in ferry-ticketing financial-controls port-interoperability security-operations \
   credential-verification fisheries-traceability maritime-intelligence \
   temporal keycloak-realms beneficiary-portal \
-  cilium caddy opa-policies backup-dr; do
+  cilium opa-policies; do
   helm template render-gate "$repo_root/charts/$chart" \
     --kube-version "$helm_kube_version" \
     -f "$repo_root/ci/render-values/$chart.yaml" > /dev/null
+done
+
+# Edge TLS provider families (cloud-agnostic contract): render every
+# per-provider caddy fixture — rfc2136 (provider-neutral default),
+# azuredns, internal-ca and manual.
+for fixture in "$repo_root"/ci/render-values/caddy*.yaml; do
+  helm template render-gate "$repo_root/charts/caddy" \
+    --kube-version "$helm_kube_version" \
+    -f "$fixture" > /dev/null
+done
+
+# Backup storage provider families: render both backup-dr fixtures
+# (s3-compatible provider-neutral and azure landing-zone option).
+for fixture in "$repo_root"/ci/render-values/backup-dr*.yaml; do
+  helm template render-gate "$repo_root/charts/backup-dr" \
+    --kube-version "$helm_kube_version" \
+    -f "$fixture" > /dev/null
 done
 
 # Dapr component layer: render every per-workstream fixture (the base cvff
@@ -329,6 +346,75 @@ fi
 grep -Fq 'must match the regional-dr contract' "$output"
 rm -f "$output"
 
+# Cloud-agnostic DNS/ACME provider gate: an unknown caddy issuance provider
+# is rejected at render time (provider enum, never a hard Azure dependency).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/caddy" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/caddy.yaml" \
+    --set 'tls.acme.dnsProvider.name=bogus-provider' > /dev/null 2>"$output"; then
+  echo 'caddy rendered with an unknown tls.acme.dnsProvider.name' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'must be one of: rfc2136, azuredns, route53, cloudflare, googleclouddns, digitalocean, internal-ca, manual' "$output"
+rm -f "$output"
+
+# rfc2136 fail-closed gate: the provider-neutral default refuses to render
+# without its authoritative nameserver.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/caddy" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/caddy.yaml" \
+    --set 'tls.acme.dnsProvider.rfc2136.nameserver=' > /dev/null 2>"$output"; then
+  echo 'caddy rendered provider=rfc2136 without a nameserver' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'rfc2136.nameserver is required' "$output"
+rm -f "$output"
+
+# rfc2136 TSIG gate: the TSIG secret reference is render-gated too.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/caddy" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/caddy.yaml" \
+    --set 'tls.acme.dnsProvider.rfc2136.tsigSecretRef.name=' > /dev/null 2>"$output"; then
+  echo 'caddy rendered provider=rfc2136 without a TSIG secret ref' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'rfc2136.tsigSecretRef.name is required' "$output"
+rm -f "$output"
+
+# Backup storage provider gate: provider=s3-compatible without its generic
+# endpoint is rejected at render time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/backup-dr" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/backup-dr.yaml" \
+    --set 'storage.endpoint=' > /dev/null 2>"$output"; then
+  echo 'backup-dr rendered provider=s3-compatible without storage.endpoint' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'storage.endpoint is required for provider=s3-compatible' "$output"
+rm -f "$output"
+
+# HashiCorp Vault secret-store gate: enabling the vault secret store without
+# its server URL is rejected at render time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/dapr-components" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/dapr-components-vault.yaml" \
+    --set 'secretStores.hashicorpVault.server=' > /dev/null 2>"$output"; then
+  echo 'dapr-components rendered hashicorpVault without a server URL' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'hashicorpVault.server is required' "$output"
+rm -f "$output"
+
 # Kafka topic namespace gate: every topic literal in the GitOps layer must
 # use an approved workstream prefix, and each phase-2 scope (seafarer,
 # fisheries, coldchain, export, maritime.isr) must be represented.
@@ -377,4 +463,4 @@ helm template core-services "$workspace/charts/core-services" --kube-version "$h
 HELM_KUBE_VERSION="$helm_kube_version" bash "$repo_root/scripts/validate-mojaloop-overlay-security.sh"
 HELM_KUBE_VERSION="$helm_kube_version" bash "$repo_root/scripts/validate-regional-dr.sh"
 
-printf '%s\n' 'Validated GitOps base manifests, workstream namespaces (ports/ferries/cvff with fiduciary segregation; seafarer/fisheries/isr with ISR national-security segregation), core-service namespaces (tigerbeetle/mojaloop/geo), recovery namespace, upstream source locks (incl. Prometheus, OpenTelemetry Collector, Argo CD), chart sources (incl. beneficiary-portal and the battle-hardened edge charts cilium/caddy/opa-policies/backup-dr), fail-closed value gates, shared-platform render fixtures (incl. phase-2 service charts, beneficiary-portal, all six per-workstream Dapr fixtures and the edge-chart fixtures), helm lint for every chart, Keycloak short-TTL, PKCE public-client redirect allowlists, ISR clearance and all six workstream Dapr scope-segregation gates, ISR outbox-mode and cold-chain breach-SLA gates, Cilium fiduciary-segregation and kernel-baseline gates, the Caddy OpenAppSec contract-flag gate, the OPA producer key-directory gate, the backup-dr immutability consistency gate, Kafka topic namespace prefixes, Argo CD project/ApplicationSet manifests, regional DR contract, Mojaloop security overrides and umbrella dependencies.'
+printf '%s\n' 'Validated GitOps base manifests, workstream namespaces (ports/ferries/cvff with fiduciary segregation; seafarer/fisheries/isr with ISR national-security segregation), core-service namespaces (tigerbeetle/mojaloop/geo), recovery namespace, upstream source locks (incl. Prometheus, OpenTelemetry Collector, Argo CD), chart sources (incl. beneficiary-portal and the battle-hardened edge charts cilium/caddy/opa-policies/backup-dr), fail-closed value gates, shared-platform render fixtures (incl. phase-2 service charts, beneficiary-portal, all six per-workstream Dapr fixtures plus the hashicorpVault/external secret-store fixture, all four caddy TLS provider fixtures and both backup-dr storage provider fixtures), helm lint for every chart, Keycloak short-TTL, PKCE public-client redirect allowlists, ISR clearance and all six workstream Dapr scope-segregation gates, ISR outbox-mode and cold-chain breach-SLA gates, Cilium fiduciary-segregation and kernel-baseline gates, the Caddy OpenAppSec contract-flag gate, the OPA producer key-directory gate, the backup-dr immutability consistency gate, the cloud-agnostic provider gates (unknown DNS/ACME provider, rfc2136 nameserver/TSIG, s3-compatible endpoint, hashicorpVault server), Kafka topic namespace prefixes, Argo CD project/ApplicationSet manifests, regional DR contract, Mojaloop security overrides and umbrella dependencies.'

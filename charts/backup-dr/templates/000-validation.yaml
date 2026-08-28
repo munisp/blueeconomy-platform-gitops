@@ -29,6 +29,7 @@
 {{- if not (hasPrefix "https://" $endpoint) -}}
 {{- fail "storage.endpoint must be an HTTPS URL" -}}
 {{- end -}}
+{{- $region := required "storage.region is required for provider=s3-compatible (S3 client region label, e.g. the endpoint's region or local)" .Values.storage.region -}}
 {{- else -}}
 {{- $sa := required "storage.azure.storageAccount is required for provider=azure" .Values.storage.azure.storageAccount -}}
 {{- $rg := required "storage.azure.resourceGroup is required for provider=azure" .Values.storage.azure.resourceGroup -}}

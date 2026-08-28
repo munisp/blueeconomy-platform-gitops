@@ -58,22 +58,47 @@ state:
       name: ""
       key: ""
 
+# Secret-store selection is sovereign landing-zone deployment policy, not
+# platform law. Every backend below is a fully-supported option; enable the
+# combination the landing zone operates (see docs/cloud-agnosticism.md).
 secretStores:
   kubernetes:
+    # Kubernetes-native secret store (default; works on any cluster and
+    # pairs with the ExternalSecrets sync below).
     enabled: true
   azureKeyVault:
+    # Azure Key Vault option (supported landing zone, incl. Azure
+    # Government). For Azure Government set azureEnvironment to
+    # AzureUSGovernmentCloud (vault.usgovcloudapi.net endpoints); for
+    # commercial Azure use AzurePublicCloud. Never a requirement.
     enabled: true
-    # Azure Government landing zone: the vault lives in the AKS-managed
-    # resource group; endpoint suffix is vault.usgovcloudapi.net and the
-    # cloud environment MUST remain AzureUSGovernmentCloud. Use
-    # AzurePublicCloud only for commercial-cloud development clusters.
     vaultName: ""
     azureEnvironment: "AzureUSGovernmentCloud"
+  hashicorpVault:
+    # HashiCorp Vault option (self-hosted or managed; a common sovereign
+    # on-prem choice). Render-gated: server and tokenSecretRef required.
+    enabled: false
+    # Vault server URL (https).
+    server: ""
+    # Secret carrying the Vault token the Dapr sidecar authenticates with,
+    # synced via the ExternalSecrets path below.
+    tokenSecretRef:
+      name: ""
+      key: ""
+  external:
+    # Any operator-managed ClusterSecretStore (any ESO-supported provider).
+    # Declares the store the ExternalSecrets below sync from when
+    # externalSecrets.storeRef.name is not set explicitly.
+    enabled: false
+    storeRef:
+      name: ""
 
 # ExternalSecret syncing the Kubernetes secrets that the Dapr components
 # reference via secretKeyRef (Redis password, PostgreSQL connection string,
-# Kafka SASL password). storeRef.name must reference the approved
-# ClusterSecretStore (Azure Key Vault provider, workload-identity auth).
+# Kafka SASL password). storeRef.name references the sovereign landing
+# zone's secret backend ClusterSecretStore (any ESO provider: Azure Key
+# Vault, HashiCorp Vault, or another operator-managed store); it defaults
+# to secretStores.external.storeRef.name when that option is enabled.
 externalSecrets:
   storeRef:
     name: ""

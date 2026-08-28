@@ -1,5 +1,7 @@
 # CI render-gate fixture ONLY. NOT deployable: synthetic digests and
 # illustrative endpoints. Real values live in the authorised environment repo.
+# Provider family: azure (Azure Blob/ADLS backup storage — a fully-supported
+# landing-zone option, incl. Azure Government; not a platform requirement).
 upstream:
   chartName: velero
   chartVersion: 8.1.0
@@ -11,11 +13,12 @@ backup:
     regionalDRImmutabilityDays: 30
 
 storage:
-  provider: s3-compatible
+  provider: azure
   bucket: blueeconomy-backups
   prefix: blueeconomy
-  endpoint: https://objectstore.blueeconomy.example.gov.ng
-  region: local
+  azure:
+    storageAccount: blueeconomybackups
+    resourceGroup: blueeconomy-dr
   credentialsSecretRef:
     name: backup-storage-credentials
 
@@ -37,7 +40,7 @@ velero:
 
 walG:
   image:
-    repository: registry.blueeconomy.example.gov.ng/blueeconomy/wal-g
+    repository: blueeconomy.azurecr.us/blueeconomy/wal-g
     digest: sha256:1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef018c1f4b2a9d6e5f0a
   baseBackupSchedule: "30 1 * * *"
   clusters:

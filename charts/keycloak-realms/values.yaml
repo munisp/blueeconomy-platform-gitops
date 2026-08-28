@@ -6,8 +6,8 @@ fullnameOverride: ""
 
 keycloak:
   # In-cluster base URL of the operator-managed Keycloak instance.
-  # Azure Government note: no sovereign endpoint involved here; this is the
-  # cluster-local service DNS name.
+  # Provider-neutral: no cloud endpoint involved here; this is the
+  # cluster-local service DNS name on any Kubernetes landing zone.
   baseUrl: ""
 
 importJob:

@@ -6,9 +6,12 @@
 # Application shows the chart's approval-gate error until the environment
 # repository supplies approved values — that is intentional.
 #
-# Azure Government: the AKS landing zone runs in a USGov region; the
-# environment repository supplies the USGov ACR registry names, the Key Vault
-# (vault.usgovcloudapi.net) ClusterSecretStore and USGov service endpoints.
+# Provider-neutral: this chart set deploys to any Kubernetes landing zone
+# (on-prem, sovereign cloud, or commercial cloud). The environment
+# repository supplies the landing zone's container registry names, the
+# secret backend ClusterSecretStore (any ESO-supported provider) and the
+# applicable service endpoints. Azure Government (USGov ACR, Key Vault
+# vault.usgovcloudapi.net) remains one fully-supported landing-zone option.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:

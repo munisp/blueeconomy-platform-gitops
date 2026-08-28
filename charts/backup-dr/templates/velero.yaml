@@ -38,9 +38,10 @@ spec:
     {{- if eq .Values.storage.provider "s3-compatible" }}
     # Generic S3-compatible endpoint (cloud-agnostic; no AWS-only API).
     s3Url: {{ .Values.storage.endpoint | quote }}
-    region: minio
+    region: {{ .Values.storage.region | quote }}
     {{- else }}
-    # Azure Blob/ADLS (Azure Government storage account in a USGov region).
+    # Azure Blob/ADLS (supported landing-zone option, incl. Azure
+    # Government storage accounts).
     storageAccount: {{ .Values.storage.azure.storageAccount | quote }}
     resourceGroup: {{ .Values.storage.azure.resourceGroup | quote }}
     {{- end }}

@@ -30,10 +30,15 @@ before traffic reaches the edge pods.
 - TLS termination only; every listener is HTTPS with the promoted security
   header set (HSTS preload, nosniff, frame DENY, no-referrer, restrictive
   Permissions-Policy, `Server` stripped).
-- Automated certificate issuance: ACME DNS-01 through the Azure DNS solver
-  abstraction (Azure Government compatible; credentials arrive only via the
-  ExternalSecret from Azure Key Vault) or the platform-internal CA
-  (`tls.mode: internal`).
+- Automated certificate issuance through a provider-neutral enum
+  (`tls.acme.dnsProvider.name`): ACME DNS-01 via `rfc2136` (RFC 2136
+  dynamic DNS — the provider-neutral default), `azuredns`, `route53`,
+  `cloudflare`, `googleclouddns` or `digitalocean`; or the no-ACME paths
+  `internal-ca` (cert-manager cluster-issued) and `manual`
+  (operator-supplied TLS Secret); or the platform-internal CA
+  (`tls.mode: internal`). Solver credentials arrive only via the
+  ExternalSecret from the landing zone's secret store. Azure DNS remains a
+  fully-supported option, never a requirement.
 - Edge mTLS `require_and_verify` for `/partner/*` and `/v1/nsw/*` against the
   approved partner CA bundle — authority/NSW traffic cannot cross the edge
   without a partner client certificate.

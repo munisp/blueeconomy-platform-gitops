@@ -1,6 +1,6 @@
 # CI render-gate fixture ONLY. NOT deployable: synthetic digest and
 # illustrative hostnames. Real values live in the authorised environment repo.
-# Provider family: rfc2136 (the provider-neutral sovereign/on-prem default).
+# Provider family: internal-ca (no ACME; cert-manager internal issuer).
 image:
   repository: registry.blueeconomy.example.gov.ng/blueeconomy/caddy
   digest: sha256:3a5d4e0b9e6f6f2b1c8a7d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a
@@ -18,13 +18,12 @@ upstreams:
 tls:
   mode: acme
   acme:
-    email: platform-pki@blueeconomy.example.gov.ng
     dnsProvider:
-      name: rfc2136
-      rfc2136:
-        nameserver: ns1.blueeconomy.example.gov.ng:53
-        tsigSecretRef:
-          name: caddy-acme-rfc2136-tsig
+      name: internal-ca
+      internalCA:
+        issuerRef:
+          name: platform-internal-ca
+          kind: ClusterIssuer
   partnerMtls:
     caSecretRef:
       name: partner-mtls-ca-bundle
@@ -32,12 +31,3 @@ tls:
 
 keycloak:
   discoveryUrl: https://keycloak.blueeconomy-security.svc.cluster.local:8443/realms/blueeconomy/.well-known/openid-configuration
-
-externalSecrets:
-  storeRef:
-    name: landing-zone-secret-store
-    kind: ClusterSecretStore
-  keys:
-    RFC2136_TSIG_KEY: edge/render-fixture/rfc2136-tsig-key
-    RFC2136_TSIG_SECRET: edge/render-fixture/rfc2136-tsig-secret
-    RFC2136_TSIG_ALGORITHM: edge/render-fixture/rfc2136-tsig-algorithm

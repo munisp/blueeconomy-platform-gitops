@@ -26,12 +26,25 @@ spec:
           ports:
             - containerPort: 443
               name: https
-          {{- if and (eq .Values.tls.mode "acme") .Values.externalSecrets.keys }}
+          {{- if eq .Values.tls.mode "acme" }}
+          {{- if eq .Values.tls.acme.dnsProvider.name "rfc2136" }}
+          env:
+            - name: RFC2136_NAMESERVER
+              value: {{ .Values.tls.acme.dnsProvider.rfc2136.nameserver | quote }}
           envFrom:
-            # Azure DNS solver credentials (AZURE_*), synced from Azure Key
-            # Vault by the ExternalSecret in externalsecret.yaml.
+            # RFC 2136 TSIG credentials (RFC2136_TSIG_*), synced from the
+            # landing zone's secret store by the ExternalSecret in
+            # externalsecret.yaml.
+            - secretRef:
+                name: {{ .Values.tls.acme.dnsProvider.rfc2136.tsigSecretRef.name }}
+          {{- else if has .Values.tls.acme.dnsProvider.name (list "azuredns" "route53" "cloudflare" "googleclouddns" "digitalocean") }}
+          envFrom:
+            # DNS-01 provider API credentials, synced from the landing
+            # zone's secret store by the ExternalSecret in
+            # externalsecret.yaml.
             - secretRef:
                 name: {{ .Values.tls.acme.dnsProvider.credentialsSecretRef.name }}
+          {{- end }}
           {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
@@ -54,6 +67,11 @@ spec:
             - name: partner-ca
               mountPath: /etc/caddy/partner-ca
               readOnly: true
+            {{- if and (eq .Values.tls.mode "acme") (has .Values.tls.acme.dnsProvider.name (list "internal-ca" "manual")) }}
+            - name: tls
+              mountPath: /etc/caddy/tls
+              readOnly: true
+            {{- end }}
             - name: data
               mountPath: /data
             - name: tmp
@@ -65,6 +83,13 @@ spec:
         - name: partner-ca
           secret:
             secretName: {{ .Values.tls.partnerMtls.caSecretRef.name }}
+        {{- if and (eq .Values.tls.mode "acme") (has .Values.tls.acme.dnsProvider.name (list "internal-ca" "manual")) }}
+        - name: tls
+          secret:
+            # internal-ca: cert-manager Certificate output (certificate.yaml);
+            # manual: the operator-supplied TLS Secret.
+            secretName: {{ ternary (printf "%s-edge-tls" (include "caddy.fullname" .)) .Values.tls.acme.dnsProvider.manual.tlsSecretRef.name (eq .Values.tls.acme.dnsProvider.name "internal-ca") }}
+        {{- end }}
         - name: data
           emptyDir: {}
         - name: tmp

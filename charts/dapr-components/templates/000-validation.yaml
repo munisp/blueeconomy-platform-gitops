@@ -23,7 +23,13 @@
 {{- fail (printf "workstream.appIds entry %q is not %s %s app-id; %s components are restricted to %s" $appId $article $ws $ws (join ", " $allowed)) -}}
 {{- end -}}
 {{- end -}}
-{{- $store := required "externalSecrets.storeRef.name is required" .Values.externalSecrets.storeRef.name -}}
+{{- if .Values.secretStores.external.enabled -}}
+{{- $ext := required "secretStores.external.storeRef.name is required when secretStores.external.enabled (operator-managed ClusterSecretStore)" .Values.secretStores.external.storeRef.name -}}
+{{- end -}}
+{{- $store := .Values.externalSecrets.storeRef.name | default .Values.secretStores.external.storeRef.name -}}
+{{- if not $store -}}
+{{- fail "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore; or set secretStores.external.storeRef.name)" -}}
+{{- end -}}
 {{- if .Values.pubsub.enabled -}}
 {{- if eq .Values.pubsub.driver "kafka" -}}
 {{- $brokers := required "pubsub.kafka.brokers is required" .Values.pubsub.kafka.brokers -}}
@@ -47,4 +53,12 @@
 {{- end -}}
 {{- if .Values.secretStores.azureKeyVault.enabled -}}
 {{- $vault := required "secretStores.azureKeyVault.vaultName is required" .Values.secretStores.azureKeyVault.vaultName -}}
+{{- end -}}
+{{- if .Values.secretStores.hashicorpVault.enabled -}}
+{{- $vserver := required "secretStores.hashicorpVault.server is required (Vault server URL)" .Values.secretStores.hashicorpVault.server -}}
+{{- if not (hasPrefix "https://" $vserver) -}}
+{{- fail "secretStores.hashicorpVault.server must be an HTTPS URL" -}}
+{{- end -}}
+{{- $vn := required "secretStores.hashicorpVault.tokenSecretRef.name is required" .Values.secretStores.hashicorpVault.tokenSecretRef.name -}}
+{{- $vk := required "secretStores.hashicorpVault.tokenSecretRef.key is required" .Values.secretStores.hashicorpVault.tokenSecretRef.key -}}
 {{- end -}}

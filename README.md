@@ -2,6 +2,8 @@
 
 This repository contains non-secret Kubernetes policy, source locks and deployment-source declarations for the hybrid Blue Economy Platform. It does not contain a kubeconfig, cloud credentials, partner endpoints, certificates, TLS private keys, runtime secrets, fabricated environment values or production data.
 
+The platform is **cloud-agnostic and sovereign-deployable**: it runs on any Kubernetes >= 1.29 — on-prem/self-hosted clusters, sovereign clouds, or commercial clouds. Provider-specific services appear only as pluggable, render-gated options behind provider-neutral abstractions, never as hard requirements; Azure Government remains a fully-supported landing-zone option. The component-by-component provider-neutrality contract is `docs/cloud-agnosticism.md`.
+
 The current base applies namespace boundaries and policy source. The `charts/` directory now versions the Ministry-owned TigerBeetle StatefulSet pattern, the Mojaloop release-control overlay, the Sedona Spark job pattern and a disabled-by-default umbrella chart. Each service chart fails rendering when required approved environment values are absent. No example values are supplied because the Ministry environment registry, immutable image digests, infrastructure identifiers and regulated authorities have not been provided.
 
 A source lock, successful lint or rendered manifest is **not** evidence of deployment. A deployment is verified only when an authorized hybrid target, reviewed environment values, change approval, target-side health and security evidence, recovery testing and the applicable business acceptance record are all retained. See `docs/core-services-deployment-guide.md` and `policies/core-services-production-guardrails.md`.
@@ -25,7 +27,8 @@ The shared-platform layer adds:
   annotations, per-workstream ServiceMonitor/PodMonitor).
 - `charts/dapr-components` — per-workstream Dapr components (Kafka pub/sub
   with documented Fluvio variant, Redis hot + PostgreSQL durable state,
-  Kubernetes + Azure Key Vault secret stores). Rendered once per workstream
+  pluggable secret stores: Kubernetes, Azure Key Vault, HashiCorp Vault or
+  an operator-managed external ClusterSecretStore). Rendered once per workstream
   with scopes restricted to that workstream's app-ids; every release is
   hard-restricted to its own approved app-ids (cvff fiduciary segregation,
   isr national-security segregation).
@@ -49,8 +52,10 @@ The shared-platform layer adds:
   additionally denies cross-workstream ingress.
 - Observability pins (Prometheus, OpenTelemetry Collector, OpenSearch) in
   `components/upstream-components.lock.yaml`.
-- Azure Government / AKS landing-zone assumptions:
-  `docs/azure-government-landing-zone.md`.
+- Provider-neutrality contract (cloud-agnostic, sovereign-deployable):
+  `docs/cloud-agnosticism.md`. Landing-zone option guides:
+  `docs/azure-government-landing-zone.md` (Azure Government / AKS — one
+  fully-supported option, not the assumed target).
 
 ## Battle-hardened edge and recovery layer
 
@@ -69,8 +74,10 @@ DR contract without machinery):
   LoadBalancer DDoS mitigation. Node kernel baseline (>= 5.4, no io_uring
   requirement) is render-gated.
 - `charts/caddy` — Caddy TLS-terminating edge in front of APISIX, promoted
-  from the umbrella design-stage kustomize: automated TLS (ACME DNS-01 via
-  the Azure DNS solver abstraction or the platform-internal CA), the
+  from the umbrella design-stage kustomize: automated TLS via a
+  provider-neutral issuance enum (ACME DNS-01 via rfc2136/azuredns/
+  route53/cloudflare/googleclouddns/digitalocean, cert-manager internal-ca,
+  operator-supplied manual certificates, or the platform-internal CA), the
   promoted security-header set, request-size/timeout caps, edge mTLS for
   partner/NSW routes, the OpenAppSec WAF contract flag (render gate refuses
   to disable it) and the OIDC relying-party contract for admin consoles.

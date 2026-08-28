@@ -1,9 +1,13 @@
-# Azure Government / AKS landing-zone assumptions
+# Azure Government / AKS landing-zone option
 
-The shared-platform layer targets an **AKS cluster in an Azure Government
-(USGov) region**. This file records the assumptions baked into chart values
-and comments; environment-specific values are supplied by the authorised
-environment repository, never committed here.
+The platform is **cloud-agnostic and sovereign-deployable** (see
+`docs/cloud-agnosticism.md`): it runs on any Kubernetes — on-prem,
+sovereign cloud, or commercial cloud. This document describes **one
+fully-supported landing-zone option**: an **AKS cluster in an Azure
+Government (USGov) region**. Nothing here is a platform requirement; every
+Azure-specific setting below is a pluggable, render-gated option behind a
+provider-neutral abstraction. Environment-specific values are supplied by
+the authorised environment repository, never committed here.
 
 ## Sovereign endpoints (USGov)
 
@@ -22,9 +26,10 @@ environment repository, never committed here.
   vault endpoints. Override to `AzurePublicCloud` only on commercial
   development clusters.
 - **ExternalSecrets `ClusterSecretStore`** (referenced by every chart via
-  `externalSecrets.storeRef.name`, fail-closed): the environment repository
-  defines an Azure Key Vault provider store pointed at the USGov vault with
-  AKS workload identity (no client secrets).
+  `externalSecrets.storeRef.name`, fail-closed): for this landing-zone
+  option the environment repository defines an Azure Key Vault provider
+  store pointed at the USGov vault with AKS workload identity (no client
+  secrets). Other landing zones substitute any ESO-supported store.
 - **Image references**: all service images are digest-pinned and hosted in a
   USGov ACR (`*.azurecr.us`) per the environment values.
 - **Keycloak realms** (`charts/keycloak-realms`): cluster-local service URLs;

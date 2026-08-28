@@ -1,0 +1,46 @@
+# CI render-gate fixture ONLY (cvff workstream variant). NOT deployable.
+# Secret-store family: hashicorpVault + external (operator-managed
+# ClusterSecretStore) — the provider-neutral sovereign secret backends.
+workstream:
+  name: cvff
+  appIds:
+    - intent-api
+    - cvff-worker
+    - cvff-outbox-publisher
+
+pubsub:
+  kafka:
+    brokers: kafka.blueeconomy-platform.svc.cluster.local:9092
+
+state:
+  hot:
+    redisHost: redis-master.blueeconomy-platform.svc.cluster.local:6379
+    passwordSecretKeyRef:
+      name: dapr-cvff-components
+      key: redis-password
+  durable:
+    connectionStringSecretKeyRef:
+      name: dapr-cvff-components
+      key: postgres-connection-string
+
+secretStores:
+  azureKeyVault:
+    enabled: false
+  hashicorpVault:
+    enabled: true
+    server: https://vault.blueeconomy.example.gov.ng:8200
+    tokenSecretRef:
+      name: dapr-cvff-components
+      key: vault-token
+  external:
+    enabled: true
+    storeRef:
+      name: landing-zone-secret-store
+
+externalSecrets:
+  storeRef:
+    kind: ClusterSecretStore
+  keys:
+    redis-password: cvff/render-fixture/redis-password
+    postgres-connection-string: cvff/render-fixture/postgres-connection-string
+    vault-token: cvff/render-fixture/vault-token

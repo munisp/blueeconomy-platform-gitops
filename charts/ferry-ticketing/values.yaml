@@ -26,9 +26,10 @@ securityContext:
   capabilities:
     drop: ["ALL"]
 
-# ExternalSecrets contract. storeRef.name must reference the approved
-# ClusterSecretStore (Azure Key Vault provider on AKS / Azure Government:
-# vault endpoint suffix vault.usgovcloudapi.net, workload-identity auth).
+# ExternalSecrets contract. storeRef.name references the sovereign landing
+# zone's secret backend ClusterSecretStore (any ESO-supported provider:
+# Azure Key Vault, HashiCorp Vault, or another operator-managed store;
+# selection is deployment policy, not platform law).
 externalSecrets:
   storeRef:
     name: ""

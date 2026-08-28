@@ -1,8 +1,10 @@
 # Backup/DR machinery. This chart fulfills the charts/regional-dr recovery
 # contract: backups that can actually be immutable, restored and drilled.
-# Cloud-agnostic and Azure Government deployable: S3-compatible storage is
-# addressed through a generic endpoint; Azure Blob/ADLS through the azure
-# provider with a USGov storage account. No AWS-only APIs.
+# Cloud-agnostic and sovereign-deployable: S3-compatible storage is addressed
+# through a generic endpoint (on-prem object stores, sovereign clouds, or
+# commercial clouds — no AWS-only APIs); Azure Blob/ADLS through the azure
+# provider, which remains a fully-supported landing-zone option, never a
+# requirement (see docs/cloud-agnosticism.md).
 # Fail-closed: schedule, storage endpoint and immutabilityDays are required.
 nameOverride: ""
 fullnameOverride: ""
@@ -29,20 +31,26 @@ backup:
     regionalDRImmutabilityDays: 0
 
 storage:
-  # s3-compatible: any S3 API endpoint (incl. on-prem/object-lock-capable
-  # stores). azure: Azure Blob/ADLS (Azure Government storage account).
+  # s3-compatible: any S3 API endpoint (on-prem object stores, sovereign or
+  # commercial clouds; object-lock-capable for immutability). azure: Azure
+  # Blob/ADLS (a supported landing-zone option, incl. Azure Government).
   provider: s3-compatible
   bucket: ""
   prefix: blueeconomy
   # Generic endpoint for s3-compatible providers (https URL). Required when
   # provider=s3-compatible.
   endpoint: ""
+  # Region presented to S3 clients (WAL-G AWS_REGION, Velero region).
+  # Required when provider=s3-compatible; use the endpoint's region label
+  # (many on-prem stores accept any non-empty label, e.g. "local").
+  region: ""
   # Azure Blob settings (required when provider=azure).
   azure:
     storageAccount: ""
     resourceGroup: ""
-  # Credentials arrive only via ExternalSecrets/Key Vault; this is the name
-  # of the synced Secret the Velero/WAL-G workloads reference.
+  # Credentials arrive only via ExternalSecrets from the landing zone's
+  # secret store; this is the name of the synced Secret the Velero/WAL-G
+  # workloads reference.
   credentialsSecretRef:
     name: ""
 

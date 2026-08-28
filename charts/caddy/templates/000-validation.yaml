@@ -3,7 +3,7 @@
 {{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
 {{- fail "image.digest must be an immutable lower-case sha256 digest" -}}
 {{- end -}}
-{{- $repo := required "image.repository is required (approved Caddy build with caddy-dns/azure and rate_limit modules)" .Values.image.repository -}}
+{{- $repo := required "image.repository is required (approved Caddy build with the DNS-01 provider modules and rate_limit module)" .Values.image.repository -}}
 
 {{- $dnsName := "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$" -}}
 {{- $publicHost := required "domains.publicHost is required (public edge hostname)" .Values.domains.publicHost -}}
@@ -32,14 +32,39 @@
 {{- fail "tls.mode must be acme or internal" -}}
 {{- end -}}
 {{- if eq .Values.tls.mode "acme" -}}
-{{- $email := required "tls.acme.email is required in acme mode" .Values.tls.acme.email -}}
+{{- /* Provider-neutral issuance enum. ACME DNS-01 solvers work against any
+       standards-compliant or cloud DNS; internal-ca and manual are the
+       no-ACME issuance paths. Azure DNS is one supported option among
+       several, never a requirement. New providers are added ONLY as new
+       render-gated enum members (docs/cloud-agnosticism.md). */ -}}
+{{- $acmeDnsProviders := list "rfc2136" "azuredns" "route53" "cloudflare" "googleclouddns" "digitalocean" -}}
+{{- $providers := list "rfc2136" "azuredns" "route53" "cloudflare" "googleclouddns" "digitalocean" "internal-ca" "manual" -}}
+{{- $provider := .Values.tls.acme.dnsProvider.name -}}
+{{- if not (has $provider $providers) -}}
+{{- fail "tls.acme.dnsProvider.name must be one of: rfc2136, azuredns, route53, cloudflare, googleclouddns, digitalocean, internal-ca, manual" -}}
+{{- end -}}
+{{- if has $provider $acmeDnsProviders -}}
+{{- $email := required "tls.acme.email is required for ACME DNS-01 providers" .Values.tls.acme.email -}}
 {{- if not (contains "@" $email) -}}
 {{- fail "tls.acme.email must be an email address" -}}
 {{- end -}}
-{{- if ne .Values.tls.acme.dnsProvider.name "azuredns" -}}
-{{- fail "tls.acme.dnsProvider.name must be azuredns (only the Azure DNS solver abstraction is approved)" -}}
+{{- if eq $provider "rfc2136" -}}
+{{- $nameserver := required "tls.acme.dnsProvider.rfc2136.nameserver is required for provider=rfc2136 (host:port of the authoritative DNS server accepting RFC 2136 dynamic updates)" .Values.tls.acme.dnsProvider.rfc2136.nameserver -}}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?:[0-9]+$" $nameserver) -}}
+{{- fail "tls.acme.dnsProvider.rfc2136.nameserver must be a host:port" -}}
 {{- end -}}
-{{- $cred := required "tls.acme.dnsProvider.credentialsSecretRef.name is required in acme mode (ExternalSecret-synced Azure DNS credentials)" .Values.tls.acme.dnsProvider.credentialsSecretRef.name -}}
+{{- $tsig := required "tls.acme.dnsProvider.rfc2136.tsigSecretRef.name is required for provider=rfc2136 (TSIG key Secret synced from the landing zone's secret store)" .Values.tls.acme.dnsProvider.rfc2136.tsigSecretRef.name -}}
+{{- else -}}
+{{- $cred := required (printf "tls.acme.dnsProvider.credentialsSecretRef.name is required for provider=%s (ExternalSecret-synced DNS API credentials)" $provider) .Values.tls.acme.dnsProvider.credentialsSecretRef.name -}}
+{{- end -}}
+{{- else if eq $provider "internal-ca" -}}
+{{- $issuer := required "tls.acme.dnsProvider.internalCA.issuerRef.name is required for provider=internal-ca (cert-manager issuer for the edge Certificate)" .Values.tls.acme.dnsProvider.internalCA.issuerRef.name -}}
+{{- if not (has .Values.tls.acme.dnsProvider.internalCA.issuerRef.kind (list "Issuer" "ClusterIssuer")) -}}
+{{- fail "tls.acme.dnsProvider.internalCA.issuerRef.kind must be Issuer or ClusterIssuer" -}}
+{{- end -}}
+{{- else -}}
+{{- $tlsSecret := required "tls.acme.dnsProvider.manual.tlsSecretRef.name is required for provider=manual (operator-supplied TLS Secret)" .Values.tls.acme.dnsProvider.manual.tlsSecretRef.name -}}
+{{- end -}}
 {{- end -}}
 {{- $partnerCA := required "tls.partnerMtls.caSecretRef.name is required (partner CA bundle for /partner and /v1/nsw edge mTLS)" .Values.tls.partnerMtls.caSecretRef.name -}}
 

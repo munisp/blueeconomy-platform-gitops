@@ -1,8 +1,9 @@
 # Caddy edge (TLS termination) in front of APISIX. Topology and per-layer
 # enforcement: docs/edge-topology.md.
 #
-# The image must be the approved Caddy build carrying the caddy-dns/azure
-# (ACME DNS-01) and rate_limit modules; it is digest-pinned only.
+# The image must be the approved Caddy build carrying the DNS-01 provider
+# modules (caddy-dns/* for every provider enum member below) and the
+# rate_limit module; it is digest-pinned only.
 # Fail-closed: nothing deployable is defaulted.
 nameOverride: ""
 fullnameOverride: ""
@@ -35,22 +36,65 @@ upstreams:
     address: ""
 
 tls:
-  # acme: public certificates via ACME DNS-01. internal: platform-internal
-  # CA (Caddy local issuer) for non-public endpoints.
+  # acme: automated certificate issuance (public ACME DNS-01, in-cluster
+  # internal CA, or operator-supplied certificates, per the provider enum
+  # below). internal: platform-internal CA (Caddy local issuer) for
+  # non-public endpoints.
   mode: acme
   acme:
-    # ACME account contact. Render-gated.
+    # ACME account contact. Render-gated for the ACME DNS-01 providers.
     email: ""
-    # DNS-01 solver abstraction. Only the Azure DNS provider is approved
-    # (Azure Government compatible); any additional provider requires a
-    # Design Authority decision recorded in this file.
+    # Certificate issuance / DNS-01 solver provider. Provider-neutral:
+    # selection is sovereign landing-zone policy, not platform law.
+    # One of:
+    #   rfc2136         RFC 2136 dynamic DNS updates against any standards-
+    #                   compliant authoritative server (BIND, PowerDNS,
+    #                   CoreDNS, ...). The provider-neutral default; works
+    #                   on-prem and in any sovereign cloud.
+    #   azuredns        Azure DNS (Azure Public or Azure Government). A
+    #                   fully-supported option, never a requirement.
+    #   route53         AWS Route 53.
+    #   cloudflare      Cloudflare DNS.
+    #   googleclouddns  Google Cloud DNS.
+    #   digitalocean    DigitalOcean DNS.
+    #   internal-ca     No ACME: certificates are issued in-cluster by
+    #                   cert-manager from an internal CA issuer and mounted.
+    #   manual          No ACME: the operator supplies the TLS Secret out of
+    #                   band and it is mounted.
+    # Any NEW provider requires a render-gated option here, never a hard
+    # dependency (see docs/cloud-agnosticism.md).
     dnsProvider:
-      name: azuredns
-      # Azure DNS credentials are synced from Azure Key Vault by the
-      # ExternalSecret below; Caddy reads AZURE_* environment variables
-      # from the synced Secret. No secret material in this repository.
+      name: rfc2136
+      # DNS API credentials for azuredns / route53 / cloudflare /
+      # googleclouddns / digitalocean, synced from the landing zone's secret
+      # store by the ExternalSecret below; Caddy reads the provider's
+      # documented environment variables from the synced Secret. No secret
+      # material in this repository.
       credentialsSecretRef:
         name: ""
+      # rfc2136 provider settings (render-gated when name=rfc2136).
+      rfc2136:
+        # host:port of the authoritative DNS server accepting RFC 2136
+        # dynamic updates for the edge zones.
+        nameserver: ""
+        # TSIG authentication for dynamic updates: Secret carrying the
+        # RFC2136_TSIG_KEY / RFC2136_TSIG_SECRET / RFC2136_TSIG_ALGORITHM
+        # keys, synced by the ExternalSecret below. Render-gated.
+        tsigSecretRef:
+          name: ""
+      # internal-ca provider settings (render-gated when name=internal-ca).
+      internalCA:
+        # cert-manager issuer the edge Certificate is requested from (e.g.
+        # an internal CA ClusterIssuer in the platform PKI namespace).
+        issuerRef:
+          name: ""
+          kind: ClusterIssuer
+      # manual provider settings (render-gated when name=manual).
+      manual:
+        # Operator-supplied TLS Secret (tls.crt/tls.key) covering both edge
+        # hostnames, mounted into Caddy.
+        tlsSecretRef:
+          name: ""
   # Edge mTLS for /partner/* and /v1/nsw/* routes: CA bundle verifying
   # partner client certificates, mounted from this Secret key.
   partnerMtls:
@@ -88,9 +132,18 @@ externalSecrets:
     name: ""
     kind: ClusterSecretStore
   refreshInterval: 1h
-  # Keys synced into the ACME Azure DNS credentials Secret:
-  #   AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET /
-  #   AZURE_SUBSCRIPTION_ID / AZURE_RESOURCE_GROUP
+  # Keys synced into the DNS-01 provider credentials Secret. The required
+  # keys depend on tls.acme.dnsProvider.name, e.g.:
+  #   rfc2136:        RFC2136_TSIG_KEY / RFC2136_TSIG_SECRET /
+  #                   RFC2136_TSIG_ALGORITHM
+  #   azuredns:       AZURE_TENANT_ID / AZURE_CLIENT_ID /
+  #                   AZURE_CLIENT_SECRET / AZURE_SUBSCRIPTION_ID /
+  #                   AZURE_RESOURCE_GROUP
+  #   route53:        AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+  #   cloudflare:     CLOUDFLARE_API_TOKEN (or CF_API_TOKEN per build)
+  #   googleclouddns: GOOGLE_APPLICATION_CREDENTIALS_DATA (or per build)
+  #   digitalocean:   DO_AUTH_TOKEN (or per build)
+  # internal-ca and manual need no DNS credentials (keys stay empty).
   keys: {}
 
 resources:

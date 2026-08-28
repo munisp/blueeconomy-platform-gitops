@@ -11,13 +11,15 @@ metadata:
 immutable: true
 data:
   {{- if eq .Values.storage.provider "s3-compatible" }}
-  # Generic S3-compatible target (cloud-agnostic; Azure Government deployable
-  # via any S3-compatible gateway, no AWS-only API).
+  # Generic S3-compatible target (cloud-agnostic and sovereign-deployable:
+  # any S3 API endpoint, no AWS-only API).
   WALG_S3_PREFIX: {{ printf "s3://%s/%s/walg" .Values.storage.bucket .Values.storage.prefix | quote }}
   AWS_ENDPOINT: {{ .Values.storage.endpoint | quote }}
+  AWS_REGION: {{ .Values.storage.region | quote }}
   AWS_S3_FORCE_PATH_STYLE: "true"
   {{- else }}
-  # Azure Blob/ADLS target (Azure Government storage account).
+  # Azure Blob/ADLS target (supported landing-zone option, incl. Azure
+  # Government storage accounts).
   WALG_AZ_PREFIX: {{ printf "azure://%s/%s/walg" .Values.storage.bucket .Values.storage.prefix | quote }}
   AZURE_STORAGE_ACCOUNT: {{ .Values.storage.azure.storageAccount | quote }}
   {{- end }}
