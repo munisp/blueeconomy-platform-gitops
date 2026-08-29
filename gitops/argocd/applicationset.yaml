@@ -83,6 +83,11 @@ spec:
             namespace: blueeco-geo-prod
           - chart: geo-service
             namespace: blueeco-geo-prod
+          # Device-plane MQTT ingress (PRA-088): EMQX broker with the
+          # geo-service mqtt-auth webhook, reconciled into the ferries
+          # workstream namespace alongside the waterway-safety gateway.
+          - chart: emqx
+            namespace: blueeconomy-ferries
           # Umbrella release for coordinated core-service deployments;
           # dependencies are disabled by default until production formation
           # approval lands in the environment values.

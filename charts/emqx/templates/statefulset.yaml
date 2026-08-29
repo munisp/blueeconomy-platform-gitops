@@ -1,0 +1,215 @@
+{{- $fullName := include "emqx.fullname" . -}}
+{{- $secretName := include "emqx.secretName" . -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "emqx.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "emqx.headlessName" . }}
+  replicas: {{ .Values.replicas }}
+  podManagementPolicy: Parallel
+  revisionHistoryLimit: 5
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "emqx.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "emqx.selectorLabels" . | nindent 8 }}
+      annotations:
+        blueeconomy.platform/device-plane: mqtt-ingress
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: emqx
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: mqtt
+              containerPort: {{ .Values.listeners.mqttPort }}
+              protocol: TCP
+            {{- if .Values.tls.enabled }}
+            - name: mqtts
+              containerPort: {{ .Values.listeners.mqttsPort }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.dashboard.enabled }}
+            - name: dashboard
+              containerPort: 18083
+              protocol: TCP
+            {{- end }}
+            - name: ekka
+              containerPort: 4370
+              protocol: TCP
+          env:
+            # Device-plane authn (PRA-088): EMQX HTTP authn against the
+            # geo-service device plane — clientid is the registered device
+            # id, password the Ed25519 signed proof; the webhook answers
+            # allow/deny and never grants is_superuser. The non-empty
+            # authentication chain denies anonymous clients.
+            - name: EMQX_AUTHENTICATION__1__MECHANISM
+              value: "password_based"
+            - name: EMQX_AUTHENTICATION__1__BACKEND
+              value: "http"
+            - name: EMQX_AUTHENTICATION__1__URL
+              value: {{ .Values.mqttAuth.url | quote }}
+            - name: EMQX_AUTHENTICATION__1__METHOD
+              value: "post"
+            - name: EMQX_AUTHENTICATION__1__HEADERS__CONTENT__TYPE
+              value: "application/json"
+            - name: EMQX_AUTHENTICATION__1__BODY__CLIENTID
+              value: "$${clientid}"
+            - name: EMQX_AUTHENTICATION__1__BODY__USERNAME
+              value: "$${username}"
+            - name: EMQX_AUTHENTICATION__1__BODY__PASSWORD
+              value: "$${password}"
+            - name: EMQX_AUTHENTICATION__1__REQUEST_TIMEOUT
+              value: {{ .Values.mqttAuth.requestTimeout | quote }}
+            - name: EMQX_AUTHENTICATION__1__CONNECT_TIMEOUT
+              value: {{ .Values.mqttAuth.connectTimeout | quote }}
+            - name: EMQX_AUTHENTICATION__1__POOL_SIZE
+              value: {{ .Values.mqttAuth.poolSize | quote }}
+            # Topic-ACL posture (values.yaml documents the allow/deny
+            # semantics; per-device topic ACL sources are future work).
+            - name: EMQX_AUTHORIZATION__NO_MATCH
+              value: {{ .Values.authorization.noMatch | quote }}
+            # Static cluster discovery inside the headless service.
+            - name: EMQX_CLUSTER__DISCOVERY_STRATEGY
+              value: "dns"
+            - name: EMQX_CLUSTER__DNS__NAME
+              value: {{ include "emqx.headlessName" . | quote }}
+            - name: EMQX_CLUSTER__DNS__RECORD_TYPE
+              value: "srv"
+            # Node data lives on an emptyDir (session state is ephemeral
+            # by design; durable sessions are future work).
+            - name: EMQX_NODE__DATA_DIR
+              value: /opt/emqx/data
+            {{- if .Values.tls.enabled }}
+            # MQTTS listener (required when profile=prod); the cert chain
+            # is mounted read-only from the ExternalSecret target secret.
+            - name: EMQX_LISTENERS__SSL__DEFAULT__BIND
+              value: {{ .Values.listeners.mqttsPort | quote }}
+            - name: EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE
+              value: /etc/emqx/certs/tls.crt
+            - name: EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE
+              value: /etc/emqx/certs/tls.key
+            - name: EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CACERTFILE
+              value: /etc/emqx/certs/ca.crt
+            {{- end }}
+            {{- if .Values.dashboard.enabled }}
+            - name: EMQX_DASHBOARD__DEFAULT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: EMQX_DASHBOARD_PASSWORD
+            {{- end }}
+            {{- range $key := (default (list) .Values.secretEnv) }}
+            {{- if ne $key "EMQX_DASHBOARD_PASSWORD" }}
+            - name: {{ $key | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ $key | quote }}
+            {{- end }}
+            {{- end }}
+            {{- range $key, $value := (default dict .Values.env) }}
+            - name: {{ $key | quote }}
+              value: {{ $value | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          startupProbe:
+            tcpSocket:
+              port: mqtt
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: mqtt
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: mqtt
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /opt/emqx/data
+            - name: log
+              mountPath: /opt/emqx/log
+            {{- if .Values.tls.enabled }}
+            - name: mqtts-tls
+              mountPath: /etc/emqx/certs
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          emptyDir: {}
+        - name: log
+          emptyDir: {}
+        {{- if .Values.tls.enabled }}
+        - name: mqtts-tls
+          secret:
+            secretName: {{ $secretName | quote }}
+            items:
+              - key: {{ .Values.tls.certSecretKey | quote }}
+                path: tls.crt
+              - key: {{ .Values.tls.keySecretKey | quote }}
+                path: tls.key
+              - key: {{ .Values.tls.caSecretKey | quote }}
+                path: ca.crt
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "emqx.headlessName" . }}
+  labels:
+    {{- include "emqx.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "emqx.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: ekka
+      port: 4370
+      targetPort: ekka
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "emqx.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "emqx.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: mqtt
+      port: {{ .Values.listeners.mqttPort }}
+      targetPort: mqtt
+    {{- if .Values.tls.enabled }}
+    - name: mqtts
+      port: {{ .Values.listeners.mqttsPort }}
+      targetPort: mqtts
+    {{- end }}
+    {{- if .Values.dashboard.enabled }}
+    - name: dashboard
+      port: 18083
+      targetPort: dashboard
+    {{- end }}

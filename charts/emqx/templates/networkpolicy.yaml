@@ -1,0 +1,74 @@
+# EMQX broker network posture (PRA-088): MQTT/MQTTS ingress only from the
+# declared device-facing namespaces, cluster traffic (ekka 4370) between
+# broker pods only, egress to the geo-service mqtt-auth webhook and DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "emqx.fullname" . }}
+  labels:
+    {{- include "emqx.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "emqx.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    {{- range $ns := .Values.networkPolicy.mqttIngressNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $ns | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.listeners.mqttPort }}
+        {{- if $.Values.tls.enabled }}
+        - protocol: TCP
+          port: {{ $.Values.listeners.mqttsPort }}
+        {{- end }}
+    {{- end }}
+    # Intra-cluster broker traffic (ekka distribution port) between EMQX
+    # pods only.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "emqx.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 4370
+    {{- if .Values.dashboard.enabled }}
+    # Dashboard access is restricted to the platform observability
+    # namespace (operator access path; never device-facing).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: blueeconomy-platform
+      ports:
+        - protocol: TCP
+          port: 18083
+    {{- end }}
+  egress:
+    # The mqtt-auth webhook call to geo-service (PRA-088 integration).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.geoNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.geoPort }}
+    # Intra-cluster broker traffic.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "emqx.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 4370
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

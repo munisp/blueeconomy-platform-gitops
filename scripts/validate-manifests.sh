@@ -59,7 +59,7 @@ for chart in tigerbeetle mojaloop-overlay sedona-spark-jobs core-services region
   administration-service \
   cilium caddy opa-policies backup-dr \
   postgis martin geo-service apisix-routes \
-  tax-stamps ml-stack data-platform waterway-safety cv-service; do
+  tax-stamps ml-stack data-platform waterway-safety cv-service emqx; do
   test -s "$repo_root/charts/$chart/Chart.yaml"
   test -s "$repo_root/charts/$chart/values.yaml"
 done
@@ -121,6 +121,7 @@ assert_default_render_fails_closed ml-stack 'profile must be one of: dev, stagin
 assert_default_render_fails_closed data-platform 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed waterway-safety 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed cv-service 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed emqx 'profile must be one of: dev, staging, prod'
 
 # Positive render gates: every shared-platform chart must render fully with
 # its CI render fixture (fail-closed defaults exercised separately above).
@@ -129,7 +130,7 @@ for chart in ferry-ticketing financial-controls port-interoperability security-o
   temporal keycloak-realms beneficiary-portal ministry-portal \
   administration-service \
   cilium opa-policies sedona-spark-jobs martin geo-service apisix-routes \
-  tax-stamps ml-stack data-platform waterway-safety cv-service; do
+  tax-stamps ml-stack data-platform waterway-safety cv-service emqx; do
   helm template render-gate "$repo_root/charts/$chart" \
     --kube-version "$helm_kube_version" \
     -f "$repo_root/ci/render-values/$chart.yaml" > /dev/null
