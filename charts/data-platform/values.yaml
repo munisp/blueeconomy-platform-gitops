@@ -1,0 +1,131 @@
+# blueeconomy-data-platform deploy surface (GAP-DP-01). Job contracts
+# aligned to the CLIs (src/blueeconomy_data_platform/):
+#   kafka_ingest:  --bootstrap-servers --topic --group-id --max-messages
+#                  --table-uri --schema --report [--idle-timeout-seconds]
+#                  [--ssl-ca-location] [--sasl-mechanism]; SASL via
+#                  BLUEECONOMY_KAFKA_SASL_USERNAME/_PASSWORD env.
+#   retention:     --table-uri --audit-table-uri [--archive-uri]
+#                  [--hot-days] [--cold-years] [--operator] [--report]
+#   gold_assembly: BLUEECONOMY_GOLD_SCOPE / _SCOPE_ROOT_URI / _REPORT
+#                  [/_EXPORT_PATH] [/_CLEARANCE] env-driven.
+# Storage backend convention (storage.py): BLUEECONOMY_STORAGE_BACKEND
+# (s3 | adls | local), _ACCOUNT, _FILESYSTEM; local is dev-only.
+# Every credential arrives exclusively through ExternalSecrets; no
+# placeholder or inline credential is permitted. Cloud-agnostic.
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile. prod refuses the local storage backend and any
+# BLUEECONOMY_ALLOW_LOCAL_STORAGE / *_TEST_* env name.
+profile: ""
+
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+# ExternalSecrets contract (any ESO-supported ClusterSecretStore).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+# Secret-sourced env (names must exist in externalSecrets.keys), injected
+# into every job pod.
+secretEnv:
+  - BLUEECONOMY_KAFKA_SASL_USERNAME
+  - BLUEECONOMY_KAFKA_SASL_PASSWORD
+
+# Producer public-key directory (charts/opa-policies ConfigMap):
+# KEY_DIRECTORY_PATH is fail-closed in signature_verification.py — every
+# consumer refuses to start without it.
+keyDirectory:
+  enabled: true
+  configMapName: ""
+  mountPath: /etc/blueeconomy/key-directory
+
+# Shared lakehouse storage env for all jobs.
+storage:
+  backend: ""        # s3 | adls | local (local forbidden when profile=prod)
+  account: ""
+  filesystem: ""
+
+kafka:
+  bootstrapServers: ""
+  # Optional TLS CA for the ingest consumer (--ssl-ca-location), mounted
+  # from an ExternalSecrets-synced Secret.
+  tls:
+    enabled: false
+    caCertSecretRef:
+      name: ""
+      key: ca.crt
+      mountPath: /etc/blueeconomy/kafka-tls
+
+# Kafka -> Delta bronze/silver ingestion CronJobs. Every entry requires:
+# name, schedule, topic, groupId, tableUri, schema (path inside the image,
+# schemas/ directory), maxMessages.
+kafkaIngest:
+  jobs: []
+  # Example shape (environment values supply approved entries):
+  #   - name: cvff-events-bronze
+  #     schedule: "*/15 * * * *"
+  #     topic: cvff.events.v1
+  #     groupId: blueeconomy-data-platform-cvff
+  #     tableUri: s3://lakehouse/bronze/cvff_events
+  #     schema: schemas/cvff_events_v1.json
+  #     maxMessages: 50000
+  #     idleTimeoutSeconds: 30
+
+# Retention enforcement CronJob (hot->cold->delete with audit table).
+retention:
+  enabled: false
+  schedule: ""
+  tableUri: ""
+  auditTableUri: ""
+  archiveUri: ""
+  hotDays: 30
+  coldYears: 7
+  # Operator identity recorded in the audit trail (or
+  # BLUEECONOMY_RETENTION_OPERATOR env).
+  operator: ""
+
+# Gold assembly CronJob (segregated scope silver-to-gold).
+goldAssembly:
+  enabled: false
+  schedule: ""
+  scope: ""           # e.g. cvff | fisheries
+  scopeRootUri: ""
+  reportPath: /var/lib/data-platform/reports/gold-assembly.json
+  exportPath: ""      # required for the fisheries scope
+  clearance: ""
+
+resources:
+  requests:
+    cpu: ""
+    memory: ""
+  limits:
+    cpu: ""
+    memory: ""
+
+networkPolicy:
+  enabled: true
+  # Kafka uplink namespace (ingest consumer + DLQ producer).
+  kafkaNamespace: ""
+  # Object-storage egress CIDRs (S3-compatible / ADLS endpoints, 443).
+  storageCIDRs: []
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]

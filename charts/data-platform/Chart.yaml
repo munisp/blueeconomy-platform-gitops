@@ -1,0 +1,26 @@
+apiVersion: v2
+name: data-platform
+description: >-
+  blueeconomy-data-platform (Python governed lakehouse): the
+  Kafka-to-Delta medallion ingestion, retention-enforcement and
+  gold-assembly batch jobs as scheduled CronJobs (GAP-DP-01). Jobs are
+  bounded runs (--max-messages + --idle-timeout-seconds) with
+  offset-commit-after-persist exactly-once-effect semantics. Fail-closed:
+  envelope signature verification is mandatory (KEY_DIRECTORY_PATH from
+  the charts/opa-policies key directory; consumers refuse to start
+  without it), the local storage backend and BLUEECONOMY_ALLOW_LOCAL_STORAGE
+  are render-refused in the prod profile, Kafka SASL credentials arrive
+  via ExternalSecrets only, and every job argument that the CLI marks
+  required is render-gated.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - lakehouse
+  - delta-lake
+  - ingestion
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "data-lakehouse"
+  blueeconomy.platform/upstream-policy: "Pin verified upstream image digests; do not deploy unreviewed defaults"
