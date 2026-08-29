@@ -103,6 +103,28 @@ networkPolicies:
   # charts/dapr-components).
   workstreams: []
 
+  # Geo stack policies (blueeco-geo-prod; charts/postgis, charts/martin,
+  # charts/geo-service — docs/geo-deployment.md). The geo namespace ships
+  # its own default-deny NetworkPolicy (kubernetes/base/namespaces); these
+  # Cilium policies are the eBPF allow layer:
+  #   geo-service: ingress from the edge (APISIX) only; egress postgis 5432,
+  #                kafka 9092, redis 6379 (+DNS).
+  #   martin:      ingress from APISIX only; egress postgis 5432 only (+DNS).
+  #   postgis:     ingress 5432 from geo-service and martin only.
+  geo:
+    enabled: false
+    namespace: blueeco-geo-prod
+    # Edge (APISIX) namespace — the only approved ingress source for
+    # geo-service and martin.
+    edgeNamespace: ""
+    # Kafka and Redis namespaces geo-service may reach (PostGIS lives in the
+    # geo namespace itself on postgis.port).
+    kafkaNamespace: ""
+    redisNamespace: ""
+    postgisPort: 5432
+    kafkaPort: 9092
+    redisPort: 6379
+
 # L7 HTTP-aware policies for the ingress path
 # (client -> Caddy -> OpenAppSec -> APISIX -> Dapr -> services).
 ingressPath:

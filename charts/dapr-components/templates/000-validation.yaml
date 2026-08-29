@@ -35,6 +35,21 @@
 {{- $brokers := required "pubsub.kafka.brokers is required" .Values.pubsub.kafka.brokers -}}
 {{- if eq .Values.pubsub.kafka.authType "sasl" -}}
 {{- $n := required "pubsub.kafka.saslPasswordSecretKeyRef.name is required when authType=sasl" .Values.pubsub.kafka.saslPasswordSecretKeyRef.name -}}
+{{- if not (has .Values.pubsub.kafka.sasl.mechanism (list "plain" "scram-sha-512")) -}}
+{{- fail "pubsub.kafka.sasl.mechanism must be one of: plain, scram-sha-512" -}}
+{{- end -}}
+{{- if and (eq .Values.pubsub.kafka.sasl.mechanism "plain") (not .Values.pubsub.kafka.tls.enabled) -}}
+{{- fail "pubsub.kafka.sasl.mechanism=plain requires pubsub.kafka.tls.enabled=true (SASL/PLAIN may never cross the wire unencrypted)" -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.pubsub.kafka.tls.required -}}
+{{- if not .Values.pubsub.kafka.tls.enabled -}}
+{{- fail "pubsub.kafka.tls.enabled must be true when pubsub.kafka.tls.required=true (prod posture)" -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.pubsub.kafka.tls.enabled -}}
+{{- $caName := required "pubsub.kafka.tls.caCertSecretRef.name is required when pubsub.kafka.tls.enabled=true" .Values.pubsub.kafka.tls.caCertSecretRef.name -}}
+{{- $caKey := required "pubsub.kafka.tls.caCertSecretRef.key is required when pubsub.kafka.tls.enabled=true" .Values.pubsub.kafka.tls.caCertSecretRef.key -}}
 {{- end -}}
 {{- else if eq .Values.pubsub.driver "fluvio" -}}
 {{- $broker := required "pubsub.fluvio.broker is required when pubsub.driver=fluvio" .Values.pubsub.fluvio.broker -}}

@@ -1,0 +1,64 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative references. Real values live in the authorised environment
+# repo.
+profile: prod
+
+image:
+  repository: registry.blueeconomy.example.gov.ng/blueeconomy/geo-service
+  digest: sha256:1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b
+
+signing:
+  convention: envelope
+
+env:
+  GEO_QUARANTINE_TOPIC: geo.vessel-quarantine.v1
+  GEO_EVENTS_TOPIC: geo.vessel-position.v1
+
+secretEnv:
+  - ENVELOPE_SIGNING_PRIVATE_KEY
+  - ENVELOPE_SIGNING_PRIVATE_KEY_EPOCH
+  - GEO_DATABASE_URL
+  - REDIS_URL
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    ENVELOPE_SIGNING_PRIVATE_KEY: geo/render-fixture/envelope-signing-private-key
+    ENVELOPE_SIGNING_PRIVATE_KEY_EPOCH: geo/render-fixture/envelope-signing-epoch
+    GEO_DATABASE_URL: geo/render-fixture/postgres-dsn
+    REDIS_URL: geo/render-fixture/redis-url
+
+kafka:
+  brokers: kafka.blueeconomy-platform.svc.cluster.local:9092
+  tls:
+    enabled: true
+    required: true
+    caCertSecretRef:
+      name: kafka-cluster-ca-cert
+      key: ca.crt
+  sasl:
+    mechanism: scram-sha-512
+    credentialsSecretRef:
+      name: geo-kafka-sasl-credentials
+
+networkPolicy:
+  apisixNamespace: blueeconomy-security
+  postgisNamespace: blueeco-geo-prod
+  kafkaNamespace: blueeconomy-platform
+  redisNamespace: blueeconomy-platform
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70

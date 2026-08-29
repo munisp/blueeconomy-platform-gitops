@@ -1,0 +1,135 @@
+{{- if .Values.networkPolicies.geo.enabled }}
+{{- $geo := .Values.networkPolicies.geo }}
+---
+# geo-service: ingress from the edge (APISIX) only; egress to PostGIS 5432
+# (geo namespace), Kafka 9092 and Redis 6379 (+DNS). Render-validated
+# against the approved CR shape; first live-cluster verification is tracked
+# in docs/geo-deployment.md.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-geo-service
+  namespace: {{ $geo.namespace }}
+  labels:
+    blueeconomy.platform/workstream: geo
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: geo-service
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $geo.edgeNamespace }}
+            app.kubernetes.io/name: apisix
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $geo.namespace }}
+            app.kubernetes.io/name: postgis
+      toPorts:
+        - ports:
+            - port: {{ $geo.postgisPort | quote }}
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $geo.kafkaNamespace }}
+      toPorts:
+        - ports:
+            - port: {{ $geo.kafkaPort | quote }}
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $geo.redisNamespace }}
+      toPorts:
+        - ports:
+            - port: {{ $geo.redisPort | quote }}
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+---
+# martin: ingress from APISIX only; egress to PostGIS only (+DNS). Martin
+# performs no auth — the edge enforces authn (charts/martin render gate).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-martin
+  namespace: {{ $geo.namespace }}
+  labels:
+    blueeconomy.platform/workstream: geo
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: martin
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $geo.edgeNamespace }}
+            app.kubernetes.io/name: apisix
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $geo.namespace }}
+            app.kubernetes.io/name: postgis
+      toPorts:
+        - ports:
+            - port: {{ $geo.postgisPort | quote }}
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+---
+# postgis: 5432 from geo-service and martin only. Nothing else in the
+# cluster may reach the geo hot path store.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-postgis-geo-clients
+  namespace: {{ $geo.namespace }}
+  labels:
+    blueeconomy.platform/workstream: geo
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgis
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $geo.namespace }}
+            app.kubernetes.io/name: geo-service
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $geo.namespace }}
+            app.kubernetes.io/name: martin
+      toPorts:
+        - ports:
+            - port: {{ $geo.postgisPort | quote }}
+              protocol: TCP
+{{- end }}

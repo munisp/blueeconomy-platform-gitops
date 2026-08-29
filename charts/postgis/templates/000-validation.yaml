@@ -1,0 +1,57 @@
+{{- /* Fail-closed approval gates for the PostGIS geo hot path. */ -}}
+
+{{- /* Render-gated image enum (GEO_ARCHITECTURE D8). Both operands are
+       digest-pinned; tag-only or :latest references are refused. */ -}}
+{{- if not (has .Values.image.variant (list "cloudnative-pg" "postgis-image")) -}}
+{{- fail "image.variant must be one of: cloudnative-pg, postgis-image (render-gated image enum)" -}}
+{{- end -}}
+{{- if eq .Values.image.variant "cloudnative-pg" -}}
+{{- $repo := required "image.cloudnativePG.repository is required for variant=cloudnative-pg (ghcr.io/cloudnative-pg/postgis operand)" .Values.image.cloudnativePG.repository -}}
+{{- $digest := required "image.cloudnativePG.digest is required for variant=cloudnative-pg" .Values.image.cloudnativePG.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.cloudnativePG.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+{{- if lt (int .Values.cluster.instances) 1 -}}
+{{- fail "cluster.instances must be at least 1 for variant=cloudnative-pg" -}}
+{{- end -}}
+{{- else -}}
+{{- $repo := required "image.postgisImage.repository is required for variant=postgis-image (postgis/postgis:15-3.5)" .Values.image.postgisImage.repository -}}
+{{- $digest := required "image.postgisImage.digest is required for variant=postgis-image" .Values.image.postgisImage.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.postgisImage.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Storage: size and class are both render-gated. */ -}}
+{{- $size := required "storage.size is required (e.g. 100Gi; the geo hot path must never land on an accidental default)" .Values.storage.size -}}
+{{- $class := required "storage.storageClass is required" .Values.storage.storageClass -}}
+
+{{- /* Credentials: ExternalSecrets-synced Secret reference only. Inline
+       passwords are refused — there is no password value in this chart. */ -}}
+{{- $credName := required "credentialsSecretRef.name is required (ExternalSecrets-synced Postgres credentials; no inline passwords are permitted)" .Values.credentialsSecretRef.name -}}
+{{- $userKey := required "credentialsSecretRef.usernameKey is required" .Values.credentialsSecretRef.usernameKey -}}
+{{- $passKey := required "credentialsSecretRef.passwordKey is required" .Values.credentialsSecretRef.passwordKey -}}
+{{- if or (hasPrefix "REPLACE" $credName) (hasPrefix "REQUIRED" $credName) -}}
+{{- fail "credentialsSecretRef.name must reference an approved ExternalSecrets-synced Secret" -}}
+{{- end -}}
+
+{{- /* Backup wiring consistent with charts/backup-dr: WAL-G honouring
+       storage.provider. */ -}}
+{{- if .Values.backup.enabled -}}
+{{- if not (has .Values.backup.storageProvider (list "s3-compatible" "azure")) -}}
+{{- fail "backup.storageProvider must be s3-compatible or azure (must equal the backup-dr storage.provider for this environment)" -}}
+{{- end -}}
+{{- $walg := required "backup.walGEnvConfigMapRef is required when backup.enabled=true (the <backup-dr release>-walg-env ConfigMap rendered by charts/backup-dr)" .Values.backup.walGEnvConfigMapRef -}}
+{{- if not (regexMatch "^\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+$" (.Values.backup.baseBackupSchedule | default "")) -}}
+{{- fail "backup.baseBackupSchedule is required when backup.enabled=true (five-field cron, mirrors backup-dr walG.baseBackupSchedule)" -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Network posture: client namespaces are environment-approved. */ -}}
+{{- if .Values.networkPolicy.enabled -}}
+{{- if empty .Values.networkPolicy.allowedClientNamespaces -}}
+{{- fail "networkPolicy.allowedClientNamespaces must list the approved client namespaces (geo-service/martin, e.g. blueeco-geo-prod)" -}}
+{{- end -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for the geo hot path" -}}
+{{- end -}}

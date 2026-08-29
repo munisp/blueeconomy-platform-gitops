@@ -53,6 +53,15 @@ spec:
             namespace: blueeco-mojaloop-prod
           - chart: sedona-spark-jobs
             namespace: blueeco-geo-prod
+          # Geospatial deploy surface (docs/geo-deployment.md): PostGIS hot
+          # path, Martin tile server and the geo-service tracking API, all
+          # reconciled into blueeco-geo-prod (namespace ships default-deny).
+          - chart: postgis
+            namespace: blueeco-geo-prod
+          - chart: martin
+            namespace: blueeco-geo-prod
+          - chart: geo-service
+            namespace: blueeco-geo-prod
           # Umbrella release for coordinated core-service deployments;
           # dependencies are disabled by default until production formation
           # approval lands in the environment values.
@@ -75,6 +84,11 @@ spec:
           - chart: caddy
             namespace: blueeconomy-security
           - chart: opa-policies
+            namespace: blueeconomy-security
+          # APISIX route CRs (gap #49): ApisixRoute registrations for the
+          # services currently fronted by plain Ingress, render-gated to the
+          # apisix flag and annotated with the OPA hook contract.
+          - chart: apisix-routes
             namespace: blueeconomy-security
           # Dapr component layer: one release per workstream, rendered into
           # that workstream's namespace with its exact app-id scopes.

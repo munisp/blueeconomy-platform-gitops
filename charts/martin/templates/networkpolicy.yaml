@@ -1,0 +1,46 @@
+# Martin network posture: ingress ONLY from the APISIX gateway namespace
+# (edge enforces authn; Martin has none), egress ONLY to PostGIS and DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "martin.fullname" . }}
+  labels:
+    {{- include "martin.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "martin.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.apisixNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.port }}
+    # Prometheus scraping from the platform namespace.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: blueeconomy-platform
+      ports:
+        - protocol: TCP
+          port: {{ .Values.port }}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.postgisNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.postgisPort }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

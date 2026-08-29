@@ -60,6 +60,13 @@ networkPolicies:
         - maritime-intelligence-api
         - isr-worker
         - isr-outbox-publisher
+  # Geo stack eBPF policies (blueeco-geo-prod).
+  geo:
+    enabled: true
+    namespace: blueeco-geo-prod
+    edgeNamespace: blueeconomy-security
+    kafkaNamespace: blueeconomy-platform
+    redisNamespace: blueeconomy-platform
 
 ingressPath:
   edgeNamespace: blueeconomy-security

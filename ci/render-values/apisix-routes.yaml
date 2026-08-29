@@ -1,0 +1,70 @@
+# CI render-gate fixture ONLY. NOT deployable: illustrative hostnames and
+# service references. Real values live in the authorised environment repo.
+# Registers the gap #49 routes: geo-service, ministry-portal, cvffapi, admin.
+apisix:
+  enabled: true
+  namespace: blueeconomy-security
+  opa:
+    policy: blueeconomy/http/allow
+    serviceName: opa-policies-opa
+    servicePort: 8181
+
+routes:
+  - name: geo-service
+    host: api.blueeconomy.example.gov.ng
+    paths:
+      - /v1/geo/*
+    methods: [GET, POST]
+    service:
+      namespace: blueeco-geo-prod
+      name: geo-service
+      port: 8080
+    scopes:
+      - geo:read
+      - geo:write
+  - name: geo-martin
+    host: api.blueeconomy.example.gov.ng
+    paths:
+      - /tiles/*
+    methods: [GET]
+    service:
+      namespace: blueeco-geo-prod
+      name: martin
+      port: 3000
+    scopes:
+      - geo:read
+  - name: ministry-portal
+    host: portal.blueeconomy.example.gov.ng
+    paths:
+      - /*
+    methods: [GET]
+    service:
+      namespace: blueeconomy-cvff
+      name: ministry-portal
+      port: 8080
+    scopes:
+      - portal:read
+  - name: cvffapi
+    host: api.blueeconomy.example.gov.ng
+    paths:
+      - /v1/cvff/*
+    methods: [GET, POST]
+    service:
+      namespace: blueeconomy-cvff
+      name: intent-api
+      port: 8080
+    scopes:
+      - cvff:read
+      - cvff:write
+  - name: admin
+    host: admin.blueeconomy.example.gov.ng
+    paths:
+      - /v1/admin/*
+    methods: [GET, POST, PUT, DELETE]
+    service:
+      namespace: blueeconomy-platform
+      name: admin-service
+      port: 8080
+    scopes:
+      - admin:read
+      - admin:write

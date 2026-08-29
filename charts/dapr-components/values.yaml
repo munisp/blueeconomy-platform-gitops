@@ -31,6 +31,22 @@ pubsub:
     saslPasswordSecretKeyRef:
       name: ""
       key: ""
+    # SASL mechanism (gap #7; used when authType=sasl). Render-gated enum:
+    #   plain         -> Dapr saslMechanism PLAINTEXT (only over TLS)
+    #   scram-sha-512 -> Dapr saslMechanism SHA-512 (preferred)
+    sasl:
+      mechanism: plain
+    # Transport TLS (gap #7): additive render-gated option, default off for
+    # dev fixtures. Prod values set tls.required=true, which forces
+    # tls.enabled=true at render time.
+    tls:
+      enabled: false
+      required: false
+      # Cluster CA bundle via an ExternalSecrets-synced Secret; rendered as
+      # the Dapr caCert secretKeyRef metadata.
+      caCertSecretRef:
+        name: ""
+        key: ca.crt
     consumerGroup: ""
   # ---------------------------------------------------------------------
   # Fluvio variant (config-only alternative; NOT currently pinned):

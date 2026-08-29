@@ -1,0 +1,23 @@
+apiVersion: v2
+name: martin
+description: >-
+  Martin tile server (Rust, ghcr.io/maplibre/martin, digest-pinned) serving
+  vector tiles from the PostGIS geo hot path: latest_positions and
+  geofence_zones as tile functions (GEO_ARCHITECTURE D3). No auth at the
+  Martin level — authentication terminates at the edge (Caddy -> OpenAppSec
+  -> APISIX) — so the edge route registration (charts/apisix-routes) is
+  render-gated: a Martin release without its registered edge route is
+  refused. Cloud-agnostic: runs on any conformant Kubernetes.
+type: application
+version: 0.1.0
+appVersion: "0.16.0"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - martin
+  - vector-tiles
+  - postgis
+  - geospatial
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "geo-tile-serving"
+  blueeconomy.platform/upstream-policy: "Pin verified upstream image digests; do not deploy unreviewed defaults"

@@ -1,0 +1,30 @@
+# APISIX route registrations (gap #49). The edge topology is
+# client -> Caddy -> OpenAppSec -> APISIX -> Dapr -> services; these
+# ApisixRoute CRs are the APISIX hop for services that previously terminated
+# on plain Ingress. Render-gated to the apisix flag.
+nameOverride: ""
+fullnameOverride: ""
+
+apisix:
+  # Fail-closed: routes render only when the pinned upstream APISIX release
+  # (components/upstream-components.lock.yaml: apache-apisix) is approved
+  # for this environment. Default false refuses to render.
+  enabled: false
+  # APISIX gateway listener namespace/port (Caddy proxies here).
+  namespace: ""
+  # OPA hook contract, consistent with charts/opa-policies apisixHook:
+  # every route evaluates policy blueeconomy/http/allow on the OPA service.
+  opa:
+    policy: blueeconomy/http/allow
+    # In-cluster OPA service name (the opa-policies release). Render-gated.
+    serviceName: ""
+    servicePort: 8181
+
+# Route inventory. Every entry:
+#   name:     route name (also the ApisixRoute CR name suffix)
+#   host:     approved edge hostname
+#   paths:    absolute path prefixes (/* suffix style)
+#   methods:  approved HTTP methods
+#   service:  backend Kubernetes Service (namespace/name/port)
+#   scopes:   Keycloak OIDC scopes required on the route (bearer-only)
+routes: []

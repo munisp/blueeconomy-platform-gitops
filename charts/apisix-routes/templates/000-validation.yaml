@@ -1,0 +1,41 @@
+{{- /* Fail-closed approval gates for the APISIX route registrations. */ -}}
+
+{{- /* Render-gated to the apisix flag: routes apply only against the
+       approved, source-locked upstream APISIX release. */ -}}
+{{- if not .Values.apisix.enabled -}}
+{{- fail "apisix.enabled must be true to render APISIX route CRs (the pinned upstream apache-apisix release must be approved for this environment first)" -}}
+{{- end -}}
+{{- $apisixNs := required "apisix.namespace is required (the APISIX gateway namespace Caddy proxies to)" .Values.apisix.namespace -}}
+
+{{- /* OPA hook contract: consistent with charts/opa-policies apisixHook. */ -}}
+{{- $opaPolicy := required "apisix.opa.policy is required" .Values.apisix.opa.policy -}}
+{{- $opaSvc := required "apisix.opa.serviceName is required (the OPA service from the opa-policies release)" .Values.apisix.opa.serviceName -}}
+
+{{- if empty .Values.routes -}}
+{{- fail "routes must list at least one service route registration" -}}
+{{- end -}}
+{{- range $r := .Values.routes -}}
+{{- if not $r.name -}}
+{{- fail "every routes entry requires a name" -}}
+{{- end -}}
+{{- if not $r.host -}}
+{{- fail (printf "routes.%s host is required (approved edge hostname)" ($r.name | default "<missing>")) -}}
+{{- end -}}
+{{- if empty $r.paths -}}
+{{- fail (printf "routes.%s paths must list at least one path prefix" $r.name) -}}
+{{- end -}}
+{{- range $p := $r.paths -}}
+{{- if not (hasPrefix "/" $p) -}}
+{{- fail (printf "routes.%s path %q must be absolute" $r.name $p) -}}
+{{- end -}}
+{{- end -}}
+{{- if empty $r.methods -}}
+{{- fail (printf "routes.%s methods must list the approved HTTP methods" $r.name) -}}
+{{- end -}}
+{{- if or (not $r.service) (not $r.service.namespace) (not $r.service.name) (not $r.service.port) -}}
+{{- fail (printf "routes.%s service requires namespace, name and port" $r.name) -}}
+{{- end -}}
+{{- if empty $r.scopes -}}
+{{- fail (printf "routes.%s scopes must list the required Keycloak OIDC scopes (bearer-only edge authn)" $r.name) -}}
+{{- end -}}
+{{- end -}}

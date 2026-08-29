@@ -179,3 +179,79 @@ components:
       - Ministry decision on controller placement (in-cluster versus dedicated management cluster).
       - Approved SSO/OIDC integration with Keycloak, RBAC policy and notification/audit routing.
       - Approved AppProject restrictions (source repos, destinations, cluster-resource allow-list).
+  - name: cilium
+    purpose: eBPF CNI with kube-proxy replacement, Hubble, Tetragon and XDP DDoS mitigation (charts/cilium)
+    upstream:
+      type: helm_chart
+      repository: https://helm.cilium.io
+      chart: cilium/cilium
+      chart_version: 1.16.5
+      app_version: 1.16.5
+      # SHA-256 verified (gap #41) against the upstream index.yaml digest AND a
+      # locally computed hash of the downloaded cilium-1.16.5.tgz release
+      # tarball; both agree.
+      artifact_sha256: 182035ae7c2cf8d19490ececf618f6a11adc460ed1e7dbd38b23065f02f18b4d
+      official_documentation: https://docs.cilium.io/en/v1.16/
+    deployment_gate:
+      - Approved node kernel baseline (>= 5.4) and kube-proxy replacement design.
+      - Approved Hubble/Tetragon evidence feeds and XDP LoadBalancer node design.
+      - Render-validated platform policy layer (charts/cilium) verified on a live cluster.
+  - name: velero
+    purpose: Scheduled cluster backup and restore machinery (charts/backup-dr)
+    upstream:
+      type: helm_chart
+      repository: https://vmware-tanzu.github.io/helm-charts
+      chart: vmware-tanzu/velero
+      chart_version: 8.1.0
+      app_version: 1.14.1
+      # SHA-256 verified (gap #41) against the upstream index.yaml digest AND a
+      # locally computed hash of the downloaded velero-8.1.0.tgz release
+      # tarball; both agree.
+      artifact_sha256: 01435ccca86f8d214e327897c800a51cec31aacd1cb4a08ba83b7cf8526c9e3b
+      official_documentation: https://velero.io/docs/v1.14/
+    deployment_gate:
+      - Approved backup storage provider (s3-compatible or azure) and immutability window.
+      - Approved schedule/namespace inventory matching the regional-dr recovery contract.
+      - Real restore-test evidence from the authorised non-production target.
+  - name: caddy
+    purpose: TLS edge in front of APISIX (charts/caddy; client -> Caddy -> OpenAppSec -> APISIX)
+    upstream:
+      type: container_image
+      repository: docker.io/library/caddy
+      image: library/caddy
+      tag: "2.8.4"
+      app_version: 2.8.4
+      # Multi-arch manifest-list digest (gap #41). Verified against the
+      # registry docker-content-digest response header for tag 2.8.4 AND a
+      # locally computed SHA-256 of the returned manifest-list body; both
+      # agree. (Docker Hub API is unreachable from this sandbox; the digest
+      # was verified through a content-addressed registry mirror. Re-confirm
+      # against registry-1.docker.io at deployment-approval time.)
+      digest: sha256:226d1f059b75399fe19182893c7184591c07b97afc8dfcf44eeb80c9a77a530f
+      official_documentation: https://hub.docker.com/_/caddy
+    deployment_gate:
+      - Approved TLS issuance provider (tls.acme.dnsProvider enum, docs/cloud-agnosticism.md).
+      - Approved domain/upstream inventory and partner CA bundle for edge mTLS.
+      - OpenAppSec contract flag honoured by the APISIX pod design.
+  - name: opa
+    purpose: Policy decision point for the APISIX opa plugin and platform policy packs (charts/opa-policies)
+    upstream:
+      type: container_image
+      repository: docker.io/openpolicyagent/opa
+      image: openpolicyagent/opa
+      tag: "0.70.0"
+      app_version: 0.70.0
+      # linux/amd64 image manifest digest for tag 0.70.0 (gap #41). Verified
+      # against the registry docker-content-digest response header AND a
+      # locally computed SHA-256 of the returned manifest body; both agree.
+      # (Docker Hub API is unreachable from this sandbox; the digest was
+      # verified through a content-addressed registry mirror. Re-confirm
+      # against registry-1.docker.io at deployment-approval time. NOTE:
+      # 0.70.0 resolves to a single-arch amd64 manifest, not a manifest
+      # list; pin per-arch digests if multi-arch OPA is required.)
+      digest: sha256:2b1c4b231f6dfa6a2baea4af4109203b10cd4b65e836d72f03bfe5d8dfce7095
+      official_documentation: https://www.openpolicyagent.org/docs/latest/
+    deployment_gate:
+      - Approved policy pack inventory and key-directory sourcing (charts/opa-policies).
+      - Approved APISIX opa-plugin hook wiring (policy blueeconomy/http/allow).
+      - Deny-by-default posture verified against the authorised cluster.

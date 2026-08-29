@@ -1,0 +1,134 @@
+{{- $fullName := include "geo-service.fullname" . -}}
+{{- $secretName := include "geo-service.secretName" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "geo-service.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.hpa.enabled }}
+  replicas: {{ .Values.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "geo-service.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "geo-service.selectorLabels" . | nindent 8 }}
+        blueeconomy.platform/geo-postgis-client: "true"
+      annotations:
+        blueeconomy.platform/signing-convention: {{ .Values.signing.convention | quote }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: geo-service
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          env:
+            - name: GEO_PROFILE
+              value: {{ .Values.profile | quote }}
+            - name: GEO_SIGNING_CONVENTION
+              value: {{ .Values.signing.convention | quote }}
+            - name: KAFKA_BROKERS
+              value: {{ .Values.kafka.brokers | quote }}
+            {{- if .Values.kafka.tls.enabled }}
+            - name: KAFKA_TLS_ENABLED
+              value: "true"
+            - name: KAFKA_TLS_CA_CERT_PATH
+              value: /etc/geo/kafka-tls/{{ .Values.kafka.tls.caCertSecretRef.key }}
+            {{- else }}
+            - name: KAFKA_TLS_ENABLED
+              value: "false"
+            {{- end }}
+            {{- if .Values.kafka.sasl.mechanism }}
+            - name: KAFKA_SASL_MECHANISM
+              value: {{ .Values.kafka.sasl.mechanism | quote }}
+            - name: KAFKA_SASL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.kafka.sasl.credentialsSecretRef.name }}
+                  key: {{ .Values.kafka.sasl.credentialsSecretRef.usernameKey }}
+            - name: KAFKA_SASL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.kafka.sasl.credentialsSecretRef.name }}
+                  key: {{ .Values.kafka.sasl.credentialsSecretRef.passwordKey }}
+            {{- end }}
+            {{- range $key, $value := (default dict .Values.env) }}
+            - name: {{ $key | quote }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- range $key := (default (list) .Values.secretEnv) }}
+            - name: {{ $key | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ $key | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.livenessPath }}
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readinessPath }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.livenessPath }}
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.kafka.tls.enabled }}
+            - name: kafka-tls
+              mountPath: /etc/geo/kafka-tls
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.kafka.tls.enabled }}
+        - name: kafka-tls
+          secret:
+            secretName: {{ .Values.kafka.tls.caCertSecretRef.name }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "geo-service.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "geo-service.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.port }}
+      targetPort: http

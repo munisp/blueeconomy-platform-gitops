@@ -90,6 +90,14 @@
 {{- $apisixNs := required "ingressPath.apisixNamespace is required" .Values.ingressPath.apisixNamespace -}}
 {{- end -}}
 
+{{- /* Geo stack policies: every referenced namespace is render-gated. */ -}}
+{{- if .Values.networkPolicies.geo.enabled -}}
+{{- $geoNs := required "networkPolicies.geo.namespace is required when networkPolicies.geo.enabled=true" .Values.networkPolicies.geo.namespace -}}
+{{- $geoEdge := required "networkPolicies.geo.edgeNamespace is required when networkPolicies.geo.enabled=true (edge-only ingress for geo-service and martin)" .Values.networkPolicies.geo.edgeNamespace -}}
+{{- $geoKafka := required "networkPolicies.geo.kafkaNamespace is required when networkPolicies.geo.enabled=true" .Values.networkPolicies.geo.kafkaNamespace -}}
+{{- $geoRedis := required "networkPolicies.geo.redisNamespace is required when networkPolicies.geo.enabled=true" .Values.networkPolicies.geo.redisNamespace -}}
+{{- end -}}
+
 {{- range $p := .Values.tetragonPolicies -}}
 {{- if not $p.name -}}
 {{- fail "every tetragonPolicies entry requires a name" -}}

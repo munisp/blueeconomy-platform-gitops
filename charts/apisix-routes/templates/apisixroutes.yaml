@@ -1,0 +1,66 @@
+{{- range $r := .Values.routes }}
+---
+# ApisixRoute for {{ $r.name }} (edge hop: Caddy -> OpenAppSec -> APISIX ->
+# this backend; docs/edge-topology.md). OPA hook consistent with
+# charts/opa-policies apisixHook. Render-validated CR shape; first
+# live-cluster verification is tracked in docs/geo-deployment.md.
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: {{ printf "%s-%s" (include "apisix-routes.fullname" $) $r.name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $.Values.apisix.namespace }}
+  labels:
+    {{- include "apisix-routes.labels" $ | nindent 4 }}
+    blueeconomy.platform/route-service: {{ $r.name | quote }}
+  annotations:
+    blueeconomy.platform/opa-policy: {{ $.Values.apisix.opa.policy | quote }}
+spec:
+  http:
+    - name: {{ $r.name | quote }}
+      match:
+        hosts:
+          - {{ $r.host | quote }}
+        paths:
+          {{- range $p := $r.paths }}
+          - {{ $p | quote }}
+          {{- end }}
+        methods:
+          {{- range $m := $r.methods }}
+          - {{ $m | quote }}
+          {{- end }}
+      backends:
+        - serviceName: {{ $r.service.name | quote }}
+          servicePort: {{ $r.service.port }}
+          resolveGranularity: service
+      {{- if ne $r.service.namespace $.Values.apisix.namespace }}
+      # Cross-namespace backends require the APISIX ingress controller's
+      # namespace-spanning configuration to be approved for the gateway
+      # release; the environment review records that approval.
+      {{- end }}
+      plugins:
+        # Bearer-only OIDC against the platform Keycloak realm; required
+        # scopes are render-gated per route.
+        - name: openid-connect
+          enable: true
+          config:
+            bearer_only: true
+            required_scopes:
+              {{- range $s := $r.scopes }}
+              - {{ $s | quote }}
+              {{- end }}
+        # OPA coarse-grained edge authorization (policy from the
+        # opa-policies release; OPA denies by default).
+        - name: opa
+          enable: true
+          config:
+            host: {{ printf "http://%s:%v" $.Values.apisix.opa.serviceName $.Values.apisix.opa.servicePort | quote }}
+            policy: {{ $.Values.apisix.opa.policy | quote }}
+        # Identity-aware rate limiting below the coarse Caddy ceiling.
+        - name: limit-req
+          enable: true
+          config:
+            rate: 10
+            burst: 5
+            rejected_code: 429
+            key: remote_addr
+{{- end }}

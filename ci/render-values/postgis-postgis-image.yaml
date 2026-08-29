@@ -1,0 +1,28 @@
+# CI render-gate fixture ONLY (postgis-image variant: plain StatefulSet on
+# postgis/postgis:15-3.5, no operator dependency). NOT deployable: synthetic
+# digests. Real values live in the authorised environment repo.
+image:
+  variant: postgis-image
+  cloudnativePG:
+    repository: ghcr.io/cloudnative-pg/postgis
+    digest: sha256:3a4b5c6d3a4b5c6d3a4b5c6d3a4b5c6d3a4b5c6d3a4b5c6d3a4b5c6d3a4b5c6d
+  postgisImage:
+    repository: postgis/postgis
+    digest: sha256:9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c
+
+storage:
+  size: 100Gi
+  storageClass: geo-ssd
+
+credentialsSecretRef:
+  name: geo-postgis-credentials
+
+backup:
+  enabled: true
+  storageProvider: azure
+  walGEnvConfigMapRef: backup-dr-walg-env
+  baseBackupSchedule: "30 1 * * *"
+
+networkPolicy:
+  allowedClientNamespaces:
+    - blueeco-geo-prod

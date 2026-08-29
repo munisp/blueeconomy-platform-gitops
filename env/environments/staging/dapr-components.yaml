@@ -1,0 +1,13 @@
+# staging environment values for charts/dapr-components (blueeconomy-platform-env).
+# This file is the TEMPLATE layout; the real file lives in the separately
+# deployed blueeconomy-platform-env repository at
+# environments/staging/dapr-components.yaml and is layered by the ApplicationSet
+# multi-source $values ref. Every REQUIRED_* value must be replaced with an
+# approved environment value before Argo CD can sync the Application; the
+# charts fail closed on any missing gate (see charts/dapr-components/templates/000-validation.yaml).
+#
+# Fill in the chart's render-gated values here, e.g.:
+#   image.repository / image.digest      - approved registry + immutable sha256
+#   externalSecrets.storeRef.name        - the landing zone's ClusterSecretStore
+#   storage / network / endpoint values  - per the chart's 000-validation.yaml
+REQUIRED_ENVIRONMENT_VALUES: ""

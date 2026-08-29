@@ -29,6 +29,14 @@ grep -q 'opentelemetry-collector' "$lockfile"
 grep -q 'argo-cd' "$lockfile"
 sha_count="$(grep -E 'artifact_sha256: [0-9a-f]{64}$' "$lockfile" | wc -l)"
 test "$sha_count" -ge 9
+# Gap #41 hash-locks: cilium/velero chart artifact hashes and caddy/opa
+# image digests must be present and well-formed.
+grep -q 'chart: cilium/cilium' "$lockfile"
+grep -q 'chart: vmware-tanzu/velero' "$lockfile"
+grep -q 'image: library/caddy' "$lockfile"
+grep -q 'image: openpolicyagent/opa' "$lockfile"
+digest_count="$(grep -cE 'digest: sha256:[0-9a-f]{64}$' "$lockfile")"
+test "$digest_count" -ge 2
 
 # Shared-platform namespaces: each must ship a Namespace plus a default-deny
 # NetworkPolicy; cvff additionally requires the cross-workstream ingress denial.
@@ -48,7 +56,8 @@ for chart in tigerbeetle mojaloop-overlay sedona-spark-jobs core-services region
   ferry-ticketing financial-controls port-interoperability security-operations \
   credential-verification fisheries-traceability maritime-intelligence \
   dapr-components temporal keycloak-realms beneficiary-portal \
-  cilium caddy opa-policies backup-dr; do
+  cilium caddy opa-policies backup-dr \
+  postgis martin geo-service apisix-routes; do
   test -s "$repo_root/charts/$chart/Chart.yaml"
   test -s "$repo_root/charts/$chart/values.yaml"
 done
@@ -97,13 +106,17 @@ assert_default_render_fails_closed cilium 'cilium upstream.chartName is required
 assert_default_render_fails_closed caddy 'image.digest is required'
 assert_default_render_fails_closed opa-policies 'opa.image.digest is required'
 assert_default_render_fails_closed backup-dr 'backup-dr upstream.chartName is required'
+assert_default_render_fails_closed postgis 'image.variant must be one of: cloudnative-pg, postgis-image'
+assert_default_render_fails_closed martin 'image.repository is required'
+assert_default_render_fails_closed geo-service 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed apisix-routes 'apisix.enabled must be true'
 
 # Positive render gates: every shared-platform chart must render fully with
 # its CI render fixture (fail-closed defaults exercised separately above).
 for chart in ferry-ticketing financial-controls port-interoperability security-operations \
   credential-verification fisheries-traceability maritime-intelligence \
   temporal keycloak-realms beneficiary-portal \
-  cilium opa-policies; do
+  cilium opa-policies sedona-spark-jobs martin geo-service apisix-routes; do
   helm template render-gate "$repo_root/charts/$chart" \
     --kube-version "$helm_kube_version" \
     -f "$repo_root/ci/render-values/$chart.yaml" > /dev/null
@@ -122,6 +135,14 @@ done
 # (s3-compatible provider-neutral and azure landing-zone option).
 for fixture in "$repo_root"/ci/render-values/backup-dr*.yaml; do
   helm template render-gate "$repo_root/charts/backup-dr" \
+    --kube-version "$helm_kube_version" \
+    -f "$fixture" > /dev/null
+done
+
+# PostGIS image-variant families (cloud-agnostic render-gated enum): render
+# both the cloudnative-pg operand and the postgis-image StatefulSet fixture.
+for fixture in "$repo_root"/ci/render-values/postgis*.yaml; do
+  helm template render-gate "$repo_root/charts/postgis" \
     --kube-version "$helm_kube_version" \
     -f "$fixture" > /dev/null
 done
@@ -415,6 +436,165 @@ fi
 grep -Fq 'hashicorpVault.server is required' "$output"
 rm -f "$output"
 
+# PostGIS image-enum gate: an unknown image.variant is rejected at render
+# time (cloud-agnostic enum, never a hard operator dependency).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/postgis" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/postgis.yaml" \
+    --set 'image.variant=bogus-variant' > /dev/null 2>"$output"; then
+  echo 'postgis rendered with an unknown image.variant' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'image.variant must be one of: cloudnative-pg, postgis-image' "$output"
+rm -f "$output"
+
+# PostGIS backup-provider gate: backup.storageProvider must stay within the
+# backup-dr storage.provider enum.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/postgis" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/postgis.yaml" \
+    --set 'backup.storageProvider=gcs' > /dev/null 2>"$output"; then
+  echo 'postgis rendered with backup.storageProvider outside the backup-dr enum' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'backup.storageProvider must be s3-compatible or azure' "$output"
+rm -f "$output"
+
+# Martin edge-registration gate: a Martin release without its registered
+# APISIX edge route is rejected at render time (Martin has no auth).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/martin" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/martin.yaml" \
+    --set 'edge.routeRegistration.apisixRouteRef=' > /dev/null 2>"$output"; then
+  echo 'martin rendered without its registered edge route' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'edge.routeRegistration.apisixRouteRef is required' "$output"
+rm -f "$output"
+
+# Martin no-auth contract gate: the route-registration requirement cannot
+# be disabled.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/martin" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/martin.yaml" \
+    --set 'edge.routeRegistration.required=false' > /dev/null 2>"$output"; then
+  echo 'martin rendered with the edge route-registration requirement disabled' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'edge.routeRegistration.required must remain true' "$output"
+rm -f "$output"
+
+# Geo-service prod-profile gate: GEO_TEST_* env names are refused in prod
+# (no simulated feeds in production).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/geo-service" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/geo-service.yaml" \
+    --set 'env.GEO_TEST_FEED=enabled' > /dev/null 2>"$output"; then
+  echo 'geo-service rendered a GEO_TEST_* env in the prod profile' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'is forbidden when profile=prod' "$output"
+rm -f "$output"
+
+# Signing unification gate (gap #40): mixing the provenance key into an
+# envelope-convention release is rejected — exactly one convention per
+# service (docs/signing-config.md).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/geo-service" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/geo-service.yaml" \
+    --set 'secretEnv[4]=PROVENANCE_SIGNING_KEY' \
+    --set 'externalSecrets.keys.PROVENANCE_SIGNING_KEY=geo/render-fixture/provenance-key' > /dev/null 2>"$output"; then
+  echo 'geo-service rendered with both signing conventions' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'exactly one signing convention per service' "$output"
+rm -f "$output"
+
+# Kafka TLS prod gate (gap #7): tls.required=true with tls.enabled=false is
+# rejected at render time (service-side kafka env).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/geo-service" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/geo-service.yaml" \
+    --set 'kafka.tls.enabled=false' > /dev/null 2>"$output"; then
+  echo 'geo-service rendered with kafka.tls.required=true but tls.enabled=false' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'kafka.tls.enabled must be true when kafka.tls.required=true' "$output"
+rm -f "$output"
+
+# APISIX route inventory gate (gap #49): a route without required Keycloak
+# OIDC scopes is rejected at render time (bearer-only edge authn).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/apisix-routes" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/apisix-routes.yaml" \
+    --set 'routes[0].scopes=null' > /dev/null 2>"$output"; then
+  echo 'apisix-routes rendered a route without required OIDC scopes' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'scopes must list the required Keycloak OIDC scopes' "$output"
+rm -f "$output"
+
+# Kafka TLS CA gate (gap #7): the Dapr pubsub component refuses TLS without
+# its CA bundle secret reference.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/dapr-components" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/dapr-components.yaml" \
+    --set 'pubsub.kafka.tls.enabled=true' > /dev/null 2>"$output"; then
+  echo 'dapr-components rendered kafka TLS without a caCertSecretRef' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'pubsub.kafka.tls.caCertSecretRef.name is required' "$output"
+rm -f "$output"
+
+# Kafka SASL plain-text gate (gap #7): SASL/PLAIN without TLS is rejected at
+# render time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/dapr-components" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/dapr-components-kafka-tls.yaml" \
+    --set 'pubsub.kafka.sasl.mechanism=plain' \
+    --set 'pubsub.kafka.tls.enabled=false' \
+    --set 'pubsub.kafka.tls.required=false' > /dev/null 2>"$output"; then
+  echo 'dapr-components rendered SASL/PLAIN without TLS' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'mechanism=plain requires pubsub.kafka.tls.enabled=true' "$output"
+rm -f "$output"
+
+# Cilium geo-namespace gate: enabling the geo policies without the edge
+# namespace is rejected at render time (edge-only ingress for geo-service
+# and martin).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/cilium" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/cilium.yaml" \
+    --set 'networkPolicies.geo.edgeNamespace=' > /dev/null 2>"$output"; then
+  echo 'cilium rendered the geo policies without an edge namespace' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'networkPolicies.geo.edgeNamespace is required' "$output"
+rm -f "$output"
+
 # Kafka topic namespace gate: every topic literal in the GitOps layer must
 # use an approved workstream prefix, and each phase-2 scope (seafarer,
 # fisheries, coldchain, export, maritime.isr) must be represented.
@@ -463,4 +643,4 @@ helm template core-services "$workspace/charts/core-services" --kube-version "$h
 HELM_KUBE_VERSION="$helm_kube_version" bash "$repo_root/scripts/validate-mojaloop-overlay-security.sh"
 HELM_KUBE_VERSION="$helm_kube_version" bash "$repo_root/scripts/validate-regional-dr.sh"
 
-printf '%s\n' 'Validated GitOps base manifests, workstream namespaces (ports/ferries/cvff with fiduciary segregation; seafarer/fisheries/isr with ISR national-security segregation), core-service namespaces (tigerbeetle/mojaloop/geo), recovery namespace, upstream source locks (incl. Prometheus, OpenTelemetry Collector, Argo CD), chart sources (incl. beneficiary-portal and the battle-hardened edge charts cilium/caddy/opa-policies/backup-dr), fail-closed value gates, shared-platform render fixtures (incl. phase-2 service charts, beneficiary-portal, all six per-workstream Dapr fixtures plus the hashicorpVault/external secret-store fixture, all four caddy TLS provider fixtures and both backup-dr storage provider fixtures), helm lint for every chart, Keycloak short-TTL, PKCE public-client redirect allowlists, ISR clearance and all six workstream Dapr scope-segregation gates, ISR outbox-mode and cold-chain breach-SLA gates, Cilium fiduciary-segregation and kernel-baseline gates, the Caddy OpenAppSec contract-flag gate, the OPA producer key-directory gate, the backup-dr immutability consistency gate, the cloud-agnostic provider gates (unknown DNS/ACME provider, rfc2136 nameserver/TSIG, s3-compatible endpoint, hashicorpVault server), Kafka topic namespace prefixes, Argo CD project/ApplicationSet manifests, regional DR contract, Mojaloop security overrides and umbrella dependencies.'
+printf '%s\n' 'Validated GitOps base manifests, workstream namespaces (ports/ferries/cvff with fiduciary segregation; seafarer/fisheries/isr with ISR national-security segregation), core-service namespaces (tigerbeetle/mojaloop/geo), recovery namespace, upstream source locks (incl. Prometheus, OpenTelemetry Collector, Argo CD, and the gap-#41 hash-locked cilium/velero/caddy/opa pins), chart sources (incl. beneficiary-portal, the battle-hardened edge charts cilium/caddy/opa-policies/backup-dr and the geo deploy surface postgis/martin/geo-service/apisix-routes), fail-closed value gates, shared-platform render fixtures (incl. phase-2 service charts, beneficiary-portal, all six per-workstream Dapr fixtures plus the hashicorpVault/external secret-store and kafka-tls fixtures, all four caddy TLS provider fixtures, both backup-dr storage provider fixtures, both postgis image-variant fixtures and the sedona vessel-trajectory-silver fixture), helm lint for every chart, Keycloak short-TTL, PKCE public-client redirect allowlists, ISR clearance and all six workstream Dapr scope-segregation gates, ISR outbox-mode and cold-chain breach-SLA gates, Cilium fiduciary-segregation, kernel-baseline and geo-namespace gates, the Caddy OpenAppSec contract-flag gate, the OPA producer key-directory gate, the backup-dr immutability consistency gate, the cloud-agnostic provider gates (unknown DNS/ACME provider, rfc2136 nameserver/TSIG, s3-compatible endpoint, hashicorpVault server, postgis image enum and backup provider), the Martin edge route-registration gates, the geo-service prod-profile GEO_TEST_* gate, the signing unification gate (exactly one convention per service, docs/signing-config.md), the APISIX route-inventory gate, the Kafka TLS/SASL gates (caCert required, tls.required prod posture, SASL/PLAIN requires TLS), Kafka topic namespace prefixes (incl. geo.*), Argo CD project/ApplicationSet manifests, regional DR contract, Mojaloop security overrides and umbrella dependencies.'

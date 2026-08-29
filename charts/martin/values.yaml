@@ -1,0 +1,85 @@
+# Martin vector-tile server for the geo stack. Serves latest_positions and
+# geofence_zones as PostGIS tile functions. Martin performs NO
+# authentication: authn/authz terminates at the edge (docs/edge-topology.md),
+# which is why the edge route registration is render-gated below.
+# Fail-closed: no image, DSN secret or edge-route reference is defaulted.
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+replicas: 2
+port: 3000
+
+# PostGIS connection: DSN arrives only via the ExternalSecrets-synced Secret
+# (never inline). The referenced key holds a libpq DSN for the geo role
+# (NOSUPERUSER NOBYPASSRLS) against the postgis release Service.
+postgres:
+  dsnSecretRef:
+    name: ""
+    key: dsn
+  # Tile functions published by the rendered ConfigMap. The geo-service
+  # migrations own these function signatures (db/migrations); the render
+  # gate keeps this list non-empty.
+  tileFunctions:
+    - name: latest_positions
+      schema: public
+      minzoom: 0
+      maxzoom: 22
+    - name: geofence_zones
+      schema: public
+      minzoom: 0
+      maxzoom: 22
+
+edge:
+  # Render-gated edge route registration: Martin has no auth of its own, so
+  # it may only be released when its route is registered on the APISIX edge
+  # (charts/apisix-routes), where Keycloak OIDC + OPA policy enforce access.
+  routeRegistration:
+    # Must remain true. Setting it false is refused at render time: an
+    # unauthenticated tile server must never be reachable off-edge.
+    required: true
+    # Name of the ApisixRoute CR (charts/apisix-routes) registering this
+    # Martin release on the edge.
+    apisixRouteRef: ""
+
+networkPolicy:
+  enabled: true
+  # Namespace hosting the APISIX gateway (the only approved ingress source).
+  apisixNamespace: ""
+  # Namespace hosting the PostGIS release (the only approved data egress,
+  # besides DNS).
+  postgisNamespace: ""
+  postgisPort: 5432
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    path: /metrics
+    labels: {}

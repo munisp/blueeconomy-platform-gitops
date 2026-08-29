@@ -26,9 +26,19 @@ spec:
       secretKeyRef:
         name: {{ .Values.pubsub.kafka.saslPasswordSecretKeyRef.name | quote }}
         key: {{ .Values.pubsub.kafka.saslPasswordSecretKeyRef.key | quote }}
+    # Dapr saslMechanism enum: PLAINTEXT | SHA-512 (values enum:
+    # plain | scram-sha-512, render-gated in 000-validation.yaml).
+    - name: saslMechanism
+      value: {{ ternary "SHA-512" "PLAINTEXT" (eq .Values.pubsub.kafka.sasl.mechanism "scram-sha-512") | quote }}
     {{- end }}
     - name: disableTls
-      value: "false"
+      value: {{ ternary "true" "false" (not .Values.pubsub.kafka.tls.enabled) | quote }}
+    {{- if .Values.pubsub.kafka.tls.enabled }}
+    - name: caCert
+      secretKeyRef:
+        name: {{ .Values.pubsub.kafka.tls.caCertSecretRef.name | quote }}
+        key: {{ .Values.pubsub.kafka.tls.caCertSecretRef.key | quote }}
+    {{- end }}
 scopes:
   {{- toYaml $scopes | nindent 2 }}
 {{- else }}

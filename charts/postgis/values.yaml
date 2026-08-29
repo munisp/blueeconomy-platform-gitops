@@ -1,0 +1,98 @@
+# PostgreSQL + PostGIS for the geo hot path (ais_positions, vessels_static,
+# latest_positions, geofence_zones). Cloud-agnostic and sovereign-deployable:
+# both image variants run on any conformant Kubernetes with any storage
+# class; no provider API is consumed (docs/cloud-agnosticism.md).
+# Fail-closed: no image, storage or credential value is defaulted.
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  # Render-gated enum (GEO_ARCHITECTURE D8):
+  #   cloudnative-pg — CloudNativePG Cluster CR using the
+  #                    ghcr.io/cloudnative-pg/postgis operand (the operator is
+  #                    source-locked in components/upstream-components.lock.yaml).
+  #   postgis-image  — plain StatefulSet using the postgis/postgis:15-3.5
+  #                    image (no operator dependency).
+  variant: ""
+  cloudnativePG:
+    repository: ""
+    digest: ""
+  postgisImage:
+    repository: ""
+    digest: ""
+  pullPolicy: IfNotPresent
+
+# CloudNativePG Cluster sizing (variant=cloudnative-pg only).
+cluster:
+  instances: 3
+
+storage:
+  # Both render-gated: the geo hot path holds RANGE-partitioned positions and
+  # must never land on an accidental default class.
+  size: ""
+  storageClass: ""
+
+# Superuser/application credentials arrive ONLY via an ExternalSecrets-synced
+# Secret from the landing zone's secret store (any ESO-supported provider).
+# Inline passwords are refused at render time — there is deliberately no
+# password value anywhere in this chart.
+credentialsSecretRef:
+  name: ""
+  # Keys inside the synced Secret.
+  usernameKey: username
+  passwordKey: password
+
+database:
+  name: geo
+  # Application role created by the bootstrap job/migrations (NOSUPERUSER
+  # NOBYPASSRLS per GEO_ARCHITECTURE §2); migrations are owned by the
+  # geo-service release, not this chart.
+  appRole: geo
+
+backup:
+  # Backup wiring must stay consistent with charts/backup-dr: WAL-G archives
+  # to the same immutable store selected by backup-dr storage.provider.
+  enabled: true
+  # s3-compatible | azure — MUST equal the storage.provider of the backup-dr
+  # release in the same environment (cross-checked by the environment values
+  # review; the render gate enforces the enum and the wiring below).
+  storageProvider: ""
+  # Name of the WAL-G env ConfigMap rendered by charts/backup-dr
+  # (<backup-dr release>-walg-env). Required when backup.enabled=true.
+  walGEnvConfigMapRef: ""
+  # Five-field cron for wal-g backup-push base backups (mirrors
+  # backup-dr walG.baseBackupSchedule).
+  baseBackupSchedule: ""
+
+networkPolicy:
+  enabled: true
+  # Namespaces allowed to reach PostGIS on 5432. The geo stack is
+  # blueeco-geo-prod (geo-service + martin pods); environment values may add
+  # the backup-dr restore-test harness namespace.
+  allowedClientNamespaces: []
+  # Additional pod-selector labels restricting which client pods may connect
+  # (defence in depth on top of the namespace selector).
+  allowedClientPodLabels:
+    blueeconomy.platform/geo-postgis-client: "true"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 999
+  runAsGroup: 999
+  fsGroup: 999
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: ["ALL"]
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi

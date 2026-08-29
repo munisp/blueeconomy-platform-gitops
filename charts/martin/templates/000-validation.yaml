@@ -1,0 +1,32 @@
+{{- /* Fail-closed approval gates for the Martin tile server. */ -}}
+{{- $repo := required "image.repository is required (ghcr.io/maplibre/martin)" .Values.image.repository -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+
+{{- /* DSN from the ExternalSecrets-synced Secret only — never inline. */ -}}
+{{- $dsnName := required "postgres.dsnSecretRef.name is required (ExternalSecrets-synced Secret holding the libpq DSN; no inline DSN is permitted)" .Values.postgres.dsnSecretRef.name -}}
+{{- $dsnKey := required "postgres.dsnSecretRef.key is required" .Values.postgres.dsnSecretRef.key -}}
+{{- if empty .Values.postgres.tileFunctions -}}
+{{- fail "postgres.tileFunctions must list at least one tile function (latest_positions, geofence_zones)" -}}
+{{- end -}}
+{{- range $f := .Values.postgres.tileFunctions -}}
+{{- if or (not $f.name) (not $f.schema) -}}
+{{- fail "every postgres.tileFunctions entry requires name and schema" -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Edge route registration is mandatory: Martin performs no auth, so it
+       may only exist behind the registered APISIX edge route. */ -}}
+{{- if not .Values.edge.routeRegistration.required -}}
+{{- fail "edge.routeRegistration.required must remain true (Martin has no auth; the edge enforces authn/authz)" -}}
+{{- end -}}
+{{- $routeRef := required "edge.routeRegistration.apisixRouteRef is required (the ApisixRoute CR from charts/apisix-routes registering this Martin release on the edge)" .Values.edge.routeRegistration.apisixRouteRef -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- $apisixNs := required "networkPolicy.apisixNamespace is required (the only approved ingress source)" .Values.networkPolicy.apisixNamespace -}}
+{{- $pgNs := required "networkPolicy.postgisNamespace is required" .Values.networkPolicy.postgisNamespace -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for the Martin tile server" -}}
+{{- end -}}

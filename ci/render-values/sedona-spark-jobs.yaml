@@ -1,0 +1,33 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative CIDRs. Real values live in the authorised environment repo.
+# Wires the vessel-trajectory-silver job (bronze.vessel_observations ->
+# silver.vessel_trajectories; GEO_ARCHITECTURE D2) into blueeco-geo-prod.
+image:
+  repository: registry.blueeconomy.example.gov.ng/blueeconomy/sedona-spark-jobs
+  digest: sha256:2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c
+
+job:
+  enabled: true
+  name: vessel-trajectory-silver
+  schedule: "0 3 * * *"
+  mainApplicationFile: "local:///opt/blueeco/jobs/vessel_trajectory_silver.py"
+  dataProduct:
+    name: vessel-trajectory-silver
+    classification: restricted
+    inputTable: bronze.vessel_observations
+    outputTable: silver.vessel_trajectories
+    qualityContract: vessel-trajectory-silver/v1.0.0
+    crs: EPSG:4326
+
+spark:
+  sparkVersion: "3.5.3"
+
+networkPolicy:
+  kubernetesAPIServerCIDRs:
+    - 10.0.0.0/8
+  objectStoreCIDRs:
+    - 10.20.0.0/16
+  kafkaNamespace: blueeco-kafka-prod
+  kafkaPorts: [9093]
+  catalogNamespace: blueeco-data-catalog
+  catalogPorts: [443]
