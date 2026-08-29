@@ -1,0 +1,51 @@
+{{- /* Fail-closed approval gates for blueeconomy-waterway-safety. */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+{{- $repo := required "image.repository is required" .Values.image.repository -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+
+{{- /* Binary transport contract (src/bin/gateway.rs): fluvio | kafka. */ -}}
+{{- if not (has .Values.env.UPLINK_TRANSPORT (list "fluvio" "kafka")) -}}
+{{- fail "env.UPLINK_TRANSPORT must be one of: fluvio, kafka (transport is selected by configuration only)" -}}
+{{- end -}}
+
+{{- /* Required plain env values are approved environment values. */ -}}
+{{- $env := default dict .Values.env -}}
+{{- range $envName := (default (list) .Values.requiredEnv) -}}
+{{- if eq (printf "%v" (get $env $envName)) "" -}}
+{{- fail (printf "env.%s must be set to an approved environment value" $envName) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Every secretEnv name must be backed by the ExternalSecret; the
+       provenance signer is boot-fatal in the binary. */ -}}
+{{- range $secretName := (default (list) .Values.secretEnv) -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $secretName) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because the gateway consumes it via secretEnv" $secretName) -}}
+{{- end -}}
+{{- end -}}
+{{- if not (hasKey .Values.externalSecrets.keys "PROVENANCE_SIGNING_KEY") -}}
+{{- fail "externalSecrets.keys.PROVENANCE_SIGNING_KEY is required (the gateway refuses to start without the Ed25519 provenance signing key)" -}}
+{{- end -}}
+{{- $store := required "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore)" .Values.externalSecrets.storeRef.name -}}
+
+{{- /* Singleton journal posture. */ -}}
+{{- if ne (int .Values.replicas) 1 -}}
+{{- fail "replicas must remain 1: the append-only journal is per-gateway durable state; run one gateway per approved feed segment" -}}
+{{- end -}}
+{{- $size := required "persistence.size is required (durable journal volume)" .Values.persistence.size -}}
+
+{{- /* Resources are mandatory. */ -}}
+{{- if or (empty .Values.resources.requests.cpu) (empty .Values.resources.requests.memory) (empty .Values.resources.limits.cpu) (empty .Values.resources.limits.memory) -}}
+{{- fail "resources.requests and resources.limits (cpu and memory) are required" -}}
+{{- end -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- $uplinkNs := required "networkPolicy.uplinkNamespace is required (Kafka or Fluvio uplink egress)" .Values.networkPolicy.uplinkNamespace -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for waterway-safety" -}}
+{{- end -}}

@@ -1,0 +1,116 @@
+{{- $fullName := include "waterway-safety.fullname" . -}}
+{{- $secretName := include "waterway-safety.secretName" . -}}
+# Single-replica StatefulSet: the append-only journal (journal.rs) is
+# per-gateway durable state; the pod identity and PVC must be stable.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "waterway-safety.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ $fullName | quote }}
+  replicas: {{ .Values.replicas }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "waterway-safety.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "waterway-safety.selectorLabels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: gateway
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # The gateway binary: AIS NMEA 0183 + LoRaWAN sensor uplinks over
+          # TCP JSON-lines, normalized, journaled, provenance-signed and
+          # forwarded to the telemetry topic (src/bin/gateway.rs).
+          command: ["gateway"]
+          ports:
+            - name: ais
+              containerPort: {{ .Values.ports.ais }}
+              protocol: TCP
+            - name: sensor
+              containerPort: {{ .Values.ports.sensor }}
+              protocol: TCP
+          env:
+            {{- range $key, $value := (default dict .Values.env) }}
+            - name: {{ $key | quote }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- range $key := (default (list) .Values.secretEnv) }}
+            - name: {{ $key | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ $key | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          # The gateway speaks TCP JSON-lines (no HTTP listener); probes
+          # are TCP socket checks against the AIS feed listener.
+          startupProbe:
+            tcpSocket:
+              port: ais
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: ais
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: ais
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: journal
+              mountPath: {{ .Values.env.JOURNAL_DIR | quote }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: journal
+        labels:
+          {{- include "waterway-safety.labels" . | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.accessModes | nindent 10 }}
+        {{- if .Values.persistence.storageClassName }}
+        storageClassName: {{ .Values.persistence.storageClassName | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size | quote }}
+---
+# AIS/sensor feed endpoints (edge bridge relays connect here).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "waterway-safety.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "waterway-safety.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: ais
+      port: {{ .Values.ports.ais }}
+      targetPort: ais
+      protocol: TCP
+    - name: sensor
+      port: {{ .Values.ports.sensor }}
+      targetPort: sensor
+      protocol: TCP

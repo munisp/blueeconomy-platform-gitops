@@ -1,0 +1,113 @@
+# blueeconomy-waterway-safety gateway deploy surface. Environment contract
+# aligned to the binary (src/bin/gateway.rs BinaryConfig::from_env):
+# configuration is environment-only; GATEWAY_ID, VESSEL_DEVICE_ID,
+# JOURNAL_DIR and UPLINK_TRANSPORT are binary-required, the provenance
+# signer (PROVENANCE_SIGNING_KEY, src/provenance.rs) is boot-fatal.
+# Every credential arrives exclusively through ExternalSecrets; no
+# placeholder or inline credential is permitted. Cloud-agnostic.
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile (dev | staging | prod).
+profile: ""
+
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+# Single-replica StatefulSet: the append-only journal is per-gateway
+# durable state (journal.rs: rotation, bounded, replay oldest-first after
+# acknowledged upload). Do not scale horizontally; run one gateway per
+# approved feed segment.
+replicas: 1
+
+# TCP listeners (the gateway speaks TCP JSON-lines, not HTTP; probes are
+# TCP socket checks against the AIS listener).
+ports:
+  ais: 10110
+  sensor: 10111
+
+# Non-secret environment — exactly the binary contract.
+env:
+  GATEWAY_ID: ""
+  VESSEL_DEVICE_ID: ""
+  JOURNAL_DIR: /var/lib/waterway-safety/journal
+  # Transport selected by configuration only (fluvio | kafka).
+  UPLINK_TRANSPORT: ""
+  # Uplink endpoint (Kafka bootstrap brokers or Fluvio pier endpoint).
+  UPLINK_ENDPOINT: ""
+  TELEMETRY_TOPIC: ferries.telemetry.v1
+  # Approved classification label for emitted frames.
+  DATA_CLASSIFICATION: internal
+  AIS_LISTEN_ADDR: ":10110"
+  SENSOR_LISTEN_ADDR: ":10111"
+  HEARTBEAT_INTERVAL_SECONDS: "30"
+  LATENESS_WINDOW_SECONDS: "300"
+
+requiredEnv:
+  - GATEWAY_ID
+  - VESSEL_DEVICE_ID
+  - JOURNAL_DIR
+  - UPLINK_TRANSPORT
+  - UPLINK_ENDPOINT
+  - TELEMETRY_TOPIC
+  - DATA_CLASSIFICATION
+  - AIS_LISTEN_ADDR
+  - SENSOR_LISTEN_ADDR
+
+# ExternalSecrets contract (any ESO-supported ClusterSecretStore).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+# Secret-sourced env (names must exist in externalSecrets.keys). The
+# Ed25519 provenance signing seed is boot-fatal in the binary.
+secretEnv:
+  - PROVENANCE_SIGNING_KEY
+
+# Durable journal volume (durable ingestion cursors and vessel track
+# registry state; atomic writes with checksums).
+persistence:
+  storageClassName: ""
+  size: 10Gi
+  accessModes:
+    - ReadWriteOnce
+
+networkPolicy:
+  enabled: true
+  # Namespaces permitted to push AIS/sensor feeds (edge bridge relays).
+  allowedIngressNamespaces: []
+  # Kafka or Fluvio uplink namespace.
+  uplinkNamespace: ""
+
+resources:
+  requests:
+    cpu: ""
+    memory: ""
+  limits:
+    cpu: ""
+    memory: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+podDisruptionBudget:
+  enabled: true
+  # Singleton gateway: voluntary disruption requires an approved operator
+  # action (fail-closed availability posture for the safety feed).
+  maxUnavailable: 0
