@@ -1,0 +1,24 @@
+apiVersion: v2
+name: alertmanager
+description: >-
+  Prometheus Alertmanager (open-source Apache-2.0) for the Blue Economy
+  Platform observability foundation (OTEL_DESIGN.md section 1): the
+  single alert fan-in — EVERY route resolves to the Novu receiver
+  (self-hosted, open-source notification platform: ops alerts now,
+  citizen alerts later). Fail-closed: digest-pinned image, the Novu
+  webhook endpoint is render-gated REQUIRED (an alertmanager with no
+  working receiver is an alert black hole), silences/nflog on PVC,
+  resources required, NetworkPolicy, PodSecurity restricted.
+type: application
+version: 0.1.0
+appVersion: "0.28.1"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - alertmanager
+  - alerting
+  - observability
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "observability-foundation"
+  blueeconomy.platform/upstream: "https://github.com/prometheus/alertmanager (image prom/alertmanager, Apache-2.0)"
+  blueeconomy.platform/upstream-policy: "Pin verified upstream image digests; do not deploy unreviewed defaults"
