@@ -5,6 +5,8 @@ workstream:
     - intent-api
     - cvff-worker
     - cvff-outbox-publisher
+    - cvff-api
+    - declaration-scorer
 
 pubsub:
   kafka:
