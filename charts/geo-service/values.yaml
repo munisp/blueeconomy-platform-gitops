@@ -80,6 +80,10 @@ requiredEnv:
 # deployment maps the documented secret keys onto the binary env contract:
 #   GEO_DATABASE_URL  — libpq DSN for the geo role (NOSUPERUSER NOBYPASSRLS),
 #                       injected to the binary as GEO_PG_DSN
+#   GEO_INGEST_DATABASE_URL — libpq DSN for the least-privilege geo_ingest
+#                       LOGIN role (SELECT geofence_zones + INSERT
+#                       geofence_events only), injected as GEO_INGEST_PG_DSN;
+#                       required since 0008_rls_ingest_login.sql
 #   REDIS_URL         — dedup window store, injected as GEO_REDIS_ADDR
 #   signing keys per signing.convention above, injected as
 #                       ENVELOPE_SIGNING_PRIVATE_KEY / ENVELOPE_SIGNING_KEY_EPOCH.

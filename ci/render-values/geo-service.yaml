@@ -28,6 +28,7 @@ externalSecrets:
     ENVELOPE_SIGNING_PRIVATE_KEY: geo/render-fixture/envelope-signing-private-key
     ENVELOPE_SIGNING_PRIVATE_KEY_EPOCH: geo/render-fixture/envelope-signing-epoch
     GEO_DATABASE_URL: geo/render-fixture/postgres-dsn
+    GEO_INGEST_DATABASE_URL: geo/render-fixture/postgres-ingest-dsn
     REDIS_URL: geo/render-fixture/redis-url
 
 kafka:

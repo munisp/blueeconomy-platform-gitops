@@ -54,6 +54,16 @@ spec:
                 secretKeyRef:
                   name: {{ $secretName | quote }}
                   key: GEO_DATABASE_URL
+            # Dedicated least-privilege ingest role connection (0008_rls_
+            # ingest_login.sql): the geofence evaluator connects AS
+            # geo_ingest on its own pool — the app role holds no geo_ingest
+            # membership because permissive RLS policies OR across
+            # memberships. Required by the binary (fail-closed).
+            - name: GEO_INGEST_PG_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: GEO_INGEST_DATABASE_URL
             - name: GEO_REDIS_ADDR
               valueFrom:
                 secretKeyRef:
@@ -107,7 +117,7 @@ spec:
             {{- /* Secret keys already mapped onto the binary env contract
                    above are not re-injected under their raw names (the
                    binary never reads them). */ -}}
-            {{- $mappedKeys := list "GEO_DATABASE_URL" "REDIS_URL"
+            {{- $mappedKeys := list "GEO_DATABASE_URL" "GEO_INGEST_DATABASE_URL" "REDIS_URL"
                 .Values.signing.envelope.privateKeySecretKey
                 .Values.signing.envelope.epochSecretKey
                 .Values.signing.provenance.keySecretKey -}}

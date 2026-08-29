@@ -77,6 +77,12 @@
 {{- if not (hasKey $.Values.externalSecrets.keys "GEO_DATABASE_URL") -}}
 {{- fail "externalSecrets.keys.GEO_DATABASE_URL is required (mapped to the binary's GEO_PG_DSN)" -}}
 {{- end -}}
+{{- /* GE-2 repair (0008_rls_ingest_login.sql): the geofence evaluator
+       connects AS the least-privilege geo_ingest LOGIN role on its own
+       pool; the binary refuses to boot without GEO_INGEST_PG_DSN. */ -}}
+{{- if not (hasKey $.Values.externalSecrets.keys "GEO_INGEST_DATABASE_URL") -}}
+{{- fail "externalSecrets.keys.GEO_INGEST_DATABASE_URL is required (mapped to the binary's GEO_INGEST_PG_DSN; geo_ingest role DSN)" -}}
+{{- end -}}
 {{- if not (hasKey $.Values.externalSecrets.keys "REDIS_URL") -}}
 {{- fail "externalSecrets.keys.REDIS_URL is required (mapped to the binary's GEO_REDIS_ADDR)" -}}
 {{- end -}}
