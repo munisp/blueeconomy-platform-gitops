@@ -1,0 +1,115 @@
+{{- $fullName := include "administration-service.fullname" . -}}
+{{- $secretName := include "administration-service.secretName" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "administration-service.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "administration-service.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "administration-service.selectorLabels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: administration-service
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          env:
+            # Binary contract (internal/admin/config.go,
+            # internal/provenance): the three secret-sourced names below
+            # are the complete credential surface; everything else is the
+            # approved non-secret env from the environment values file.
+            - name: ADMIN_SERVICE_POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: ADMIN_SERVICE_POSTGRES_DSN
+            - name: KEYCLOAK_ADMIN_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: KEYCLOAK_ADMIN_CLIENT_SECRET
+            - name: PROVENANCE_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: PROVENANCE_SIGNING_KEY
+            {{- $secretKeys := list "ADMIN_SERVICE_POSTGRES_DSN" "KEYCLOAK_ADMIN_CLIENT_SECRET" "PROVENANCE_SIGNING_KEY" -}}
+            {{- range $key, $value := (default dict .Values.env) }}
+            {{- if not (has $key $secretKeys) }}
+            - name: {{ $key | quote }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.livenessPath }}
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readinessPath }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.livenessPath }}
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            # PBAC policy pack (internal/pbac): mounted read-only at
+            # env.ADMIN_PBAC_POLICY_DIR; the binary refuses to boot
+            # without it.
+            - name: pbac-policies
+              mountPath: {{ .Values.env.ADMIN_PBAC_POLICY_DIR }}
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: pbac-policies
+          configMap:
+            name: {{ include "administration-service.pbacConfigMapName" . }}
+            defaultMode: 0444
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "administration-service.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "administration-service.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.port }}
+      targetPort: http
