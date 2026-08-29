@@ -1,0 +1,17 @@
+{{- if .Values.tracing.enabled }}
+# Dapr sidecar native OTel tracing (dapr.io/v1alpha1 Configuration).
+# Apps opt in with the dapr.io/config: "tracing" pod annotation; the
+# sidecar exports spans to the collector agent and NEVER blocks app
+# calls on export failure (telemetry drops, not requests).
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: tracing
+spec:
+  tracing:
+    samplingRate: {{ .Values.tracing.samplingRate | quote }}
+    otel:
+      endpointAddress: {{ .Values.tracing.otelEndpointAddress | quote }}
+      isSecure: {{ .Values.tracing.otelIsSecure }}
+      protocol: grpc
+{{- end }}

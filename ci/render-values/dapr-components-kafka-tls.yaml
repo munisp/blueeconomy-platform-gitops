@@ -47,3 +47,10 @@ externalSecrets:
     redis-password: cvff/render-fixture/redis-password
     postgres-connection-string: cvff/render-fixture/postgres-connection-string
     kafka-sasl-password: cvff/render-fixture/kafka-sasl-password
+
+# Dapr sidecar native OTel tracing (collector agent endpoint).
+tracing:
+  enabled: true
+  samplingRate: "1"
+  otelEndpointAddress: otel-collector-agent-otel-collector-agent.blueeconomy-observability.svc.cluster.local:4317
+  otelIsSecure: false

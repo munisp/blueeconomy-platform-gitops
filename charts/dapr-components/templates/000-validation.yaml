@@ -77,3 +77,12 @@
 {{- $vn := required "secretStores.hashicorpVault.tokenSecretRef.name is required" .Values.secretStores.hashicorpVault.tokenSecretRef.name -}}
 {{- $vk := required "secretStores.hashicorpVault.tokenSecretRef.key is required" .Values.secretStores.hashicorpVault.tokenSecretRef.key -}}
 {{- end -}}
+
+{{- /* Dapr sidecar native OTel tracing contract. */ -}}
+{{- if .Values.tracing.enabled -}}
+{{- $rate := .Values.tracing.samplingRate | float64 -}}
+{{- if or (lt $rate 0.0) (gt $rate 1.0) -}}
+{{- fail "tracing.samplingRate must be a numeric string in [0, 1]" -}}
+{{- end -}}
+{{- $otel := required "tracing.otelEndpointAddress is required when tracing.enabled=true (OTel collector agent OTLP gRPC endpoint for the sidecar exporter; OTEL_DESIGN.md section 3)" .Values.tracing.otelEndpointAddress -}}
+{{- end -}}

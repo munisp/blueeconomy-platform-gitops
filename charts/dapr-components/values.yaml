@@ -127,3 +127,17 @@ externalSecrets:
 rbac:
   # Least-privilege: the Dapr sidecars read only the synced component secret.
   create: true
+
+# Dapr sidecar native OTel tracing (OTEL_DESIGN.md section 3): a
+# dapr.io/v1alpha1 Configuration is rendered per workstream release;
+# apps opt in via the dapr.io/config: "tracing" pod annotation.
+tracing:
+  enabled: true
+  # Trace sampling rate ("0".."1"); render-gated numeric in [0, 1].
+  samplingRate: "1"
+  # OTel collector agent OTLP gRPC endpoint for the sidecar exporter
+  # (render-gated; telemetry export failure never blocks app calls —
+  # Dapr drops spans, not requests).
+  otelEndpointAddress: ""
+  # Is the endpoint TLS-secured (in-cluster plaintext = false).
+  otelIsSecure: false
