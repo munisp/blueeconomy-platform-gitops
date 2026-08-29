@@ -59,7 +59,9 @@ for chart in tigerbeetle mojaloop-overlay sedona-spark-jobs core-services region
   administration-service \
   cilium caddy opa-policies backup-dr \
   postgis martin geo-service apisix-routes \
-  tax-stamps ml-stack data-platform waterway-safety cv-service emqx; do
+  tax-stamps ml-stack data-platform waterway-safety cv-service emqx \
+  otel-collector-agent otel-collector-gateway tempo loki alertmanager \
+  novu prometheus-rules keycloak; do
   test -s "$repo_root/charts/$chart/Chart.yaml"
   test -s "$repo_root/charts/$chart/values.yaml"
 done
@@ -122,6 +124,14 @@ assert_default_render_fails_closed data-platform 'profile must be one of: dev, s
 assert_default_render_fails_closed waterway-safety 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed cv-service 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed emqx 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed otel-collector-agent 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed otel-collector-gateway 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed tempo 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed loki 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed alertmanager 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed novu 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed prometheus-rules 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed keycloak 'profile must be one of: dev, staging, prod'
 
 # Positive render gates: every shared-platform chart must render fully with
 # its CI render fixture (fail-closed defaults exercised separately above).
@@ -130,7 +140,9 @@ for chart in ferry-ticketing financial-controls port-interoperability security-o
   temporal keycloak-realms beneficiary-portal ministry-portal \
   administration-service \
   cilium opa-policies sedona-spark-jobs martin geo-service apisix-routes \
-  tax-stamps ml-stack data-platform waterway-safety cv-service emqx; do
+  tax-stamps ml-stack data-platform waterway-safety cv-service emqx \
+  otel-collector-agent otel-collector-gateway tempo loki alertmanager \
+  novu prometheus-rules keycloak; do
   helm template render-gate "$repo_root/charts/$chart" \
     --kube-version "$helm_kube_version" \
     -f "$repo_root/ci/render-values/$chart.yaml" > /dev/null

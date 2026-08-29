@@ -65,6 +65,27 @@ spec:
             namespace: blueeconomy-ferries
           - chart: cv-service
             namespace: blueeconomy-ports
+          # Observability foundation (phase-7 OTel wave, OTEL_DESIGN.md):
+          # agent/gateway collectors, trace/log/alert backends and the
+          # Novu notification platform; alert rules render alongside.
+          - chart: otel-collector-agent
+            namespace: blueeconomy-observability
+          - chart: otel-collector-gateway
+            namespace: blueeconomy-observability
+          - chart: tempo
+            namespace: blueeconomy-observability
+          - chart: loki
+            namespace: blueeconomy-observability
+          - chart: alertmanager
+            namespace: blueeconomy-observability
+          - chart: novu
+            namespace: blueeconomy-observability
+          - chart: prometheus-rules
+            namespace: blueeconomy-observability
+          # Keycloak server instance CR (operator in security; tracing
+          # exports to the collector gateway).
+          - chart: keycloak
+            namespace: blueeconomy-security
           # Core platform services (docs/core-services-deployment-guide.md):
           # TigerBeetle sub-ledger, Mojaloop release-control overlay and
           # Sedona Spark jobs each render into their approved namespace.
