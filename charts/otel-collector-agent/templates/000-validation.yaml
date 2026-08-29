@@ -2,6 +2,19 @@
 {{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
 {{- fail "profile must be one of: dev, staging, prod" -}}
 {{- end -}}
+
+{{- /* Browser RUM CORS contract (W-OTEL-RUM): prod must list the explicit
+       portal origins and must never render the '*' wildcard. */ -}}
+{{- if eq .Values.profile "prod" -}}
+{{- if empty .Values.rumAllowedOrigins -}}
+{{- fail "rumAllowedOrigins must list the explicit portal origins when profile=prod (browser RUM exports are CORS-preflighted; an empty list leaves them blocked)" -}}
+{{- end -}}
+{{- end -}}
+{{- range $origin := .Values.rumAllowedOrigins -}}
+{{- if and (eq $origin "*") (eq $.Values.profile "prod") -}}
+{{- fail "rumAllowedOrigins must not contain the wildcard origin '*' when profile=prod (any site could write telemetry); explicit portal origins only" -}}
+{{- end -}}
+{{- end -}}
 {{- $repo := required "image.repository is required (contrib distribution: kafkametrics/postgresql/redis receivers live in contrib only)" .Values.image.repository -}}
 {{- if not (hasSuffix "contrib" $repo) -}}
 {{- fail "image.repository must be the contrib distribution (otel/opentelemetry-collector-contrib or an approved mirror); the infra receivers are contrib-only" -}}

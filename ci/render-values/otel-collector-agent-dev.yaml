@@ -1,7 +1,7 @@
-# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
-# illustrative references. Real values live in the authorised environment
-# repo.
-profile: prod
+# CI render-gate fixture ONLY (dev profile variant). NOT deployable:
+# synthetic digest and illustrative references. Dev may use localhost
+# RUM origins; the prod wildcard refusal still applies if '*' sneaks in.
+profile: dev
 
 image:
   repository: otel/opentelemetry-collector-contrib
@@ -9,11 +9,10 @@ image:
 
 gatewayEndpoint: render-gate-otel-collector-gateway.blueeconomy-observability.svc.cluster.local:4317
 
-# Browser RUM CORS origins (W-OTEL-RUM): the two portal frontends.
-# Prod profile — explicit origins, no wildcard (render-gated).
+# Dev-profile browser RUM origins (localhost portal dev servers).
 rumAllowedOrigins:
-  - https://beneficiary.blueeconomy.example.gov.ng
-  - https://ministry.blueeconomy.example.gov.ng
+  - http://localhost:3000
+  - http://localhost:4200
 
 receivers:
   kafka:
@@ -27,16 +26,10 @@ receivers:
         database: geo
         username: otel_collector_ro
         passwordSecretKey: OTEL_PG_GEO_PASSWORD
-      - name: keycloak-postgres
-        endpoint: keycloak-postgres-rw.blueeconomy-security.svc.cluster.local:5432
-        database: keycloak
-        username: otel_collector_ro
-        passwordSecretKey: OTEL_PG_KEYCLOAK_PASSWORD
   redis:
     enabled: true
     endpoints:
       - redis.blueeconomy-platform.svc.cluster.local:6379
-    passwordSecretKey: OTEL_REDIS_PASSWORD
 
 externalSecrets:
   storeRef:
@@ -44,8 +37,6 @@ externalSecrets:
     kind: ClusterSecretStore
   keys:
     OTEL_PG_GEO_PASSWORD: observability/render-fixture/pg-geo-password
-    OTEL_PG_KEYCLOAK_PASSWORD: observability/render-fixture/pg-keycloak-password
-    OTEL_REDIS_PASSWORD: observability/render-fixture/redis-password
 
 resources:
   requests:
@@ -58,18 +49,8 @@ resources:
 networkPolicy:
   allowedIngressNamespaces:
     - blueeconomy-platform
-    - blueeconomy-ports
-    - blueeconomy-ferries
-    - blueeconomy-cvff
-    - blueeconomy-seafarer
-    - blueeconomy-fisheries
-    - blueeconomy-isr
-    - blueeconomy-security
-    - blueeco-geo-prod
   kafkaNamespace: blueeconomy-platform
   postgresNamespaces:
     - blueeco-geo-prod
-    - blueeconomy-security
-    - blueeconomy-platform
   redisNamespaces:
     - blueeconomy-platform

@@ -18,6 +18,16 @@ data:
             endpoint: 0.0.0.0:4317
           http:
             endpoint: 0.0.0.0:4318
+            {{- if .Values.rumAllowedOrigins }}
+            # Browser RUM exports are CORS-preflighted; preflights are
+            # answered for exactly the approved portal origins
+            # (W-OTEL-RUM: beneficiary-portal / ministry-portal).
+            cors:
+              allowed_origins:
+                {{- range .Values.rumAllowedOrigins }}
+                - {{ . | quote }}
+                {{- end }}
+            {{- end }}
       {{- if .Values.receivers.kafka.enabled }}
       # Kafka broker/topic/partition + consumer-group lag telemetry.
       kafkametrics:

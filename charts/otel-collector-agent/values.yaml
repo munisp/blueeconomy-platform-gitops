@@ -31,6 +31,16 @@ batch:
   timeout: 5s
   sendBatchSize: 1024
 
+# Browser RUM OTLP/HTTP exports (W-OTEL-RUM: beneficiary-portal and
+# ministry-portal browser RUM) are CORS-preflighted by browsers; the
+# OTLP/HTTP receiver (:4318) answers preflights for exactly these
+# origins. Render-gated:
+#   - profile=prod: explicit portal origins REQUIRED (an empty list
+#     leaves browser RUM exports CORS-blocked);
+#   - the '*' wildcard is render-refused in prod (any site could write
+#     telemetry); dev/staging may use localhost origins.
+rumAllowedOrigins: []
+
 # Infra receivers (middleware coverage matrix, OTEL_DESIGN.md section 3).
 receivers:
   # Kafka brokers + consumer-group lag (kafkametricsreceiver).

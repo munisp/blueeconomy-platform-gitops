@@ -125,6 +125,26 @@ assert_default_render_fails_closed waterway-safety 'profile must be one of: dev,
 assert_default_render_fails_closed cv-service 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed emqx 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed otel-collector-agent 'profile must be one of: dev, staging, prod'
+# Browser RUM CORS gate (W-OTEL-RUM): the prod profile must never render a
+# wildcard OTLP/HTTP origin, and must list explicit portal origins.
+cors_gate_output="$(mktemp)"
+if helm template validation "$repo_root/charts/otel-collector-agent" \
+  --kube-version "$helm_kube_version" \
+  --set profile=prod --set 'rumAllowedOrigins[0]=*' > /dev/null 2>"$cors_gate_output"; then
+  echo "otel-collector-agent rendered a wildcard RUM origin in the prod profile" >&2
+  rm -f "$cors_gate_output"
+  exit 1
+fi
+if ! grep -Fq "rumAllowedOrigins must not contain the wildcard origin" "$cors_gate_output"; then
+  cat "$cors_gate_output" >&2
+  echo "otel-collector-agent did not refuse the prod wildcard RUM origin with its expected gate" >&2
+  rm -f "$cors_gate_output"
+  exit 1
+fi
+rm -f "$cors_gate_output"
+helm template render-gate "$repo_root/charts/otel-collector-agent" \
+  --kube-version "$helm_kube_version" \
+  -f "$repo_root/ci/render-values/otel-collector-agent-dev.yaml" > /dev/null
 assert_default_render_fails_closed otel-collector-gateway 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed tempo 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed loki 'profile must be one of: dev, staging, prod'
