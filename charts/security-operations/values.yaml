@@ -1,10 +1,16 @@
 # Security operations: detection engine + OpenCTI bridge.
-# NOTE: the feature/detection-engine source branch was not present in the
-# audit workspace when this chart was authored; the environment contract
-# below follows the documented service shape (Kafka in, security.alerts.v1
-# out, OpenSearch evidence store, OpenCTI enrichment). The owning team must
-# verify every env name against the merged service source before production
-# approval. All credentials are ExternalSecrets-only.
+# Environment contract aligned to the merged Go service source
+# (blueeconomy-security-operations):
+#   cmd/detection-engine: BESEC_POSTGRES_DSN, BESEC_WINDOW_RETENTION,
+#     BESEC_HEALTH_LISTEN_ADDRESS, KEY_DIRECTORY_PATH, --rules flag
+#     (internal/kafkax: BESEC_KAFKA_BROKERS/TOPICS/GROUP_ID/ALERT_TOPIC/
+#     DLQ_TOPIC/SASL_USERNAME/SASL_PASSWORD/TLS). The engine keeps durable
+#     window state in PostgreSQL; there is NO OpenSearch dependency.
+#   cmd/opencti-bridge: BESEC_OPENCTI_URL + BESEC_OPENCTI_TOKEN, flags
+#     --output/--ruleset-version[--strict]; it is a bounded generator run,
+#     so it deploys as a CronJob, not a long-running Deployment.
+# All credentials are ExternalSecrets-only; no placeholder or inline
+# credential is permitted anywhere in this chart.
 nameOverride: ""
 fullnameOverride: ""
 workstream: security
@@ -49,25 +55,56 @@ dapr:
 components:
   detection-engine:
     enabled: true
+    # Long-running Kafka consumer with durable PostgreSQL window state.
+    kind: Deployment
     image:
       repository: ""
       digest: ""
       pullPolicy: IfNotPresent
     replicas: 2
     daprAppId: detection-engine
+    # Operational HTTP listener (BESEC_HEALTH_LISTEN_ADDRESS): /healthz,
+    # /readyz (fail-closed on PG window-state outage) and /metrics.
+    port: 8080
+    service:
+      enabled: true
+      type: ClusterIP
+    probes:
+      livenessPath: /healthz
+      readinessPath: /readyz
+    # Approved detection rule document (rules/detection-rules.yaml in the
+    # service repo; detection-engineering lifecycle per
+    # wazuh/detection-engineering-lifecycle.md). Mounted read-only and
+    # passed via --rules; the binary exits without it. Environment values
+    # carry the governance-approved document; render-gated non-empty.
+    rules:
+      document: ""
+      mountPath: /etc/blueeconomy/detection-rules
+    # Binary contract only (cmd/detection-engine, internal/kafkax). No
+    # other env names are resolved by the binary.
     env:
-      KAFKA_BROKERS: ""
-      # Alert topic per platform event catalogue.
-      SECURITY_ALERTS_TOPIC: security.alerts.v1
-      OPENSEARCH_URL: ""
-      OPENSEARCH_ALERTS_INDEX: security-alerts
+      BESEC_KAFKA_BROKERS: ""
+      # Comma-separated subscribe topics (ports.*, ferries.*, cvff.* ...).
+      BESEC_KAFKA_TOPICS: ""
+      BESEC_KAFKA_GROUP_ID: ""
+      BESEC_KAFKA_ALERT_TOPIC: "security.alerts.v1"
+      # Dead-letter topic for malformed well-signed events (binary-required).
+      BESEC_KAFKA_DLQ_TOPIC: ""
+      BESEC_KAFKA_TLS: "true"
+      BESEC_WINDOW_RETENTION: "24h"
+      BESEC_HEALTH_LISTEN_ADDRESS: ":8080"
     requiredEnv:
-      - KAFKA_BROKERS
-      - SECURITY_ALERTS_TOPIC
-      - OPENSEARCH_URL
-      - OPENSEARCH_ALERTS_INDEX
+      - BESEC_KAFKA_BROKERS
+      - BESEC_KAFKA_TOPICS
+      - BESEC_KAFKA_GROUP_ID
+      - BESEC_KAFKA_DLQ_TOPIC
+      - BESEC_HEALTH_LISTEN_ADDRESS
+    # BESEC_POSTGRES_DSN is boot-fatal in the binary; SASL credentials are
+    # optional in the binary but required by the platform Kafka posture.
     secretEnv:
-      - OPENSEARCH_SERVICE_CREDENTIALS
+      - BESEC_POSTGRES_DSN
+      - BESEC_KAFKA_SASL_USERNAME
+      - BESEC_KAFKA_SASL_PASSWORD
     resources:
       requests:
         cpu: 200m
@@ -78,22 +115,29 @@ components:
 
   opencti-bridge:
     enabled: true
+    # Bounded generator run (pulls indicators, writes Wazuh XML + OpenAppSec
+    # policy for the reviewed deployment process, exits). A Deployment
+    # would crash-loop on every successful run; CronJob is the honest shape.
+    kind: CronJob
+    # Five-field cron; render-gated when the component is enabled.
+    schedule: ""
+    # --strict fails the run when OpenCTI is unreachable instead of writing
+    # a degraded alert; prod posture renders strict.
+    strict: true
+    # Version label for generated content, supplied by the deployment
+    # pipeline (the binary requires --ruleset-version, no default).
+    rulesetVersion: ""
     image:
       repository: ""
       digest: ""
       pullPolicy: IfNotPresent
-    replicas: 1
     daprAppId: opencti-bridge
     env:
-      OPENCTI_URL: ""
-      KAFKA_BROKERS: ""
-      SECURITY_ALERTS_TOPIC: security.alerts.v1
+      BESEC_OPENCTI_URL: ""
     requiredEnv:
-      - OPENCTI_URL
-      - KAFKA_BROKERS
-      - SECURITY_ALERTS_TOPIC
+      - BESEC_OPENCTI_URL
     secretEnv:
-      - OPENCTI_API_TOKEN
+      - BESEC_OPENCTI_TOKEN
     resources:
       requests:
         cpu: 100m
@@ -109,11 +153,14 @@ networkPolicy:
     - namespace: kube-system
       ports: [53]
       protocols: ["UDP", "TCP"]
-    # Kafka and OpenSearch/OpenCTI namespaces are appended by the environment
-    # values file. The security namespace never egresses to workstream pods.
+    # Kafka (9092), PostgreSQL window state (5432) and OpenCTI namespaces are
+    # appended by the environment values file. The security namespace never
+    # egresses to workstream pods.
 
 monitoring:
   serviceMonitor:
+    # Scrapes the detection-engine operational listener (/metrics on the
+    # BESEC_HEALTH_LISTEN_ADDRESS port) once a service is rendered.
     enabled: false
     path: /metrics
     interval: 30s
@@ -132,8 +179,9 @@ podDisruptionBudget:
 # charts/opa-policies ({kid: base64url-ed25519-pubkey} for every approved
 # platform producer) is mounted read-only at KEY_DIRECTORY_PATH so the
 # detection engine verifies provenance.signature on every consumed event
-# envelope instead of trusting network location. data-platform consumes the
-# same ConfigMap (see the consumer wiring notes in charts/opa-policies).
+# envelope instead of trusting network location. The binary REFUSES TO BOOT
+# without KEY_DIRECTORY_PATH, so the render gate requires this to be enabled
+# whenever the detection-engine component is enabled.
 keyDirectory:
   enabled: false
   # Name of the opa-policies key-directory ConfigMap

@@ -5,36 +5,60 @@ externalSecrets:
     name: azure-keyvault-usgov
     kind: ClusterSecretStore
   keys:
-    OPENSEARCH_SERVICE_CREDENTIALS: security/render-fixture/opensearch-credentials
-    OPENCTI_API_TOKEN: security/render-fixture/opencti-api-token
+    BESEC_POSTGRES_DSN: security/render-fixture/postgres-dsn
+    BESEC_KAFKA_SASL_USERNAME: security/render-fixture/kafka-sasl-username
+    BESEC_KAFKA_SASL_PASSWORD: security/render-fixture/kafka-sasl-password
+    BESEC_OPENCTI_TOKEN: security/render-fixture/opencti-api-token
 
 components:
   detection-engine:
     image:
       repository: blueeconomy.azurecr.us/blueeconomy/detection-engine
       digest: sha256:70508dadb6334041e54c8b64e28d34b02fec5f39db95a5db2dafe77cb2b09be9
+    rules:
+      # Minimal illustrative document; the approved rule set lives in the
+      # environment values (detection-engineering lifecycle).
+      document: |
+        version: 1
+        rules:
+          - name: cross-workstream-correlation
+            type: cross-workstream
+            enabled: true
+            severity: high
+            window: 1h
+            params: {}
     env:
-      KAFKA_BROKERS: kafka.blueeconomy-platform.svc.cluster.local:9092
-      OPENSEARCH_URL: https://opensearch-cluster-master.blueeconomy-security.svc.cluster.local:9200
+      BESEC_KAFKA_BROKERS: kafka.blueeconomy-platform.svc.cluster.local:9092
+      BESEC_KAFKA_TOPICS: ports.alerts.v1,ferries.telemetry.v1,cvff.events.v1
+      BESEC_KAFKA_GROUP_ID: blueeconomy-security-operations
+      BESEC_KAFKA_DLQ_TOPIC: security.detection-dlq.v1
   opencti-bridge:
+    schedule: "0 3 * * *"
+    rulesetVersion: render-fixture-2024.1
     image:
       repository: blueeconomy.azurecr.us/blueeconomy/opencti-bridge
       digest: sha256:82fa8b271f9cc3d5e84f0ee17570609069958833839d2f60419a7dcd7d1bbe30
     env:
-      OPENCTI_URL: https://opencti.blueeconomy-security.svc.cluster.local
-      KAFKA_BROKERS: kafka.blueeconomy-platform.svc.cluster.local:9092
+      BESEC_OPENCTI_URL: https://opencti.blueeconomy-security.svc.cluster.local
+
+monitoring:
+  serviceMonitor:
+    enabled: true
 
 networkPolicy:
   allowedEgress:
     - namespace: kube-system
       ports: [53]
       protocols: ["UDP", "TCP"]
+    # Kafka bus.
     - namespace: blueeconomy-platform
       ports: [9092]
+    # PostgreSQL window state and the OpenCTI API.
     - namespace: blueeconomy-security
-      ports: [9200, 8080]
+      ports: [5432, 8080]
 
-# Key-directory consumption wiring (ConfigMap rendered by charts/opa-policies).
+# Key-directory consumption wiring (ConfigMap rendered by charts/opa-policies);
+# required: the detection engine refuses to boot without KEY_DIRECTORY_PATH.
 keyDirectory:
   enabled: true
   configMapName: render-gate-opa-policies-key-directory
