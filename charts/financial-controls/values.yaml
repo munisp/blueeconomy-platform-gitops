@@ -67,8 +67,18 @@ components:
       readinessPath: /healthz
     env:
       INTENT_API_LISTEN_ADDR: ":8080"
+      # Gold-standard authn+PBAC gate (FC-1): every money route requires a
+      # verified Keycloak token and the financial.intents policy grant.
+      INTENT_API_KEYCLOAK_ISSUER: ""
+      INTENT_API_KEYCLOAK_JWKS_URL: ""
+      INTENT_API_JWT_AUDIENCE: ""
+      INTENT_API_POLICY_DIR: /etc/blueeconomy/policies
     requiredEnv:
       - INTENT_API_LISTEN_ADDR
+      - INTENT_API_KEYCLOAK_ISSUER
+      - INTENT_API_KEYCLOAK_JWKS_URL
+      - INTENT_API_JWT_AUDIENCE
+      - INTENT_API_POLICY_DIR
     secretEnv:
       - DATABASE_URL
     resources:
