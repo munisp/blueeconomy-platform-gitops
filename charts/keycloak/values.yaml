@@ -1,0 +1,66 @@
+# Keycloak instance (operator CR, k8s.keycloak.org/v2alpha1). The pinned
+# operator (26.7.1) reconciles this CR; the server image is digest-pinned.
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile (dev | staging | prod).
+profile: ""
+
+# Keycloak CR name (operator-derived service names hang off this).
+crName: keycloak
+
+image:
+  repository: ""
+  digest: ""
+
+instances: 2
+
+# Edge hostname (HTTPS; render-gated).
+hostname: ""
+# TLS Secret (ExternalSecrets-synced) holding the edge certificate.
+tls:
+  # Name of the synced Secret (tls.crt/tls.key); render-gated.
+  secretName: ""
+
+# PostgreSQL backing store (keycloak-postgres in the security namespace).
+db:
+  vendor: postgres
+  host: ""
+  port: 5432
+  database: keycloak
+  # ExternalSecrets keys carrying the database credentials.
+  usernameSecretKey: KEYCLOAK_DB_USERNAME
+  passwordSecretKey: KEYCLOAK_DB_PASSWORD
+
+# OpenTelemetry (KC >= 26.1 Quarkus-native tracing; OTEL_DESIGN.md
+# section 3). Traces export straight to the collector gateway.
+# NOTE (26.5/26.6 preview status): OTel METRICS and LOGS are still
+# upstream preview — metrics continue via the management-port Prometheus
+# scrape (metricsEnabled below) and logs ship via stdout -> Loki; flip
+# to OTel metrics/logs only after the upstream GA review.
+tracing:
+  enabled: true
+  # Collector gateway OTLP/HTTP endpoint, e.g.
+  # http://otel-collector-gateway.blueeconomy-observability.svc.cluster.local:4318
+  endpoint: ""
+  serviceName: keycloak
+  # Parent-based trace-id-ratio sampler (edge spans already carry the
+  # sampling decision; Keycloak honours it).
+  samplerRatio: 1.0
+
+# Management-port Prometheus metrics (the non-preview metrics path).
+metricsEnabled: true
+
+# ExternalSecrets contract (any ESO-supported ClusterSecretStore).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+networkPolicy:
+  enabled: true
+  # Egress to the collector gateway (OTLP) and the database namespace.
+  observabilityNamespace: blueeconomy-observability
+  databaseNamespace: ""

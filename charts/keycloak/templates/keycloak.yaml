@@ -1,0 +1,77 @@
+{{- $fullName := include "keycloak.fullname" . -}}
+{{- $secretName := include "keycloak.secretName" . -}}
+# Keycloak instance CR (reconciled by the pinned keycloak-operator
+# 26.7.1). Quarkus-native OTel tracing (KC >= 26.1) exports to the
+# collector gateway; OTel metrics/logs are 26.5/26.6 upstream preview,
+# so metrics stay on the management-port Prometheus scrape and logs ship
+# via stdout -> Loki (see values.yaml tracing note).
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: Keycloak
+metadata:
+  name: {{ .Values.crName }}
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.instances }}
+  image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+  hostname:
+    hostname: {{ .Values.hostname | quote }}
+  http:
+    tlsSecret: {{ .Values.tls.secretName | quote }}
+  db:
+    vendor: {{ .Values.db.vendor | quote }}
+    host: {{ .Values.db.host | quote }}
+    port: {{ .Values.db.port }}
+    database: {{ .Values.db.database | quote }}
+    usernameSecret:
+      name: {{ $secretName | quote }}
+      key: {{ .Values.db.usernameSecretKey | quote }}
+    passwordSecret:
+      name: {{ $secretName | quote }}
+      key: {{ .Values.db.passwordSecretKey | quote }}
+  additionalOptions:
+    {{- if .Values.tracing.enabled }}
+    # KC >= 26.1 production-grade OTel traces (parent-based sampling:
+    # APISIX edge root spans carry the decision downstream).
+    - name: tracing-enabled
+      value: "true"
+    - name: tracing-endpoint
+      value: {{ .Values.tracing.endpoint | quote }}
+    - name: tracing-protocol
+      value: http/protobuf
+    - name: tracing-service-name
+      value: {{ .Values.tracing.serviceName | quote }}
+    - name: tracing-sampler-type
+      value: parentbased_traceidratio
+    - name: tracing-sampler-ratio
+      value: {{ .Values.tracing.samplerRatio | quote }}
+    {{- end }}
+    {{- if .Values.metricsEnabled }}
+    # Management-port /metrics (the non-preview metrics path; OTel
+    # metrics are 26.5/26.6 preview — see values note).
+    - name: metrics-enabled
+      value: "true"
+    {{- end }}
+    # MDC trace ids land in stdout logs for the Loki trace<->log pivot.
+    - name: log-mdc-enabled
+      value: "true"
+---
+{{- if .Values.metricsEnabled }}
+# Management-port metrics scrape (operator-created management service,
+# port 9000).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/managed-by: keycloak-operator
+      app.kubernetes.io/instance: {{ .Values.crName | quote }}
+  endpoints:
+    - port: management
+      path: /metrics
+      interval: 30s
+{{- end }}

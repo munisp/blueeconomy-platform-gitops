@@ -1,0 +1,26 @@
+apiVersion: v2
+name: keycloak
+description: >-
+  Keycloak instance CR for the pinned keycloak-operator
+  (components/upstream-components.lock.yaml: keycloak-k8s-resources
+  26.7.1) — fills the missing server manifest and wires Quarkus-native
+  OpenTelemetry tracing (KC >= 26.1) to the collector gateway per
+  OTEL_DESIGN.md section 3. Traces are production-grade; OTel
+  metrics/logs remain preview in KC 26.5/26.6, so Prometheus scraping
+  (management port /metrics) stays the metrics path and stdout logs ship
+  to Loki — both documented in values. Fail-closed: digest-pinned image,
+  hostname/TLS/database render-gated REQUIRED, database credentials and
+  TLS material via ExternalSecrets only.
+type: application
+version: 0.1.0
+appVersion: "26.7.1"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - keycloak
+  - identity
+  - tracing
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "identity-foundation"
+  blueeconomy.platform/upstream: "https://github.com/keycloak/keycloak (image quay.io/keycloak/keycloak, Apache-2.0)"
+  blueeconomy.platform/upstream-policy: "Pin verified upstream image digests; do not deploy unreviewed defaults"

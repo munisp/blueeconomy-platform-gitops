@@ -1,0 +1,34 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative references. Real values live in the authorised environment
+# repo.
+profile: prod
+
+image:
+  repository: quay.io/keycloak/keycloak
+  digest: sha256:5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e
+
+hostname: keycloak.blueeconomy.example.gov.ng
+
+tls:
+  secretName: keycloak-edge-tls
+
+db:
+  host: keycloak-postgres-rw.blueeconomy-security.svc.cluster.local
+  database: keycloak
+
+tracing:
+  enabled: true
+  endpoint: http://render-gate-otel-collector-gateway.blueeconomy-observability.svc.cluster.local:4318
+  samplerRatio: 1.0
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    KEYCLOAK_DB_USERNAME: security/render-fixture/keycloak-db-username
+    KEYCLOAK_DB_PASSWORD: security/render-fixture/keycloak-db-password
+
+networkPolicy:
+  observabilityNamespace: blueeconomy-observability
+  databaseNamespace: blueeconomy-security

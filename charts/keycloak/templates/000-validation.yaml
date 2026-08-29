@@ -1,0 +1,41 @@
+{{- /* Fail-closed approval gates for keycloak. */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+{{- $repo := required "image.repository is required" .Values.image.repository -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+{{- $hostname := required "hostname is required (the approved edge hostname; HTTPS only)" .Values.hostname -}}
+{{- $tls := required "tls.secretName is required (ExternalSecrets-synced edge certificate Secret)" .Values.tls.secretName -}}
+{{- if lt (int .Values.instances) 1 -}}
+{{- fail "instances must be at least 1" -}}
+{{- end -}}
+
+{{- /* Database contract (keycloak-postgres). */ -}}
+{{- $dbHost := required "db.host is required (keycloak-postgres)" .Values.db.host -}}
+{{- $dbName := required "db.database is required" .Values.db.database -}}
+{{- range $k := list .Values.db.usernameSecretKey .Values.db.passwordSecretKey -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $k) -}}
+{{- fail (printf "externalSecrets.keys.%s is required (database credentials via ExternalSecrets only)" $k) -}}
+{{- end -}}
+{{- end -}}
+{{- $store := required "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore)" .Values.externalSecrets.storeRef.name -}}
+
+{{- /* Tracing contract (KC >= 26.1; OTEL_DESIGN.md section 3). */ -}}
+{{- if .Values.tracing.enabled -}}
+{{- if not (hasPrefix "http" .Values.tracing.endpoint) -}}
+{{- fail "tracing.endpoint is required when tracing.enabled=true and must be an http(s) URL (collector gateway OTLP/HTTP)" -}}
+{{- end -}}
+{{- $ratio := .Values.tracing.samplerRatio | float64 -}}
+{{- if or (le $ratio 0.0) (gt $ratio 1.0) -}}
+{{- fail "tracing.samplerRatio must be in (0, 1]" -}}
+{{- end -}}
+{{- end -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- $dbNs := required "networkPolicy.databaseNamespace is required (keycloak-postgres egress)" .Values.networkPolicy.databaseNamespace -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for keycloak" -}}
+{{- end -}}
