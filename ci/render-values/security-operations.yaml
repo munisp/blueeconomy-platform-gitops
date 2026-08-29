@@ -29,7 +29,10 @@ components:
             params: {}
     env:
       BESEC_KAFKA_BROKERS: kafka.blueeconomy-platform.svc.cluster.local:9092
-      BESEC_KAFKA_TOPICS: ports.alerts.v1,ferries.telemetry.v1,cvff.events.v1
+      # Real workstream topics the engine subscribes to (ports.gate.v1 per
+      # blueeconomy-port-interoperability, ferries.telemetry.v1 per
+      # blueeconomy-waterway-safety, cvff.disbursement.v1 per financial-controls).
+      BESEC_KAFKA_TOPICS: ports.gate.v1,ferries.telemetry.v1,cvff.disbursement.v1
       BESEC_KAFKA_GROUP_ID: blueeconomy-security-operations
       BESEC_KAFKA_DLQ_TOPIC: security.detection-dlq.v1
   opencti-bridge:

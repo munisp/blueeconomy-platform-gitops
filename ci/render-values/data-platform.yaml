@@ -32,7 +32,7 @@ kafkaIngest:
   jobs:
     - name: cvff-events-bronze
       schedule: "*/15 * * * *"
-      topic: cvff.events.v1
+      topic: cvff.disbursement.v1
       groupId: blueeconomy-data-platform-cvff
       tableUri: s3://blueeconomylakehouse/bronze/cvff_events
       schema: schemas/cvff_events_v1.json
