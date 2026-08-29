@@ -1,0 +1,69 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative references. Real values live in the authorised environment
+# repo.
+profile: prod
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+  digest: sha256:0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9
+
+gatewayEndpoint: render-gate-otel-collector-gateway.blueeconomy-observability.svc.cluster.local:4317
+
+receivers:
+  kafka:
+    enabled: true
+    brokers: kafka.blueeconomy-platform.svc.cluster.local:9092
+  postgresql:
+    enabled: true
+    databases:
+      - name: geo-postgis
+        endpoint: postgis-rw.blueeco-geo-prod.svc.cluster.local:5432
+        database: geo
+        username: otel_collector_ro
+        passwordSecretKey: OTEL_PG_GEO_PASSWORD
+      - name: keycloak-postgres
+        endpoint: keycloak-postgres-rw.blueeconomy-security.svc.cluster.local:5432
+        database: keycloak
+        username: otel_collector_ro
+        passwordSecretKey: OTEL_PG_KEYCLOAK_PASSWORD
+  redis:
+    enabled: true
+    endpoints:
+      - redis.blueeconomy-platform.svc.cluster.local:6379
+    passwordSecretKey: OTEL_REDIS_PASSWORD
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    OTEL_PG_GEO_PASSWORD: observability/render-fixture/pg-geo-password
+    OTEL_PG_KEYCLOAK_PASSWORD: observability/render-fixture/pg-keycloak-password
+    OTEL_REDIS_PASSWORD: observability/render-fixture/redis-password
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+networkPolicy:
+  allowedIngressNamespaces:
+    - blueeconomy-platform
+    - blueeconomy-ports
+    - blueeconomy-ferries
+    - blueeconomy-cvff
+    - blueeconomy-seafarer
+    - blueeconomy-fisheries
+    - blueeconomy-isr
+    - blueeconomy-security
+    - blueeco-geo-prod
+  kafkaNamespace: blueeconomy-platform
+  postgresNamespaces:
+    - blueeco-geo-prod
+    - blueeconomy-security
+    - blueeconomy-platform
+  redisNamespaces:
+    - blueeconomy-platform

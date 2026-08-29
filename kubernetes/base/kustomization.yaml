@@ -13,3 +13,4 @@ resources:
   - namespaces/blueeco-tigerbeetle-prod.yaml
   - namespaces/blueeco-mojaloop-prod.yaml
   - namespaces/blueeco-geo-prod.yaml
+  - namespaces/observability.yaml

@@ -1,0 +1,107 @@
+# Collector configuration (OTEL_DESIGN.md section 1): receivers ->
+# memory_limiter -> batch -> OTLP(gateway). No tail sampling at the agent.
+# Telemetry never breaks the business path: the OTLP exporter uses a
+# bounded sending queue and drops with metrics when the gateway is down —
+# never request failure (the one sanctioned fail-open).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "otel-collector-agent.fullname" . }}
+  labels:
+    {{- include "otel-collector-agent.labels" . | nindent 4 }}
+data:
+  collector.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      {{- if .Values.receivers.kafka.enabled }}
+      # Kafka broker/topic/partition + consumer-group lag telemetry.
+      kafkametrics:
+        brokers:
+          {{- range $b := splitList "," .Values.receivers.kafka.brokers }}
+          - {{ $b | quote }}
+          {{- end }}
+        protocol_version: 2.0.0
+        collection_interval: {{ .Values.receivers.kafka.collectionInterval }}
+        scrapers:
+          - brokers
+          - topics
+          - consumers
+      {{- end }}
+      {{- if .Values.receivers.postgresql.enabled }}
+      {{- range $i, $db := .Values.receivers.postgresql.databases }}
+      postgresql/{{ $db.name }}:
+        endpoint: {{ $db.endpoint | quote }}
+        username: {{ $db.username | quote }}
+        password: {{ printf "${env:PG_PASSWORD_%d}" $i | quote }}
+        databases:
+          - {{ $db.database | quote }}
+        collection_interval: {{ $.Values.receivers.postgresql.collectionInterval }}
+        tls:
+          insecure: false
+          insecure_skip_verify: false
+      {{- end }}
+      {{- end }}
+      {{- if .Values.receivers.redis.enabled }}
+      redis:
+        endpoints:
+          {{- range .Values.receivers.redis.endpoints }}
+          - {{ . | quote }}
+          {{- end }}
+        {{- if .Values.receivers.redis.passwordSecretKey }}
+        password: ${env:REDIS_PASSWORD}
+        {{- end }}
+        collection_interval: {{ .Values.receivers.redis.collectionInterval }}
+      {{- end }}
+    processors:
+      # FIRST in every pipeline: hard memory cap (node-level OOM guard).
+      memory_limiter:
+        check_interval: {{ .Values.memoryLimiter.checkInterval }}
+        limit_mib: {{ .Values.memoryLimiter.limitMiB }}
+        spike_limit_mib: {{ .Values.memoryLimiter.spikeLimitMiB }}
+      batch:
+        timeout: {{ .Values.batch.timeout }}
+        send_batch_size: {{ .Values.batch.sendBatchSize }}
+    exporters:
+      otlp/gateway:
+        endpoint: {{ .Values.gatewayEndpoint | quote }}
+        tls:
+          insecure: true
+        # Async, bounded, non-blocking: gateway-unavailable = queue, then
+        # drop-with-metric (otelcol_exporter_enqueue_failed_*), never a
+        # request failure in the business path.
+        sending_queue:
+          enabled: true
+          queue_size: 1000
+          num_consumers: 4
+        retry_on_failure:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 10s
+          max_elapsed_time: 60s
+    service:
+      telemetry:
+        metrics:
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: 0.0.0.0
+                    port: 8888
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/gateway]
+        metrics:
+          receivers: [otlp{{- if .Values.receivers.kafka.enabled }}, kafkametrics{{- end }}{{- if .Values.receivers.postgresql.enabled }}{{- range $i, $db := .Values.receivers.postgresql.databases }}, postgresql/{{ $db.name }}{{- end }}{{- end }}{{- if .Values.receivers.redis.enabled }}, redis{{- end }}]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/gateway]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/gateway]

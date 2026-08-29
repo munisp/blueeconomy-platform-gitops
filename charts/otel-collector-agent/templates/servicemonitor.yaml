@@ -1,0 +1,19 @@
+{{- if .Values.serviceMonitor.enabled }}
+# Collector self-telemetry scrape (queue depth, refused/dropped telemetry)
+# — feeds the collector-health alert rules and the §4 gate-5
+# "telemetry-off non-breaking" verification evidence.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "otel-collector-agent.fullname" . }}
+  labels:
+    {{- include "otel-collector-agent.labels" . | nindent 4 }}
+    {{- toYaml .Values.serviceMonitor.labels | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "otel-collector-agent.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      interval: 30s
+{{- end }}

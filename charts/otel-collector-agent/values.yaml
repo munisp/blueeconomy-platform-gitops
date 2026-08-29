@@ -1,0 +1,115 @@
+# OTel Collector agent (per-node DaemonSet). Pipeline shape is fixed by
+# design (OTEL_DESIGN.md section 1): receivers -> memory_limiter -> batch
+# -> OTLP to the collector gateway; NO tail sampling at the agent.
+# Every credential arrives exclusively through ExternalSecrets; no
+# placeholder or inline credential is permitted. Cloud-agnostic.
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile (dev | staging | prod).
+profile: ""
+
+image:
+  # Contrib distribution REQUIRED: kafkametrics/postgresql/redis receivers
+  # live in contrib only.
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+# Gateway collector OTLP gRPC endpoint (agent -> gateway forward).
+# In-cluster service DNS, e.g.
+# otel-collector-gateway.blueeconomy-observability.svc.cluster.local:4317
+gatewayEndpoint: ""
+
+# Pipeline guardrails (both render-gated: an unbounded collector is a
+# node-level OOM risk; an unbatched one is an export-storm risk).
+memoryLimiter:
+  checkInterval: 5s
+  limitMiB: 256
+  spikeLimitMiB: 64
+batch:
+  timeout: 5s
+  sendBatchSize: 1024
+
+# Infra receivers (middleware coverage matrix, OTEL_DESIGN.md section 3).
+receivers:
+  # Kafka brokers + consumer-group lag (kafkametricsreceiver).
+  kafka:
+    enabled: true
+    # Comma-separated bootstrap brokers (Strimzi cluster).
+    brokers: ""
+    collectionInterval: 30s
+    # NOTE (deep-dive JVM metrics): kafkametricsreceiver covers broker,
+    # topic, partition and consumer-group lag telemetry. Deep JVM/ISR
+    # under-replication JMX metrics additionally require the collector's
+    # jmxreceiver with the kafka target system (or the upstream Strimzi
+    # jmx_exporter) — additive future work, recorded here so the gap is
+    # explicit rather than silent.
+  # PostgreSQL per-database infrastructure telemetry (pg_stat_*, locks,
+  # replication). Every entry requires: name, endpoint (host:port),
+  # database, username and passwordSecretKey (an ExternalSecrets key
+  # carrying the password; injected as an env var, never inline).
+  postgresql:
+    enabled: true
+    collectionInterval: 30s
+    databases: []
+    #   - name: geo-postgis
+    #     endpoint: postgis-rw.blueeco-geo-prod.svc.cluster.local:5432
+    #     database: geo
+    #     username: otel_collector_ro
+    #     passwordSecretKey: OTEL_PG_GEO_PASSWORD
+  # Redis infrastructure telemetry (memory, ops, keyspace, replication).
+  redis:
+    enabled: true
+    collectionInterval: 30s
+    # Endpoints (host:port) of the Redis instances to scrape.
+    endpoints: []
+    # Optional shared password via an ExternalSecrets key (env-injected).
+    passwordSecretKey: ""
+
+# ExternalSecrets contract (any ESO-supported ClusterSecretStore).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+resources:
+  requests:
+    cpu: ""
+    memory: ""
+  limits:
+    cpu: ""
+    memory: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# Namespaces permitted to push OTLP to the agent (all workload
+# namespaces); render-gated non-empty.
+networkPolicy:
+  enabled: true
+  allowedIngressNamespaces: []
+  # Middleware namespaces the agent scrapes (kafka/postgres/redis).
+  kafkaNamespace: ""
+  postgresNamespaces: []
+  redisNamespaces: []
+
+# Collector self-telemetry (queue depth, refused/dropped spans/metrics)
+# is scraped from :8888 and feeds the collector-health alert rules.
+serviceMonitor:
+  enabled: true
+  labels:
+    blueeconomy.platform/workstream: observability
