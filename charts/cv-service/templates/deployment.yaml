@@ -1,0 +1,133 @@
+{{- $fullName := include "cv-service.fullname" . -}}
+{{- $secretName := include "cv-service.secretName" . -}}
+{{- if .Values.persistence.enabled }}
+# Store-and-forward spool volume (append-only JSONL fallback sink).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-spool" $fullName | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "cv-service.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.accessModes | nindent 4 }}
+  {{- if .Values.persistence.storageClassName }}
+  storageClassName: {{ .Values.persistence.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size | quote }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "cv-service.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  revisionHistoryLimit: 5
+  # Recreate: the singleton pod owns the spool volume (RWO) and the camera
+  # assignment; rolling would double-attach and double-emit envelopes.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "cv-service.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cv-service.selectorLabels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: cv-service
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          env:
+            - name: KEY_DIRECTORY_PATH
+              value: {{ .Values.keyDirectory.mountPath | quote }}
+            {{- range $key, $value := (default dict .Values.env) }}
+            - name: {{ $key | quote }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- range $key := (default (list) .Values.secretEnv) }}
+            - name: {{ $key | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ $key | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          # Honest probes (src/cvservice/api.py): /readyz reports
+          # not-ready when any assigned camera is DOWN.
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.livenessPath }}
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readinessPath }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.livenessPath }}
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.persistence.enabled }}
+            - name: spool
+              mountPath: /var/lib/cvservice
+            {{- end }}
+            {{- if .Values.keyDirectory.enabled }}
+            # Producer public-key directory (charts/opa-policies) for AIS
+            # envelope verification (KEY_DIRECTORY_PATH, fail-closed).
+            - name: producer-key-directory
+              mountPath: {{ .Values.keyDirectory.mountPath }}
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.persistence.enabled }}
+        - name: spool
+          persistentVolumeClaim:
+            claimName: {{ printf "%s-spool" $fullName | trunc 63 | trimSuffix "-" }}
+        {{- end }}
+        {{- if .Values.keyDirectory.enabled }}
+        - name: producer-key-directory
+          configMap:
+            name: {{ .Values.keyDirectory.configMapName }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "cv-service.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "cv-service.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.port }}
+      targetPort: http

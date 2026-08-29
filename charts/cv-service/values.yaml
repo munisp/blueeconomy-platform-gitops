@@ -1,0 +1,139 @@
+# blueeconomy-cv-service deploy surface. Environment contract aligned to
+# the service source (src/cvservice/config.py, src/cvservice/api.py): the
+# binary resolves CV_* / KAFKA_BOOTSTRAP_SERVERS / KEY_DIRECTORY_PATH env
+# names only. Fail-closed in the binary: CV_SIGNING_KEY refuses
+# placeholder material, KAFKA_BOOTSTRAP_SERVERS is required when
+# CV_SINK=kafka, CV_SPOOL_FILE when CV_SINK=file, KEY_DIRECTORY_PATH when
+# CV_AIS_ENABLED=true. Every credential arrives exclusively through
+# ExternalSecrets; no placeholder or inline credential is permitted.
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile. prod requires CV_SINK=kafka (signed envelopes must
+# reach the platform bus; the file spool is store-and-forward fallback,
+# not a production sink) and a non-empty CV_CAMERAS assignment.
+profile: ""
+
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+port: 8080
+
+# Single replica per release: camera pipelines are a per-pod assignment
+# (CV_CAMERAS) and duplicated ingest would double-emit signed envelopes.
+# Scale by sharding camera sets across releases.
+replicas: 1
+
+# The management API is honest: /readyz reports not-ready when any camera
+# is DOWN (src/cvservice/api.py).
+probes:
+  livenessPath: /healthz
+  readinessPath: /readyz
+
+# Non-secret environment — exactly the binary contract.
+env:
+  CV_API_HOST: "0.0.0.0"
+  CV_API_PORT: "8080"
+  # JSON camera assignment: [{"id":"cam-apapa-1","rtsp":"rtsp://...",
+  # "role":"vessel","fps":3,"calibration":"calibration/cam-apapa-1.json"}]
+  CV_CAMERAS: ""
+  # kafka | file. prod render gate: kafka.
+  CV_SINK: kafka
+  KAFKA_BOOTSTRAP_SERVERS: ""
+  # Append-only JSONL spool for store-and-forward when the bus is down.
+  CV_SPOOL_FILE: /var/lib/cvservice/spool/cv-events.jsonl
+  CV_PRODUCER_NAME: blueeconomy-cv-service
+  CV_KEY_EPOCH: "0"
+  CV_PRINCIPAL_ID: cv-service
+  CV_PRINCIPAL_ROLE: cv-producer
+  CV_DETECTION_ENABLED: "true"
+  # ONNX weights baked into the image (weights/); int8 CPU inference.
+  CV_WEIGHTS_DIR: weights
+  CV_DETECTOR_HEAD: yolox
+  CV_VESSEL_MODEL: yolox-s-int8.onnx
+  # AIS fusion requires the producer key directory (binary fail-closed).
+  CV_AIS_ENABLED: "true"
+
+requiredEnv:
+  - CV_CAMERAS
+  - CV_SINK
+  - CV_SPOOL_FILE
+  - CV_PRODUCER_NAME
+  - CV_KEY_EPOCH
+  - CV_PRINCIPAL_ID
+  - CV_PRINCIPAL_ROLE
+  - CV_WEIGHTS_DIR
+  - CV_AIS_ENABLED
+
+# ExternalSecrets contract (any ESO-supported ClusterSecretStore).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+# Secret-sourced env (names must exist in externalSecrets.keys). The
+# Ed25519 envelope signing seed; the binary refuses placeholder values.
+secretEnv:
+  - CV_SIGNING_KEY
+
+# Producer public-key directory (charts/opa-policies ConfigMap) for AIS
+# envelope verification (KEY_DIRECTORY_PATH). Required when
+# CV_AIS_ENABLED=true (the binary fails closed).
+keyDirectory:
+  enabled: true
+  configMapName: ""
+  mountPath: /etc/blueeconomy/key-directory
+
+# Spool volume for the store-and-forward file sink fallback.
+persistence:
+  enabled: true
+  storageClassName: ""
+  size: 5Gi
+  accessModes:
+    - ReadWriteOnce
+
+networkPolicy:
+  enabled: true
+  # The management API is read-only but unauthenticated (GAP-CV-01);
+  # ingress is restricted to the approved ops/monitoring namespaces. The
+  # API is NEVER registered at the edge.
+  allowedIngressNamespaces: []
+  # Kafka uplink namespace (signed envelope egress).
+  kafkaNamespace: ""
+  # RTSP camera network CIDRs (edge camera VLANs).
+  cameraCIDRs: []
+
+resources:
+  requests:
+    cpu: ""
+    memory: ""
+  limits:
+    cpu: ""
+    memory: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+podDisruptionBudget:
+  enabled: true
+  # Singleton edge pod: voluntary disruption requires an approved operator
+  # action.
+  maxUnavailable: 0
+
+# The service exposes no Prometheus /metrics endpoint (GAP-CV-04); no
+# ServiceMonitor is rendered.

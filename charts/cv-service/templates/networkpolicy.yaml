@@ -1,0 +1,53 @@
+# cv-service network posture: the read-only management API is
+# unauthenticated (GAP-CV-01), so ingress is restricted to the approved
+# ops/monitoring namespaces and the API is never registered at the edge.
+# Egress: RTSP camera CIDRs (554/8554), the Kafka uplink (signed
+# envelopes) and DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cv-service.fullname" . }}
+  labels:
+    {{- include "cv-service.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "cv-service.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    {{- range .Values.networkPolicy.allowedIngressNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.port }}
+    {{- end }}
+  egress:
+    {{- range .Values.networkPolicy.cameraCIDRs }}
+    - to:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: 554
+        - protocol: TCP
+          port: 8554
+    {{- end }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.kafkaNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: 9092
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

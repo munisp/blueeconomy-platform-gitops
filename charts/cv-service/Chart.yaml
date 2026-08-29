@@ -1,0 +1,27 @@
+apiVersion: v2
+name: cv-service
+description: >-
+  blueeconomy-cv-service (Python/FastAPI management API + ONNX/RTSP edge
+  CV pipelines + Kafka-signed-envelope sink). Deploys the edge inference
+  pod: camera pipelines ingest RTSP, detect/track vessels and gates, and
+  emit signed envelopes to Kafka (CV_SINK=kafka, acks=all) with an
+  append-only file-spool store-and-forward fallback. Fail-closed: the
+  binary refuses placeholder signing keys, KAFKA_BOOTSTRAP_SERVERS is
+  binary-required when CV_SINK=kafka, KEY_DIRECTORY_PATH is binary-required
+  when CV_AIS_ENABLED=true, and the chart render gate requires the Kafka
+  sink in the prod profile (no silent file-spool-only production). The
+  management API is read-only and unauthenticated by design (GAP-CV-01);
+  the chart contains it behind an ops-namespace-only NetworkPolicy and
+  never registers an edge route for it.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - computer-vision
+  - edge
+  - rtsp
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "edge-inference"
+  blueeconomy.platform/upstream-policy: "Pin verified upstream image digests; do not deploy unreviewed defaults"
