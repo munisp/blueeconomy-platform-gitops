@@ -207,6 +207,38 @@ components:
         cpu: "1"
         memory: 512Mi
 
+  # declaration-scorer serves POST /v1/risk-scores, the provider behind
+  # port-interoperability's DECLARATIONS_SCORER_URL (FC-5). Deterministic
+  # rules-based scoring from the versioned config baked into the image.
+  declaration-scorer:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    port: 8082
+    service:
+      enabled: true
+      type: ClusterIP
+    daprAppId: declaration-scorer
+    probes:
+      livenessPath: /healthz
+      readinessPath: /healthz
+    env:
+      DECLARATION_SCORER_LISTEN_ADDR: ":8082"
+      DECLARATION_SCORER_RULES_PATH: /etc/declaration-scorer/rules.json
+    requiredEnv:
+      - DECLARATION_SCORER_LISTEN_ADDR
+      - DECLARATION_SCORER_RULES_PATH
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 250m
+        memory: 128Mi
+
   outbox-publisher:
     enabled: true
     image:

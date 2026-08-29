@@ -46,6 +46,10 @@ components:
       CVFF_FEE_CODE: "100"
       CVFF_COST_CODE: "101"
       CVFF_CUSTODIAL_FEE_BPS: "50"
+  declaration-scorer:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/declaration-scorer
+      digest: sha256:2d6c1f3e7b2f5e6a8d4f9c3b0a5e7d2c1f4b6a8d0e3f5c7b9d1e3a5c7f9b1d3f
   outbox-publisher:
     image:
       repository: blueeconomy.azurecr.us/blueeconomy/cvff-outbox-publisher
