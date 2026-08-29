@@ -1,0 +1,47 @@
+{{- /* Fail-closed approval gates for tempo. */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+{{- $repo := required "image.repository is required" .Values.image.repository -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+
+{{- /* Retention stays inside the approved 7-30 day band. */ -}}
+{{- $retention := int .Values.retentionHours -}}
+{{- if or (lt $retention 168) (gt $retention 720) -}}
+{{- fail "retentionHours must be between 168 (7 days) and 720 (30 days) — the approved trace-retention band (OTEL_DESIGN.md section 1)" -}}
+{{- end -}}
+
+{{- /* S3-compatible backend contract is REQUIRED. */ -}}
+{{- $bucket := required "storage.bucket is required (object storage is mandatory; local-disk tempo is not a production trace store)" .Values.storage.bucket -}}
+{{- if not (hasPrefix "https://" .Values.storage.endpoint) -}}
+{{- fail "storage.endpoint must be an HTTPS URL (S3-compatible object storage)" -}}
+{{- end -}}
+{{- $region := required "storage.region is required" .Values.storage.region -}}
+{{- range $k := list .Values.storage.accessKeySecretKey .Values.storage.secretKeySecretKey -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $k) -}}
+{{- fail (printf "externalSecrets.keys.%s is required (object-storage credentials via ExternalSecrets only)" $k) -}}
+{{- end -}}
+{{- end -}}
+{{- $store := required "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore)" .Values.externalSecrets.storeRef.name -}}
+{{- $size := required "persistence.size is required (WAL/block-cache PVC)" .Values.persistence.size -}}
+
+{{- /* Singleton monolith. */ -}}
+{{- if ne (int .Values.replicas) 1 -}}
+{{- fail "replicas must remain 1 (monolithic tempo; scale-out is a separate approved design)" -}}
+{{- end -}}
+
+{{- /* Resources are mandatory. */ -}}
+{{- if or (empty .Values.resources.requests.cpu) (empty .Values.resources.requests.memory) (empty .Values.resources.limits.cpu) (empty .Values.resources.limits.memory) -}}
+{{- fail "resources.requests and resources.limits (cpu and memory) are required" -}}
+{{- end -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- if empty .Values.networkPolicy.storageCIDRs -}}
+{{- fail "networkPolicy.storageCIDRs must list the object-storage egress CIDRs" -}}
+{{- end -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for tempo" -}}
+{{- end -}}
