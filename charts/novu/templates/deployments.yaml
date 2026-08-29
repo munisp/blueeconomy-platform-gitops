@@ -1,0 +1,132 @@
+{{- $fullName := include "novu.fullname" . -}}
+{{- $secretName := include "novu.secretName" . -}}
+{{- range $name, $component := .Values.components }}
+{{- if $component.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ printf "%s-%s" $fullName $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "novu.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name | quote }}
+spec:
+  replicas: {{ $component.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "novu.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $name | quote }}
+  template:
+    metadata:
+      labels:
+        {{- include "novu.selectorLabels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $name | quote }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml $.Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ $name | quote }}
+          image: "{{ $.Values.image.repository }}@{{ $.Values.image.digest }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          # One upstream image, per-service command (community self-host
+          # layout; NOT_RUN — see values.yaml).
+          command: {{ toYaml $component.command | nindent 12 }}
+          {{- if $component.service }}
+          ports:
+            - name: http
+              containerPort: {{ $component.port }}
+              protocol: TCP
+          {{- end }}
+          env:
+            {{- range $key, $value := (default dict $.Values.env) }}
+            - name: {{ $key | quote }}
+              value: {{ $value | quote }}
+            {{- end }}
+            # Community self-host data-store env (credentials via the
+            # synced Secret, never inline).
+            - name: MONGO_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: NOVU_MONGO_URL
+            - name: REDIS_HOST
+              value: {{ $.Values.dataStores.redis.host | quote }}
+            - name: REDIS_PORT
+              value: {{ $.Values.dataStores.redis.port | quote }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: NOVU_REDIS_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: JWT_SECRET
+            - name: STORE_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: STORE_ENCRYPTION_KEY
+            - name: NOVU_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: NOVU_API_KEY
+          resources:
+            {{- toYaml $component.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $.Values.securityContext | nindent 12 }}
+          {{- if $component.service }}
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}
+{{- end }}
+{{- range $name, $component := .Values.components }}
+{{- if and $component.enabled $component.service }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-%s" $fullName $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "novu.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name | quote }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "novu.selectorLabels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name | quote }}
+  ports:
+    - name: http
+      port: {{ $component.port }}
+      targetPort: http
+{{- end }}
+{{- end }}

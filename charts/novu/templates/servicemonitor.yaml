@@ -1,0 +1,21 @@
+{{- if .Values.serviceMonitor.enabled }}
+{{- $fullName := include "novu.fullname" . -}}
+# Novu api service metrics scrape (queue depth, delivery failures feed
+# the alert-delivery health rules).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "novu.labels" . | nindent 4 }}
+    {{- toYaml .Values.serviceMonitor.labels | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "novu.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+{{- end }}
