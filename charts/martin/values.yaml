@@ -83,3 +83,9 @@ monitoring:
     interval: 30s
     path: /metrics
     labels: {}
+
+podDisruptionBudget:
+  # Multi-replica Deployment: keep at least one pod serving during
+  # voluntary disruptions.
+  enabled: true
+  minAvailable: 1

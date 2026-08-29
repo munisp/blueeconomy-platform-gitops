@@ -1,0 +1,15 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+# Singleton Temporal frontend: maxUnavailable 0 — voluntary disruption
+# requires an approved operator action (scale out first).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "temporal.fullname" . }}-server
+  labels:
+    {{- include "temporal.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "temporal.selectorLabels" . | nindent 6 }}
+{{- end }}

@@ -1,0 +1,16 @@
+{{- if and (eq .Values.image.variant "postgis-image") .Values.podDisruptionBudget.enabled }}
+# postgis-image StatefulSet singleton: maxUnavailable 0 — voluntary
+# disruption requires an approved operator action. The cloudnative-pg
+# variant manages availability through the operator instead.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "postgis.fullname" . }}
+  labels:
+    {{- include "postgis.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "postgis.selectorLabels" . | nindent 6 }}
+{{- end }}

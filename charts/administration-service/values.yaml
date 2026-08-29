@@ -135,3 +135,16 @@ securityContext:
 probes:
   livenessPath: /healthz
   readinessPath: /healthz
+
+podDisruptionBudget:
+  # Multi-replica Deployment: keep at least one pod serving during
+  # voluntary disruptions.
+  enabled: true
+  minAvailable: 1
+
+hpa:
+  # CPU-based horizontal autoscaling (stateless service; GAP-PG-07).
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70

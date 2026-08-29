@@ -161,3 +161,9 @@ monitoring:
 probes:
   livenessPath: /healthz
   readinessPath: /healthz
+
+podDisruptionBudget:
+  # Multi-replica Deployment: keep at least one pod serving during
+  # voluntary disruptions.
+  enabled: true
+  minAvailable: 1

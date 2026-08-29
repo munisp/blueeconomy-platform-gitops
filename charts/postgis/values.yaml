@@ -96,3 +96,9 @@ resources:
   limits:
     cpu: "2"
     memory: 4Gi
+
+podDisruptionBudget:
+  # postgis-image variant singleton: voluntary disruption requires an
+  # approved operator action. (cloudnative-pg variant: operator-managed.)
+  enabled: true
+  maxUnavailable: 0

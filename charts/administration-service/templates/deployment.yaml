@@ -7,7 +7,9 @@ metadata:
   labels:
     {{- include "administration-service.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.hpa.enabled }}
   replicas: {{ .Values.replicas }}
+  {{- end }}
   revisionHistoryLimit: 5
   strategy:
     type: RollingUpdate

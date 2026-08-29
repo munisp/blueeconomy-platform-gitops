@@ -110,3 +110,10 @@ networkPolicy:
 podDisruptionBudget:
   enabled: true
   maxUnavailable: 1
+
+hpa:
+  # CPU-based horizontal autoscaling (stateless service; GAP-PG-07).
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70

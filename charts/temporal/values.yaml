@@ -112,5 +112,7 @@ monitoring:
       blueeconomy.platform/workstream: platform
 
 podDisruptionBudget:
-  enabled: false
-  maxUnavailable: 1
+  # Singleton server (server.replicas=1): maxUnavailable 0 keeps voluntary
+  # disruption an approved operator action.
+  enabled: true
+  maxUnavailable: 0

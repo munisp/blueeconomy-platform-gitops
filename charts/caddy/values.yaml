@@ -153,3 +153,8 @@ resources:
   limits:
     cpu: "1"
     memory: 512Mi
+
+podDisruptionBudget:
+  # Three-replica edge: keep two pods serving during voluntary disruptions.
+  enabled: true
+  minAvailable: 2
