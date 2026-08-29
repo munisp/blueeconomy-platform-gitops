@@ -1,0 +1,185 @@
+# blueeconomy-tax-stamps deploy surface. Environment contract aligned to
+# the service source (src/taxstamps/config.py, src/taxstamps/main.py):
+# the binary resolves TAXSTAMPS_* env names only. Boot is fail-closed
+# without TAXSTAMPS_DATABASE_URL, TAXSTAMPS_SIGNING_KEY_PATH,
+# TAXSTAMPS_ISSUER_DID and TAXSTAMPS_POLICY_DIR; the chart render gates
+# additionally require Redis, Kafka, OIDC, the payment rail and the
+# producer key directory so optional integrations can never drift into
+# silent 503 in production. Every credential arrives exclusively through
+# ExternalSecrets; no placeholder or inline credential is permitted.
+# Cloud-agnostic: any conformant Kubernetes, any ESO-supported secret
+# backend.
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile. prod refuses TAXSTAMPS_TEST_* env names at render
+# time and requires the payment-rail wiring (fail-closed doctrine: no
+# test configuration or unconfigured revenue paths in production).
+profile: ""
+
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+port: 8080
+
+# The four fail-closed processes of the one image (pyproject
+# [project.scripts]); the orchestrator picks the entrypoint by command.
+components:
+  api:
+    enabled: true
+    command: taxstamps-api
+    replicas: 2
+    # The API serves /healthz and /readyz (src/taxstamps/api/routes_ops.py).
+    probes:
+      livenessPath: /healthz
+      readinessPath: /readyz
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 8
+      targetCPUUtilizationPercentage: 70
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 1Gi
+  consumer:
+    # declarations.* Kafka consumer (taxstamps-consumer).
+    enabled: true
+    command: taxstamps-consumer
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+  outbox:
+    # Transactional outbox -> Kafka publisher (taxstamps-outbox).
+    enabled: true
+    command: taxstamps-outbox
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+  expiry-sweeper:
+    # Stamp expiry sweeper (taxstamps-expiry-sweeper).
+    enabled: true
+    command: taxstamps-expiry-sweeper
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+# ExternalSecrets contract. storeRef.name references the landing zone's
+# secret backend ClusterSecretStore (any ESO-supported provider).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+# Secret-sourced env/keys (names must exist in externalSecrets.keys):
+#   TAXSTAMPS_DATABASE_URL — postgresql+asyncpg:// DSN (boot-fatal)
+#   TAXSTAMPS_REDIS_URL    — nonce/rate-limit/velocity store; the service
+#                            is fail-closed on Redis outage, so the chart
+#                            requires it rather than silently degrading
+#   TAXSTAMPS_SIGNING_KEY  — Ed25519 PKCS#8 PEM, mounted read-only as a
+#                            file (TAXSTAMPS_SIGNING_KEY_PATH); the binary
+#                            refuses placeholder key material at boot
+secretEnv:
+  - TAXSTAMPS_DATABASE_URL
+  - TAXSTAMPS_REDIS_URL
+
+signingKey:
+  # ExternalSecrets key holding the PEM; mounted at mountPath/signing-key.pem.
+  secretKey: TAXSTAMPS_SIGNING_KEY
+  mountPath: /etc/taxstamps/keys
+
+# Producer public-key directory (charts/opa-policies ConfigMap) for
+# inbound envelope verification (TAXSTAMPS_KEY_DIRECTORY_PATH). Required:
+# the declarations consumer must verify provenance signatures.
+keyDirectory:
+  enabled: true
+  configMapName: ""
+  mountPath: /etc/blueeconomy/key-directory
+
+# Non-secret environment. Names are exactly the binary contract
+# (src/taxstamps/config.py). Values must be approved environment values;
+# names prefixed TAXSTAMPS_TEST_ are refused when profile=prod.
+env:
+  # did:web issuer identity (boot-fatal).
+  TAXSTAMPS_ISSUER_DID: ""
+  # PBAC policy directory (boot-fatal when missing/empty). The image
+  # carries the governance-approved policies at /app/policies (Dockerfile
+  # COPY policies ./policies).
+  TAXSTAMPS_POLICY_DIR: /app/policies
+  TAXSTAMPS_KAFKA_BOOTSTRAP_SERVERS: ""
+  TAXSTAMPS_KAFKA_DECLARATIONS_TOPIC_PATTERN: "declarations.*"
+  TAXSTAMPS_KAFKA_CONSUMER_GROUP: "blueeconomy-tax-stamps"
+  # OIDC (Keycloak JWKS). The API is fail-closed 503 without bearer authn;
+  # the chart requires the wiring outright.
+  TAXSTAMPS_OIDC_JWKS_URL: ""
+  TAXSTAMPS_OIDC_ISSUER: ""
+  TAXSTAMPS_OIDC_AUDIENCE: ""
+  # Payment rail boundary (financial-controls). Required when
+  # profile=prod: the revenue path must never run unconfigured.
+  # Enum when set: cvff-tigerbeetle | mojaloop.
+  TAXSTAMPS_PAYMENT_RAIL: ""
+  TAXSTAMPS_FINANCIAL_CONTROLS_ENDPOINT: ""
+  # Public base URL for status-list credential ids.
+  TAXSTAMPS_STATUS_LIST_BASE_URL: ""
+
+requiredEnv:
+  - TAXSTAMPS_ISSUER_DID
+  - TAXSTAMPS_POLICY_DIR
+  - TAXSTAMPS_KAFKA_BOOTSTRAP_SERVERS
+  - TAXSTAMPS_OIDC_JWKS_URL
+  - TAXSTAMPS_OIDC_ISSUER
+  - TAXSTAMPS_OIDC_AUDIENCE
+  - TAXSTAMPS_STATUS_LIST_BASE_URL
+
+networkPolicy:
+  enabled: true
+  apisixNamespace: ""
+  postgresNamespace: ""
+  kafkaNamespace: ""
+  redisNamespace: ""
+  # Keycloak (JWKS) and financial-controls egress namespaces.
+  keycloakNamespace: ""
+  financialControlsNamespace: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# The service exposes no Prometheus /metrics endpoint (GAP-TS-01); no
+# ServiceMonitor is rendered — adding one would be a scraping lie.

@@ -1,0 +1,27 @@
+{{- $fullName := include "tax-stamps.fullname" . -}}
+{{- range $name, $component := .Values.components }}
+{{- if and $component.enabled (hasKey $component "hpa") $component.hpa $component.hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ printf "%s-%s" $fullName $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "tax-stamps.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name | quote }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ printf "%s-%s" $fullName $name | trunc 63 | trimSuffix "-" }}
+  minReplicas: {{ $component.hpa.minReplicas }}
+  maxReplicas: {{ $component.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $component.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}
