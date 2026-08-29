@@ -1,0 +1,21 @@
+{{- if .Values.serviceMonitor.enabled }}
+# Prometheus scrapes: the gateway's exported pipeline metrics (:8889)
+# and collector self-telemetry (:8888; queue depth, dropped/refused
+# telemetry — feeds the collector-health alert rules).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "otel-collector-gateway.fullname" . }}
+  labels:
+    {{- include "otel-collector-gateway.labels" . | nindent 4 }}
+    {{- toYaml .Values.serviceMonitor.labels | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "otel-collector-gateway.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: prom-export
+      interval: 30s
+    - port: metrics
+      interval: 30s
+{{- end }}

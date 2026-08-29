@@ -1,0 +1,149 @@
+{{- $fullName := include "otel-collector-gateway.fullname" . -}}
+# Gateway collector configuration (OTEL_DESIGN.md sections 1-2):
+# tenant attribution tagging, tail-sampling policies, sensitive-attribute
+# redaction, CVFF FIDUCIARY_SEGREGATED labelling; exporters to Tempo
+# (traces), Loki (native OTLP logs) and Prometheus (metrics). Telemetry
+# never breaks the business path: queued/async exporters,
+# backend-unavailable = drop-with-metric, never request failure.
+#
+# Honesty note (tail-sampling with replicas>1): sampling decisions need
+# every span of a trace at one collector. With the load-balanced gateway
+# service, cross-replica traces get per-replica decisions (errors/slow
+# spans still kept; baseline completeness reduced). The scale-correct
+# design (loadbalancing exporter keyed by traceID to a decision layer)
+# is recorded as follow-up hardening, NOT silently claimed here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "otel-collector-gateway.labels" . | nindent 4 }}
+data:
+  collector.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      memory_limiter:
+        check_interval: {{ .Values.memoryLimiter.checkInterval }}
+        limit_mib: {{ .Values.memoryLimiter.limitMiB }}
+        spike_limit_mib: {{ .Values.memoryLimiter.spikeLimitMiB }}
+      # Tenant attribution enforcement tagging (attribution itself is set
+      # at the edge/apps; the gateway never fabricates tenant.id).
+      transform/tenant:
+        error_mode: ignore
+        trace_statements:
+          - context: span
+            statements:
+              - set(resource.attributes["deployment.environment"], {{ .Values.profile | quote }})
+              {{- if .Values.tenantAttribution.enabled }}
+              - set(attributes["tenant.attributed"], "false") where attributes["tenant.id"] == nil
+              - set(resource.attributes["telemetry.blueeconomy.platform/segment"], "FIDUCIARY_SEGREGATED") where resource.attributes["k8s.namespace.name"] == "blueeconomy-cvff"
+              {{- end }}
+        log_statements:
+          - context: log
+            statements:
+              - set(resource.attributes["deployment.environment"], {{ .Values.profile | quote }})
+              {{- if .Values.tenantAttribution.enabled }}
+              - set(attributes["tenant.attributed"], "false") where attributes["tenant.id"] == nil
+              - set(resource.attributes["telemetry.blueeconomy.platform/segment"], "FIDUCIARY_SEGREGATED") where resource.attributes["k8s.namespace.name"] == "blueeconomy-cvff"
+              {{- end }}
+      # Sensitive-attribute redaction BEFORE export (deleted, never
+      # pseudonymised).
+      attributes/redact:
+        actions:
+          {{- range .Values.redaction.attributeKeys }}
+          - key: {{ . | quote }}
+            action: delete
+          {{- end }}
+      tail_sampling:
+        decision_wait: {{ .Values.sampling.decisionWait }}
+        num_traces: 100000
+        expected_new_traces_per_sec: 1000
+        policies:
+          - name: errors-always
+            type: status_code
+            status_code:
+              status_codes: [ERROR]
+          - name: slow-spans
+            type: latency
+            latency:
+              threshold_ms: {{ .Values.sampling.slowSpanThresholdMs }}
+          - name: money-path
+            type: string_attribute
+            string_attribute:
+              key: name
+              values:
+                {{- range .Values.sampling.moneyPathSpanSubstrings }}
+                - {{ printf ".*%s.*" . | quote }}
+                {{- end }}
+              enabled_regex_matching: true
+          - name: baseline
+            type: probabilistic
+            probabilistic:
+              sampling_percentage: {{ mulf .Values.sampling.probabilisticRate 100 }}
+      batch:
+        timeout: {{ .Values.batch.timeout }}
+        send_batch_size: {{ .Values.batch.sendBatchSize }}
+    exporters:
+      otlp/tempo:
+        endpoint: {{ .Values.tempo.endpoint | quote }}
+        tls:
+          insecure: true
+        sending_queue:
+          enabled: true
+          queue_size: 2000
+          num_consumers: 4
+        retry_on_failure:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 10s
+          max_elapsed_time: 120s
+      # Loki 3.x native OTLP/HTTP ingest.
+      otlphttp/loki:
+        endpoint: {{ .Values.loki.otlpHttpEndpoint | quote }}
+        tls:
+          insecure: true
+        sending_queue:
+          enabled: true
+          queue_size: 2000
+          num_consumers: 4
+        retry_on_failure:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 10s
+          max_elapsed_time: 120s
+      # Prometheus exporter: resource attributes become metric labels
+      # (service.name -> service, namespace attribution kept on metrics;
+      # tenant.id stays on traces/logs only — never a high-cardinality
+      # metric label, per OTEL_DESIGN.md section 2).
+      prometheus:
+        endpoint: 0.0.0.0:8889
+        resource_to_telemetry_conversion:
+          enabled: true
+    service:
+      telemetry:
+        metrics:
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: 0.0.0.0
+                    port: 8888
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, transform/tenant, attributes/redact, tail_sampling, batch]
+          exporters: [otlp/tempo]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, transform/tenant, batch]
+          exporters: [prometheus]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, transform/tenant, attributes/redact, batch]
+          exporters: [otlphttp/loki]

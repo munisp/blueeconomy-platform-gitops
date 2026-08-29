@@ -1,0 +1,53 @@
+# Gateway network posture: OTLP ingress from the collector agents (and
+# edge OTel sources such as Keycloak/Permify that target the gateway
+# directly per OTEL_DESIGN.md section 3), Prometheus scrapes from the
+# same namespace; egress to the Tempo/Loki backends (same namespace) and
+# DNS only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "otel-collector-gateway.fullname" . }}
+  labels:
+    {{- include "otel-collector-gateway.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "otel-collector-gateway.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    # Collector agents + in-namespace backends/scrapers.
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+        - protocol: TCP
+          port: 8889
+        - protocol: TCP
+          port: 8888
+    # Edge OTel sources that point at the gateway directly (Keycloak
+    # tracing, Permify OTLP — security namespace; APISIX edge spans are
+    # emitted by the APISIX deployment in the same namespace).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: blueeconomy-security
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+  egress:
+    - to:
+        - podSelector: {}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
