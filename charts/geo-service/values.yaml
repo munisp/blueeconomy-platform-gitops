@@ -43,25 +43,46 @@ externalSecrets:
   refreshInterval: 1h
   keys: {}
 
-# Non-secret environment. Values must be approved environment values; names
-# prefixed GEO_TEST_ and the GEO_REPLAY_FILE replay gate are refused when
+# Non-secret environment. Names are exactly the binary contract
+# (internal/config/config.go): the binary reads GEO_API_ADDR,
+# GEO_KAFKA_BROKERS, GEO_PG_DSN, GEO_REDIS_ADDR, GEO_PRODUCER_PRINCIPAL_*,
+# the GEO_AUTH_MODE family and GEO_POSITION_PLANE — nothing else is
+# injected. Values must be approved environment values; names prefixed
+# GEO_TEST_ and the GEO_REPLAY_FILE replay gate are refused when
 # profile=prod.
 env:
-  PORT: "8080"
-  GEO_ENVELOPE_VERSION: "1.0"
-  GEO_QUARANTINE_TOPIC: ""
-  GEO_EVENTS_TOPIC: ""
+  # HTTP listen address of the /v1/geo API (binary: GEO_API_ADDR).
+  GEO_API_ADDR: ":8080"
+  # Envelope provenance identity assertions (Keycloak service-account
+  # subject and role; never credentials).
+  GEO_PRODUCER_PRINCIPAL_ID: "blueeconomy-geo-service"
+  GEO_PRODUCER_PRINCIPAL_ROLE: "geo-producer"
+  # Edge authn: APISIX terminates OIDC and asserts verified claims; the
+  # service trusts only the edge CIDRs and identity below.
+  GEO_AUTH_MODE: "trusted_proxy"
+  GEO_TRUSTED_PROXY_ID: "apisix-edge"
+  GEO_TRUSTED_PROXY_CIDRS: "10.0.0.0/8"
+  # Position plane doctrine: the vessel position plane is a single shared
+  # national picture scoped by classification clearance, not by tenant.
+  # "tenant" fails closed at boot (no schema support).
+  GEO_POSITION_PLANE: "shared"
 
 requiredEnv:
-  - PORT
-  - GEO_ENVELOPE_VERSION
-  - GEO_QUARANTINE_TOPIC
-  - GEO_EVENTS_TOPIC
+  - GEO_API_ADDR
+  - GEO_PRODUCER_PRINCIPAL_ID
+  - GEO_PRODUCER_PRINCIPAL_ROLE
+  - GEO_AUTH_MODE
+  - GEO_TRUSTED_PROXY_ID
+  - GEO_TRUSTED_PROXY_CIDRS
+  - GEO_POSITION_PLANE
 
-# Secret-sourced env (names must exist in externalSecrets.keys):
-#   GEO_DATABASE_URL  — libpq DSN for the geo role (NOSUPERUSER NOBYPASSRLS)
-#   REDIS_URL         — dedup window store
-#   signing keys per signing.convention above.
+# Secret-sourced env (names must exist in externalSecrets.keys). The
+# deployment maps the documented secret keys onto the binary env contract:
+#   GEO_DATABASE_URL  — libpq DSN for the geo role (NOSUPERUSER NOBYPASSRLS),
+#                       injected to the binary as GEO_PG_DSN
+#   REDIS_URL         — dedup window store, injected as GEO_REDIS_ADDR
+#   signing keys per signing.convention above, injected as
+#                       ENVELOPE_SIGNING_PRIVATE_KEY / ENVELOPE_SIGNING_KEY_EPOCH.
 secretEnv: []
 
 # Kafka producer/consumer wiring (gap #7: render-gated TLS/SASL option —
@@ -132,6 +153,7 @@ monitoring:
     path: /metrics
     labels: {}
 
+# The binary serves /healthz and /metrics only (internal/api/server.go).
 probes:
   livenessPath: /healthz
-  readinessPath: /readyz
+  readinessPath: /healthz

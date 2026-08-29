@@ -68,6 +68,18 @@
 {{- fail (printf "externalSecrets.keys.%s is required because the deployment consumes it via secretEnv" $secretName) -}}
 {{- end -}}
 {{- end -}}
+
+{{- /* Binary env contract (GE-5): the deployment maps the documented
+       secret keys onto the only env names the binary resolves —
+       GEO_PG_DSN <- GEO_DATABASE_URL, GEO_REDIS_ADDR <- REDIS_URL. Both
+       secret keys must exist in the ExternalSecret or the pod boots
+       without its database/redis wiring. */ -}}
+{{- if not (hasKey $.Values.externalSecrets.keys "GEO_DATABASE_URL") -}}
+{{- fail "externalSecrets.keys.GEO_DATABASE_URL is required (mapped to the binary's GEO_PG_DSN)" -}}
+{{- end -}}
+{{- if not (hasKey $.Values.externalSecrets.keys "REDIS_URL") -}}
+{{- fail "externalSecrets.keys.REDIS_URL is required (mapped to the binary's GEO_REDIS_ADDR)" -}}
+{{- end -}}
 {{- $store := required "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore)" .Values.externalSecrets.storeRef.name -}}
 
 {{- /* Kafka wiring (gap #7): TLS/SASL render-gated options. */ -}}

@@ -39,12 +39,44 @@ spec:
               containerPort: {{ .Values.port }}
               protocol: TCP
           env:
-            - name: GEO_PROFILE
+            # Binary contract (internal/config/config.go, internal/sign):
+            # APP_ENV, GEO_KAFKA_BROKERS, GEO_PG_DSN, GEO_REDIS_ADDR and
+            # ENVELOPE_SIGNING_PRIVATE_KEY / ENVELOPE_SIGNING_KEY_EPOCH are
+            # the only names the binary resolves; the documented secret
+            # keys (GEO_DATABASE_URL, REDIS_URL, the signing-convention
+            # keys) are mapped onto them below.
+            - name: APP_ENV
               value: {{ .Values.profile | quote }}
-            - name: GEO_SIGNING_CONVENTION
-              value: {{ .Values.signing.convention | quote }}
-            - name: KAFKA_BROKERS
+            - name: GEO_KAFKA_BROKERS
               value: {{ .Values.kafka.brokers | quote }}
+            - name: GEO_PG_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: GEO_DATABASE_URL
+            - name: GEO_REDIS_ADDR
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: REDIS_URL
+            {{- if eq .Values.signing.convention "envelope" }}
+            - name: ENVELOPE_SIGNING_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ .Values.signing.envelope.privateKeySecretKey | quote }}
+            - name: ENVELOPE_SIGNING_KEY_EPOCH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ .Values.signing.envelope.epochSecretKey | quote }}
+            {{- else }}
+            - name: ENVELOPE_SIGNING_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ .Values.signing.provenance.keySecretKey | quote }}
+            {{- end }}
             {{- if .Values.kafka.tls.enabled }}
             - name: KAFKA_TLS_ENABLED
               value: "true"
@@ -72,12 +104,21 @@ spec:
             - name: {{ $key | quote }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- /* Secret keys already mapped onto the binary env contract
+                   above are not re-injected under their raw names (the
+                   binary never reads them). */ -}}
+            {{- $mappedKeys := list "GEO_DATABASE_URL" "REDIS_URL"
+                .Values.signing.envelope.privateKeySecretKey
+                .Values.signing.envelope.epochSecretKey
+                .Values.signing.provenance.keySecretKey -}}
             {{- range $key := (default (list) .Values.secretEnv) }}
+            {{- if not (has $key $mappedKeys) }}
             - name: {{ $key | quote }}
               valueFrom:
                 secretKeyRef:
                   name: {{ $secretName | quote }}
                   key: {{ $key | quote }}
+            {{- end }}
             {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
