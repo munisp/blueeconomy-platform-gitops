@@ -58,7 +58,8 @@ for chart in tigerbeetle mojaloop-overlay sedona-spark-jobs core-services region
   dapr-components temporal keycloak-realms beneficiary-portal ministry-portal \
   administration-service \
   cilium caddy opa-policies backup-dr \
-  postgis martin geo-service apisix-routes; do
+  postgis martin geo-service apisix-routes \
+  tax-stamps ml-stack data-platform waterway-safety cv-service; do
   test -s "$repo_root/charts/$chart/Chart.yaml"
   test -s "$repo_root/charts/$chart/values.yaml"
 done
@@ -115,6 +116,11 @@ assert_default_render_fails_closed postgis 'image.variant must be one of: cloudn
 assert_default_render_fails_closed martin 'image.repository is required'
 assert_default_render_fails_closed geo-service 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed apisix-routes 'apisix.enabled must be true'
+assert_default_render_fails_closed tax-stamps 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed ml-stack 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed data-platform 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed waterway-safety 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed cv-service 'profile must be one of: dev, staging, prod'
 
 # Positive render gates: every shared-platform chart must render fully with
 # its CI render fixture (fail-closed defaults exercised separately above).
@@ -122,7 +128,8 @@ for chart in ferry-ticketing financial-controls port-interoperability security-o
   credential-verification fisheries-traceability maritime-intelligence \
   temporal keycloak-realms beneficiary-portal ministry-portal \
   administration-service \
-  cilium opa-policies sedona-spark-jobs martin geo-service apisix-routes; do
+  cilium opa-policies sedona-spark-jobs martin geo-service apisix-routes \
+  tax-stamps ml-stack data-platform waterway-safety cv-service; do
   helm template render-gate "$repo_root/charts/$chart" \
     --kube-version "$helm_kube_version" \
     -f "$repo_root/ci/render-values/$chart.yaml" > /dev/null

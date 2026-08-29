@@ -44,6 +44,27 @@ spec:
             namespace: blueeconomy-security
           - chart: beneficiary-portal
             namespace: blueeconomy-cvff
+          # Administration API and ministry portal (GAP-PG-08: previously
+          # orphaned charts — registered with env overlays).
+          - chart: administration-service
+            namespace: blueeconomy-platform
+          - chart: ministry-portal
+            namespace: blueeconomy-cvff
+          # Phase-7 service coverage (GAP-PG-01/GAP-PG-03): the revenue
+          # tax-stamps service, the ML scoring stack + lakehouse batch
+          # jobs, the waterway-safety telemetry gateway and the edge CV
+          # service. Exclusion record for maritime-evidence and mobile
+          # (no server component): docs/service-coverage-exclusions.md.
+          - chart: tax-stamps
+            namespace: blueeconomy-cvff
+          - chart: ml-stack
+            namespace: blueeconomy-platform
+          - chart: data-platform
+            namespace: blueeconomy-platform
+          - chart: waterway-safety
+            namespace: blueeconomy-ferries
+          - chart: cv-service
+            namespace: blueeconomy-ports
           # Core platform services (docs/core-services-deployment-guide.md):
           # TigerBeetle sub-ledger, Mojaloop release-control overlay and
           # Sedona Spark jobs each render into their approved namespace.
