@@ -20,6 +20,16 @@ components:
       TIGERBEETLE_REPLICA_ADDRESSES: tigerbeetle-0.tigerbeetle-headless.blueeco-tigerbeetle-prod.svc.cluster.local:3000
       TIGERBEETLE_LEDGER: "10"
       TIGERBEETLE_CODE: "100"
+  cvff-api:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/cvff-api
+      digest: sha256:1c5b0f2e6a1e4d5e7d3e8c2b9a4f6d1c0e3b5a7d9f2e4c6a8b0d2f4e6a8c0e2b
+    env:
+      CVFF_API_KEYCLOAK_ISSUER: https://keycloak.blueeconomy-platform.svc.cluster.local/realms/blueeconomy-cvff
+      CVFF_API_KEYCLOAK_JWKS_URL: https://keycloak.blueeconomy-platform.svc.cluster.local/realms/blueeconomy-cvff/protocol/openid-connect/certs
+      CVFF_API_JWT_AUDIENCE: cvff-api
+      CVFF_API_AVSCAN_URL: https://clamav.blueeconomy-platform.svc.cluster.local/scan
+      BLUEECONOMY_STORAGE_BACKEND: adls
   cvff-worker:
     image:
       repository: blueeconomy.azurecr.us/blueeconomy/cvff-worker

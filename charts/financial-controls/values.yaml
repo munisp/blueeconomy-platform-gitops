@@ -99,6 +99,63 @@ components:
         cpu: "1"
         memory: 512Mi
 
+  # cvff-api is the ONLY server of /v1/cvff/applications* consumed by
+  # blueeconomy-beneficiary-portal (FC-4). The image bakes the PBAC policy
+  # pack at /etc/blueeconomy/policies (CVFF_API_POLICY_DIR).
+  cvff-api:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    port: 8081
+    service:
+      enabled: true
+      type: ClusterIP
+    daprAppId: cvff-api
+    probes:
+      livenessPath: /healthz
+      readinessPath: /healthz
+    temporalEnv:
+      enabled: true
+      addressKey: TEMPORAL_HOST_PORT
+    env:
+      CVFF_API_LISTEN_ADDR: ":8081"
+      TEMPORAL_TASK_QUEUE: cvff-disbursement
+      CVFF_API_KEYCLOAK_ISSUER: ""
+      CVFF_API_KEYCLOAK_JWKS_URL: ""
+      CVFF_API_JWT_AUDIENCE: ""
+      CVFF_API_AVSCAN_URL: ""
+      CVFF_API_MAX_DOCUMENT_BYTES: "10485760"
+      CVFF_API_MAX_DOCUMENTS_PER_APPLICATION: "20"
+      CVFF_API_DOCUMENT_CONTENT_TYPES: "application/pdf,image/jpeg,image/png"
+      CVFF_API_POLICY_DIR: /etc/blueeconomy/policies
+      # Object-storage backend coordinates (adls | adls-gen2 | s3); backend
+      # credentials arrive via secretEnv in the environment values file.
+      BLUEECONOMY_STORAGE_BACKEND: ""
+    requiredEnv:
+      - CVFF_API_LISTEN_ADDR
+      - TEMPORAL_TASK_QUEUE
+      - CVFF_API_KEYCLOAK_ISSUER
+      - CVFF_API_KEYCLOAK_JWKS_URL
+      - CVFF_API_JWT_AUDIENCE
+      - CVFF_API_AVSCAN_URL
+      - CVFF_API_MAX_DOCUMENT_BYTES
+      - CVFF_API_MAX_DOCUMENTS_PER_APPLICATION
+      - CVFF_API_DOCUMENT_CONTENT_TYPES
+      - CVFF_API_POLICY_DIR
+      - BLUEECONOMY_STORAGE_BACKEND
+    secretEnv:
+      - DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
   cvff-worker:
     enabled: true
     image:

@@ -92,7 +92,9 @@ assert_default_render_fails_closed mojaloop-overlay 'upstream.chartName must be 
 assert_default_render_fails_closed sedona-spark-jobs 'spark.sparkVersion is required'
 assert_default_render_fails_closed regional-dr 'regionalDR.primary.region'
 assert_default_render_fails_closed ferry-ticketing 'ferry-api.image.repository is required'
-assert_default_render_fails_closed financial-controls 'cvff-worker.image.repository is required'
+# financial-controls: components render in alphabetical order, so the first
+# approval gate hit without environment values is cvff-api.
+assert_default_render_fails_closed financial-controls 'cvff-api.image.repository is required'
 assert_default_render_fails_closed port-interoperability 'api.image.repository is required'
 assert_default_render_fails_closed security-operations 'detection-engine.image.repository is required'
 assert_default_render_fails_closed credential-verification 'credential-api.image.repository is required'
