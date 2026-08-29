@@ -55,7 +55,8 @@ grep -q 'pod-security.kubernetes.io/enforce: restricted' "$repo_root/kubernetes/
 for chart in tigerbeetle mojaloop-overlay sedona-spark-jobs core-services regional-dr \
   ferry-ticketing financial-controls port-interoperability security-operations \
   credential-verification fisheries-traceability maritime-intelligence \
-  dapr-components temporal keycloak-realms beneficiary-portal \
+  dapr-components temporal keycloak-realms beneficiary-portal ministry-portal \
+  administration-service \
   cilium caddy opa-policies backup-dr \
   postgis martin geo-service apisix-routes; do
   test -s "$repo_root/charts/$chart/Chart.yaml"
@@ -104,6 +105,8 @@ assert_default_render_fails_closed dapr-components 'workstream.name is required'
 assert_default_render_fails_closed temporal 'temporal.image.digest is required'
 assert_default_render_fails_closed keycloak-realms 'externalSecrets.storeRef.name is required'
 assert_default_render_fails_closed beneficiary-portal 'image.repository is required'
+assert_default_render_fails_closed ministry-portal 'image.repository is required'
+assert_default_render_fails_closed administration-service 'image.repository is required'
 assert_default_render_fails_closed cilium 'cilium upstream.chartName is required'
 assert_default_render_fails_closed caddy 'image.digest is required'
 assert_default_render_fails_closed opa-policies 'opa.image.digest is required'
@@ -117,7 +120,8 @@ assert_default_render_fails_closed apisix-routes 'apisix.enabled must be true'
 # its CI render fixture (fail-closed defaults exercised separately above).
 for chart in ferry-ticketing financial-controls port-interoperability security-operations \
   credential-verification fisheries-traceability maritime-intelligence \
-  temporal keycloak-realms beneficiary-portal \
+  temporal keycloak-realms beneficiary-portal ministry-portal \
+  administration-service \
   cilium opa-policies sedona-spark-jobs martin geo-service apisix-routes; do
   helm template render-gate "$repo_root/charts/$chart" \
     --kube-version "$helm_kube_version" \

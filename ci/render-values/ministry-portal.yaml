@@ -1,0 +1,49 @@
+# CI render-gate fixture ONLY. These values exist so that `helm template`
+# exercises the full chart during validation. They are NOT deployable: the
+# image digest is synthetic and the hostname/endpoints are illustrative.
+# Real environment values live in the authorised environment repository.
+image:
+  repository: blueeconomy.azurecr.us/blueeconomy/ministry-portal
+  digest: sha256:4c6a2d1c2b5d9e3a7b8f0d2e4c6a8192b3d5f7a9c1e3b5d7f9a1c3e5b7d9f0a2
+
+ingress:
+  className: apisix
+  host: ministry-portal.render-fixture.example.invalid
+  tls:
+    secretName: ministry-portal-tls
+
+platformConfig:
+  oidc:
+    authority: https://keycloak.blueeconomy-security.svc.cluster.local:8443/realms/blueeconomy-platform
+    clientId: ministry-portal
+    redirectUri: https://ministry-portal.render-fixture.example.invalid/auth/callback
+    postLogoutRedirectUri: https://ministry-portal.render-fixture.example.invalid/
+  administration:
+    onboardingApiUrl: https://gateway.render-fixture.example.invalid/v1/onboarding/requests
+    organizationId: 7f3a1c2e-0000-4000-8000-aa10bb22cc33
+    allowedRoles:
+      - platform-admin
+      - nimasa-officer
+  services:
+    - id: administration-service
+      label: Central administration
+      healthUrl: https://gateway.render-fixture.example.invalid/v1/admin/healthz
+      requiredRoles:
+        - platform-admin
+    - id: geo-service
+      label: Vessel tracking
+      healthUrl: https://gateway.render-fixture.example.invalid/v1/geo/healthz
+      requiredRoles:
+        - geo-reader
+  geospatial:
+    enabled: true
+    geoApiUrl: https://gateway.render-fixture.example.invalid/v1/geo
+    tileUrl: /tiles/{z}/{x}/{y}.png
+    tileAttribution: Blue Economy sovereign tile service
+    pollIntervalMs: 15000
+    cesiumBaseUrl: /cesium/
+    geolibreEnabled: true
+    geolibreUrl: /geolibre/
+
+networkPolicy:
+  allowedIngressNamespaces: ["blueeconomy-edge"]

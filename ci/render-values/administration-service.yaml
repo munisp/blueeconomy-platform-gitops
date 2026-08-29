@@ -1,0 +1,55 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative references. Real values live in the authorised environment
+# repo.
+image:
+  repository: registry.blueeconomy.example.gov.ng/blueeconomy/administration-service
+  digest: sha256:2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c
+
+env:
+  ADMIN_SERVICE_LISTEN_ADDRESS: ":8080"
+  ADMIN_PBAC_POLICY_DIR: /etc/blueeconomy/admin-pbac
+  # APISIX terminates OIDC and asserts verified claims (edge authn).
+  ADMIN_AUTH_MODE: trusted_proxy
+  ADMIN_TRUSTED_PROXY_IDENTITY: apisix-edge
+  ADMIN_TRUSTED_PROXY_CIDRS: 10.0.0.0/8
+  KEYCLOAK_TOKEN_URL: https://keycloak.blueeconomy.example.gov.ng/realms/blueeconomy-platform/protocol/openid-connect/token
+  KEYCLOAK_ADMIN_BASE_URL: https://keycloak.blueeconomy.example.gov.ng/admin/realms/blueeconomy-platform
+  KEYCLOAK_REALM: blueeconomy-platform
+  KEYCLOAK_ORGANIZATION_ID: 7f3a1c2e-0000-4000-8000-aa10bb22cc33
+  KEYCLOAK_ADMIN_CLIENT_ID: administration-service
+  KEYCLOAK_SERVICE_ACTOR_SUBJECT: 1b2c3d4e-0000-4000-8000-ff00ee11dd22
+  ONBOARDING_ALLOWED_ROLES: platform-admin,nimasa-officer
+  KEYCLOAK_ROLE_GROUP_MAPPING_JSON: '{"platform-admin":"11111111-2222-3333-4444-555555555555","nimasa-officer":"66666666-7777-8888-9999-000000000000"}'
+  ADMIN_ENROLLMENT_RATE_LIMIT_PER_MINUTE: "60"
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    ADMIN_SERVICE_POSTGRES_DSN: admin/render-fixture/postgres-dsn
+    KEYCLOAK_ADMIN_CLIENT_SECRET: admin/render-fixture/keycloak-admin-client-secret
+    PROVENANCE_SIGNING_KEY: admin/render-fixture/provenance-signing-key
+
+pbac:
+  policies:
+    admin.rego: |
+      package blueeconomy.admin
+      import rego.v1
+      default allow := false
+      allow if {
+        "platform-admin" in input.roles
+      }
+
+networkPolicy:
+  apisixNamespace: blueeconomy-security
+  postgisNamespace: blueeconomy-platform
+  keycloakNamespace: blueeconomy-security
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 256Mi
