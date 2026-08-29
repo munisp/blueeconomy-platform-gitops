@@ -116,3 +116,10 @@ podDisruptionBudget:
   # disruption an approved operator action.
   enabled: true
   maxUnavailable: 0
+
+serviceMonitor:
+  # Temporal frontend Prometheus scrape (OTEL_DESIGN.md section 3
+  # middleware matrix).
+  enabled: true
+  labels:
+    blueeconomy.platform/workstream: platform

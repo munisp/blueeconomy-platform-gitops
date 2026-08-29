@@ -1,0 +1,21 @@
+{{- if .Values.serviceMonitor.enabled }}
+# Temporal server Prometheus scrape (frontend metrics port): workflow
+# latency/failure and persistence telemetry for the middleware matrix
+# (OTEL_DESIGN.md section 3). Temporal's OTel SDK trace export is not
+# upstream-stable; metrics scrape is the honest coverage path.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "temporal.fullname" . }}
+  labels:
+    {{- include "temporal.labels" . | nindent 4 }}
+    {{- toYaml .Values.serviceMonitor.labels | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "temporal.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+{{- end }}
