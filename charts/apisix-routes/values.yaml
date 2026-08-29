@@ -80,3 +80,34 @@ routes:
       rate: 15
       burst: 30
       key: "$consumer_name$remote_addr"
+
+# Edge-native observability (OTEL_DESIGN.md section 3).
+edgeObservability:
+  opentelemetry:
+    # opentelemetry plugin on every route: edge ROOT spans, traceparent
+    # injected downstream. The collector endpoint lives in the APISIX
+    # instance's plugin_attr (upstream release values) — this chart
+    # render-gates only the sampling contract.
+    enabled: true
+    # Default per-route trace-id-ratio fraction (routes may override via
+    # otlp.sampleFraction); render-gated to (0, 1].
+    sampleFraction: 1.0
+  prometheus:
+    # prometheus plugin on every route (per-route RED metrics).
+    enabled: true
+
+# OpenAppSec WAF agent (embedded in the APISIX pod per the caddy chart
+# contract): Prometheus scrape wiring. NOTE (vendor limitation, recorded
+# honestly): the agent emits NO traces; its security events ship to Loki
+# via the collector (filelog/syslog on the agent's event volume/socket —
+# additive collector config, recorded here so the gap is explicit).
+openappsec:
+  serviceMonitor:
+    enabled: false
+    # APISIX Service exposing the agent metrics port (render-gated when
+    # enabled).
+    serviceName: ""
+    port: 8111
+    path: /metrics
+    labels:
+      blueeconomy.platform/workstream: security

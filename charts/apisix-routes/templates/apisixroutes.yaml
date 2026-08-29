@@ -73,4 +73,28 @@ spec:
               set:
                 X-Forwarded-Proto: https
                 X-Platform-Gateway: apisix
+        {{- if $.Values.edgeObservability.opentelemetry.enabled }}
+        # Edge-native tracing (OTEL_DESIGN.md section 3): the APISIX
+        # opentelemetry plugin starts the trace ROOT span at the edge and
+        # injects traceparent downstream (W3C propagation), with the route
+        # name attributed per route. The collector endpoint itself is the
+        # APISIX instance's plugin_attr (upstream release values) pointing
+        # at the otel-collector-agent OTLP/HTTP listener :4318 — recorded
+        # here because the route CR cannot set it.
+        - name: opentelemetry
+          enable: true
+          config:
+            sampler:
+              name: trace-id-ratio
+              options:
+                fraction: {{ ($r.otlp).sampleFraction | default $.Values.edgeObservability.opentelemetry.sampleFraction }}
+            additional_attributes:
+              - "edge.route={{ $r.name }}"
+              - "edge.gateway=apisix"
+        {{- end }}
+        {{- if $.Values.edgeObservability.prometheus.enabled }}
+        # Per-route request/latency metrics for the RED alert skeleton.
+        - name: prometheus
+          enable: true
+        {{- end }}
 {{- end }}
