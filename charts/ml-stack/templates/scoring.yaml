@@ -1,0 +1,162 @@
+{{- $fullName := include "ml-stack.fullname" . -}}
+{{- if .Values.scoring.enabled }}
+# Deterministic A/B version routing config (inference/ab_config.yaml
+# shape). Rollout-safe: bucketing is deterministic by entity ID.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-ab-config" $fullName | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "ml-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scoring
+data:
+  ab_config.yaml: |
+    {{- .Values.scoring.abConfig | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ printf "%s-scoring" $fullName | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "ml-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scoring
+spec:
+  {{- if not .Values.scoring.hpa.enabled }}
+  replicas: {{ .Values.scoring.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "ml-stack.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: scoring
+  template:
+    metadata:
+      labels:
+        {{- include "ml-stack.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: scoring
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: scoring
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # uvicorn inference.service:app --port 8100 (deploy/README.md).
+          command: ["uvicorn", "inference.service:app", "--host", "0.0.0.0", "--port", {{ .Values.scoring.port | quote }}]
+          ports:
+            - name: http
+              containerPort: {{ .Values.scoring.port }}
+              protocol: TCP
+          env:
+            {{- range $key, $value := (default dict .Values.scoring.env) }}
+            - name: {{ $key | quote }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- include "ml-stack.containerEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.scoring.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.scoring.probes.livenessPath }}
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.scoring.probes.readinessPath }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.scoring.probes.livenessPath }}
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            # Versioned trained model artifacts (models/<name>/<semver>);
+            # mounted read-only from the pre-existing artifact-store PVC.
+            - name: model-artifacts
+              mountPath: {{ .Values.scoring.env.BEML_MODELS_ROOT | quote }}
+              readOnly: true
+            - name: ab-config
+              mountPath: {{ dir .Values.scoring.env.BEML_AB_CONFIG | quote }}
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: model-artifacts
+          persistentVolumeClaim:
+            claimName: {{ .Values.scoring.modelsVolume.persistentVolumeClaimName | quote }}
+            readOnly: true
+        - name: ab-config
+          configMap:
+            name: {{ printf "%s-ab-config" $fullName | trunc 63 | trimSuffix "-" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-scoring" $fullName | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "ml-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scoring
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "ml-stack.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: scoring
+  ports:
+    - name: http
+      port: {{ .Values.scoring.port }}
+      targetPort: http
+{{- if .Values.scoring.hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ printf "%s-scoring" $fullName | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "ml-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scoring
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ printf "%s-scoring" $fullName | trunc 63 | trimSuffix "-" }}
+  minReplicas: {{ .Values.scoring.hpa.minReplicas }}
+  maxReplicas: {{ .Values.scoring.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.scoring.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- if .Values.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ printf "%s-scoring" $fullName | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "ml-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scoring
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "ml-stack.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: scoring
+{{- end }}
+{{- end }}

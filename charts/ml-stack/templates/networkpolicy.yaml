@@ -1,0 +1,44 @@
+{{- $fullName := include "ml-stack.fullname" . -}}
+# ml-stack network posture: scoring API ingress from the approved consumer
+# namespaces only; batch/scoring egress per environment values (object
+# storage endpoint, MLflow, DNS at minimum — render-gated non-empty).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "ml-stack.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "ml-stack.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "ml-stack.selectorLabels" . | nindent 14 }}
+    {{- range .Values.networkPolicy.allowedIngressNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.scoring.port }}
+    {{- end }}
+  egress:
+    {{- range .Values.networkPolicy.allowedEgress }}
+    {{- $rule := . }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $rule.namespace | quote }}
+      ports:
+        {{- range $proto := (default (list "TCP") $rule.protocols) }}
+        {{- range $port := $rule.ports }}
+        - protocol: {{ $proto }}
+          port: {{ $port }}
+        {{- end }}
+        {{- end }}
+    {{- end }}

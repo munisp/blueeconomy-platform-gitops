@@ -1,0 +1,27 @@
+apiVersion: v2
+name: ml-stack
+description: >-
+  blueeconomy-ml-stack deploy surface (deploy/README.md defers to this
+  repository): the fail-closed CPU scoring-service (FastAPI,
+  inference/service.py, SCORING_UNAVAILABLE posture) with read-only
+  versioned model artifacts, plus the lakehouse batch CronJobs
+  (snapshot-builder, continuous-training, drift-report). MLflow tracking
+  is an optional component (Postgres backend store via ExternalSecrets,
+  lakehouse artifact root). The KubeRay RayCluster for HPO windows is
+  intentionally out of scope: it requires the KubeRay operator and
+  ray_jobs degrade to local execution (RAY_UNAVAILABLE -> local), which
+  the CronJobs already provide. Fail-closed: digest-pinned images,
+  BEML_ALLOW_SYNTHETIC_FALLBACK refused in the prod profile (synthetic
+  data never reaches production), credentials via ExternalSecrets only.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - ml
+  - scoring
+  - mlflow
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "ml-scoring-degradable"
+  blueeconomy.platform/upstream-policy: "Pin verified upstream image digests; do not deploy unreviewed defaults"

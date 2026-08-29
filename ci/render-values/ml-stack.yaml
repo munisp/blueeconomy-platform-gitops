@@ -1,0 +1,89 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digests and
+# illustrative references. Real values live in the authorised environment
+# repo.
+profile: prod
+
+image:
+  repository: registry.blueeconomy.example.gov.ng/blueeconomy/ml-stack
+  digest: sha256:3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    BLUEECONOMY_STORAGE_CREDENTIALS: mlstack/render-fixture/storage-credentials
+    MLFLOW_BACKEND_STORE_URI: mlstack/render-fixture/mlflow-backend-store-uri
+
+secretEnv:
+  - BLUEECONOMY_STORAGE_CREDENTIALS
+
+scoring:
+  env:
+    MLFLOW_TRACKING_URI: http://render-gate-ml-stack-mlflow.blueeconomy-platform.svc.cluster.local:5000
+  abConfig: |
+    models:
+      fraud-tabular:
+        production: 1.4.2
+        candidate: 1.5.0-rc.1
+        candidate_fraction: 0.1
+  modelsVolume:
+    persistentVolumeClaimName: beml-model-artifacts
+
+cronJobs:
+  - name: snapshot-builder
+    schedule: "0 1 * * *"
+    module: pipelines.extract
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+  - name: continuous-training
+    schedule: "0 2 * * 0"
+    module: pipelines.continuous_training
+    args: ["--model", "fraud-tabular"]
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+  - name: drift-report
+    schedule: "0 3 * * *"
+    module: monitoring.drift
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+batchEnv:
+  BLUEECONOMY_STORAGE_BACKEND: s3
+  BLUEECONOMY_STORAGE_ACCOUNT: blueeconomylakehouse
+  BLUEECONOMY_STORAGE_FILESYSTEM: lakehouse
+  MLFLOW_TRACKING_URI: http://render-gate-ml-stack-mlflow.blueeconomy-platform.svc.cluster.local:5000
+
+mlflow:
+  enabled: true
+  image:
+    repository: registry.blueeconomy.example.gov.ng/blueeconomy/mlflow
+    digest: sha256:4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e
+  env:
+    MLFLOW_ARTIFACT_ROOT: s3://blueeconomylakehouse/mlflow-artifacts
+
+networkPolicy:
+  allowedIngressNamespaces:
+    - blueeconomy-cvff
+    - blueeconomy-ports
+  allowedEgress:
+    - namespace: kube-system
+      ports: [53]
+      protocols: ["UDP", "TCP"]
+    - namespace: blueeconomy-platform
+      ports: [443, 5000]
