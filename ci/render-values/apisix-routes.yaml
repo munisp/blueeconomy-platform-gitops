@@ -1,6 +1,7 @@
-# CI render-gate fixture ONLY. NOT deployable: illustrative hostnames and
-# service references. Real values live in the authorised environment repo.
-# Registers the gap #49 routes: geo-service, ministry-portal, cvffapi, admin.
+# CI render-gate fixture ONLY. NOT deployable: illustrative hostnames.
+# Real values live in the authorised environment repo. Exercises the
+# authoritative route inventory ported from
+# blueeconomy/deploy/security/apisix.yaml (GAP-SEC-03).
 apisix:
   enabled: true
   namespace: blueeconomy-security
@@ -10,61 +11,48 @@ apisix:
     servicePort: 8181
 
 routes:
-  - name: geo-service
+  - name: platform-s1
     host: api.blueeconomy.example.gov.ng
     paths:
-      - /v1/geo/*
+      - /v1/port/*
+    methods: [GET, POST, PUT]
+    service:
+      namespace: blueeconomy-ports
+      name: port-interoperability-port-interoperability-api
+      port: 8080
+    scopes:
+      - s1
+    rateLimit:
+      rate: 20
+      burst: 40
+      key: "$consumer_name$remote_addr"
+  - name: partner-nsw
+    host: api.blueeconomy.example.gov.ng
+    paths:
+      - /v1/nsw/*
+    methods: [POST]
+    service:
+      namespace: blueeconomy-ports
+      name: port-interoperability-port-interoperability-api
+      port: 8080
+    scopes:
+      - partner.nsw
+    rateLimit:
+      rate: 10
+      burst: 20
+      key: remote_addr
+  - name: platform-s2
+    host: api.blueeconomy.example.gov.ng
+    paths:
+      - /v1/feed-sources/*
     methods: [GET, POST]
     service:
-      namespace: blueeco-geo-prod
-      name: geo-service
+      namespace: blueeconomy-isr
+      name: maritime-intelligence-maritime-intelligence-api
       port: 8080
     scopes:
-      - geo:read
-      - geo:write
-  - name: geo-martin
-    host: api.blueeconomy.example.gov.ng
-    paths:
-      - /tiles/*
-    methods: [GET]
-    service:
-      namespace: blueeco-geo-prod
-      name: martin
-      port: 3000
-    scopes:
-      - geo:read
-  - name: ministry-portal
-    host: portal.blueeconomy.example.gov.ng
-    paths:
-      - /*
-    methods: [GET]
-    service:
-      namespace: blueeconomy-cvff
-      name: ministry-portal
-      port: 8080
-    scopes:
-      - portal:read
-  - name: cvffapi
-    host: api.blueeconomy.example.gov.ng
-    paths:
-      - /v1/cvff/*
-    methods: [GET, POST]
-    service:
-      namespace: blueeconomy-cvff
-      name: intent-api
-      port: 8080
-    scopes:
-      - cvff:read
-      - cvff:write
-  - name: admin
-    host: admin.blueeconomy.example.gov.ng
-    paths:
-      - /v1/admin/*
-    methods: [GET, POST, PUT, DELETE]
-    service:
-      namespace: blueeconomy-platform
-      name: admin-service
-      port: 8080
-    scopes:
-      - admin:read
-      - admin:write
+      - s2
+    rateLimit:
+      rate: 15
+      burst: 30
+      key: "$consumer_name$remote_addr"

@@ -55,12 +55,22 @@ spec:
           config:
             host: {{ printf "http://%s:%v" $.Values.apisix.opa.serviceName $.Values.apisix.opa.servicePort | quote }}
             policy: {{ $.Values.apisix.opa.policy | quote }}
-        # Identity-aware rate limiting below the coarse Caddy ceiling.
+        # Identity-aware rate limiting below the coarse Caddy ceiling
+        # (rates ported from blueeconomy/deploy/security/apisix.yaml).
         - name: limit-req
           enable: true
           config:
-            rate: 10
-            burst: 5
+            rate: {{ ($r.rateLimit).rate | default 10 }}
+            burst: {{ ($r.rateLimit).burst | default 5 }}
             rejected_code: 429
-            key: remote_addr
+            key: {{ ($r.rateLimit).key | default "remote_addr" | quote }}
+        # Forwarded-proto/gateway marker headers, consistent with the
+        # authoritative route file's proxy-rewrite plugin.
+        - name: proxy-rewrite
+          enable: true
+          config:
+            headers:
+              set:
+                X-Forwarded-Proto: https
+                X-Platform-Gateway: apisix
 {{- end }}

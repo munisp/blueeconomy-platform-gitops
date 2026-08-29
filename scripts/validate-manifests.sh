@@ -115,7 +115,7 @@ assert_default_render_fails_closed backup-dr 'backup-dr upstream.chartName is re
 assert_default_render_fails_closed postgis 'image.variant must be one of: cloudnative-pg, postgis-image'
 assert_default_render_fails_closed martin 'image.repository is required'
 assert_default_render_fails_closed geo-service 'profile must be one of: dev, staging, prod'
-assert_default_render_fails_closed apisix-routes 'apisix.enabled must be true'
+assert_default_render_fails_closed apisix-routes 'apisix.opa.serviceName is required'
 assert_default_render_fails_closed tax-stamps 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed ml-stack 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed data-platform 'profile must be one of: dev, staging, prod'

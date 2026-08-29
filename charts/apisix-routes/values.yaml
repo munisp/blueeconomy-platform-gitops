@@ -6,12 +6,13 @@ nameOverride: ""
 fullnameOverride: ""
 
 apisix:
-  # Fail-closed: routes render only when the pinned upstream APISIX release
-  # (components/upstream-components.lock.yaml: apache-apisix) is approved
-  # for this environment. Default false refuses to render.
-  enabled: false
-  # APISIX gateway listener namespace/port (Caddy proxies here).
-  namespace: ""
+  # Routes render by default against the pinned upstream APISIX release
+  # (components/upstream-components.lock.yaml: apache-apisix); the
+  # fail-closed gates are the required landing-zone values below (gateway
+  # namespace, OPA service, per-route approved hostnames).
+  enabled: true
+  # APISIX gateway listener namespace (Caddy proxies here).
+  namespace: blueeconomy-security
   # OPA hook contract, consistent with charts/opa-policies apisixHook:
   # every route evaluates policy blueeconomy/http/allow on the OPA service.
   opa:
@@ -20,11 +21,62 @@ apisix:
     serviceName: ""
     servicePort: 8181
 
-# Route inventory. Every entry:
+# Route inventory, ported from the platform's authoritative APISIX route
+# file (blueeconomy/deploy/security/apisix.yaml) so the render gates apply
+# (GAP-SEC-03). Every entry:
 #   name:     route name (also the ApisixRoute CR name suffix)
-#   host:     approved edge hostname
+#   host:     approved edge hostname (environment-supplied; render-gated)
 #   paths:    absolute path prefixes (/* suffix style)
 #   methods:  approved HTTP methods
 #   service:  backend Kubernetes Service (namespace/name/port)
 #   scopes:   Keycloak OIDC scopes required on the route (bearer-only)
-routes: []
+#   rateLimit: optional identity-aware limit-req override {rate, burst, key}
+routes:
+  # S1 port interoperability API (upstream s1-port-interoperability).
+  - name: platform-s1
+    host: ""
+    paths:
+      - /v1/port/*
+    methods: [GET, POST, PUT]
+    service:
+      namespace: blueeconomy-ports
+      name: port-interoperability-port-interoperability-api
+      port: 8080
+    scopes:
+      - s1
+    rateLimit:
+      rate: 20
+      burst: 40
+      key: "$consumer_name$remote_addr"
+  # Partner national-single-window submissions (upstream s1, bearer-only).
+  - name: partner-nsw
+    host: ""
+    paths:
+      - /v1/nsw/*
+    methods: [POST]
+    service:
+      namespace: blueeconomy-ports
+      name: port-interoperability-port-interoperability-api
+      port: 8080
+    scopes:
+      - partner.nsw
+    rateLimit:
+      rate: 10
+      burst: 20
+      key: remote_addr
+  # S2 maritime-intelligence feed sources (upstream s2-maritime-intelligence).
+  - name: platform-s2
+    host: ""
+    paths:
+      - /v1/feed-sources/*
+    methods: [GET, POST]
+    service:
+      namespace: blueeconomy-isr
+      name: maritime-intelligence-maritime-intelligence-api
+      port: 8080
+    scopes:
+      - s2
+    rateLimit:
+      rate: 15
+      burst: 30
+      key: "$consumer_name$remote_addr"
