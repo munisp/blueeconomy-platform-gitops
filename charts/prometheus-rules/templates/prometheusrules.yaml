@@ -1,0 +1,89 @@
+{{- $fullName := include "prometheus-rules.fullname" . -}}
+# Per-service RED skeleton (OTel HTTP semantic-convention series exported
+# by the collector gateway) + observability backend health. Every alert
+# resolves through Alertmanager to the Novu receiver. Test-firing
+# procedure: docs/observability-test-firing.md (§4 gate 4).
+{{- range $svc := .Values.services }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ printf "%s-%s" $fullName $svc.name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "prometheus-rules.labels" $ | nindent 4 }}
+    blueeconomy.platform/service: {{ $svc.name | quote }}
+spec:
+  groups:
+    - name: {{ printf "red-%s" $svc.name | quote }}
+      rules:
+        - alert: {{ printf "%sHighErrorRate" ($svc.name | title | replace "-" "") | quote }}
+          expr: |
+            100 *
+            sum(rate(http_server_request_duration_seconds_count{service="{{ $svc.name }}", namespace="{{ $svc.namespace }}", http_response_status_code=~"5.."}[5m]))
+            /
+            sum(rate(http_server_request_duration_seconds_count{service="{{ $svc.name }}", namespace="{{ $svc.namespace }}"}[5m]))
+            > {{ $.Values.thresholds.errorRatePercent }}
+          for: {{ $.Values.thresholds.forDuration }}
+          labels:
+            severity: {{ $svc.severity | quote }}
+            service: {{ $svc.name | quote }}
+            namespace: {{ $svc.namespace | quote }}
+          annotations:
+            summary: "{{ $svc.name }}: elevated 5xx share (RED errors)"
+            runbook: docs/observability-test-firing.md
+        - alert: {{ printf "%sHighLatencyP95" ($svc.name | title | replace "-" "") | quote }}
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_server_request_duration_seconds_bucket{service="{{ $svc.name }}", namespace="{{ $svc.namespace }}"}[5m])) by (le))
+            > {{ $.Values.thresholds.latencyP95Seconds }}
+          for: {{ $.Values.thresholds.forDuration }}
+          labels:
+            severity: warning
+            service: {{ $svc.name | quote }}
+            namespace: {{ $svc.namespace | quote }}
+          annotations:
+            summary: "{{ $svc.name }}: http server p95 above budget (RED duration)"
+            runbook: docs/observability-test-firing.md
+{{- end }}
+{{- if .Values.backendHealth.enabled }}
+---
+# Observability backend health: the pipeline itself is monitored
+# (collector dropped/refused telemetry, backend availability) so a
+# telemetry outage can never masquerade as a quiet estate.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ $fullName }}-backend-health
+  labels:
+    {{- include "prometheus-rules.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: observability-backend-health
+      rules:
+        - alert: OtelCollectorDroppingTelemetry
+          expr: |
+            100 *
+            sum(rate(otelcol_exporter_enqueue_failed_log_records[5m]) + rate(otelcol_exporter_enqueue_failed_spans[5m]) + rate(otelcol_exporter_enqueue_failed_metric_points[5m]))
+            /
+            sum(rate(otelcol_receiver_accepted_log_records[5m]) + rate(otelcol_receiver_accepted_spans[5m]) + rate(otelcol_receiver_accepted_metric_points[5m]))
+            > {{ .Values.backendHealth.collectorDropRatioPercent }}
+          for: 10m
+          labels:
+            severity: warning
+            service: otel-collector
+          annotations:
+            summary: "Collector export queue is dropping telemetry (backend unavailable or undersized)"
+            runbook: docs/observability-test-firing.md
+        {{- range $backend := list "tempo" "loki" "alertmanager" "novu-api" "otel-collector-gateway" }}
+        - alert: {{ printf "%sDown" ($backend | title | replace "-" "") | quote }}
+          expr: |
+            absent(up{service=~".*{{ $backend }}.*"} == 1)
+          for: 10m
+          labels:
+            severity: critical
+            service: {{ $backend | quote }}
+          annotations:
+            summary: "Observability backend {{ $backend }} has no healthy scrape target"
+            runbook: docs/observability-test-firing.md
+        {{- end }}
+{{- end }}

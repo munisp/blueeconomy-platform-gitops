@@ -1,0 +1,24 @@
+apiVersion: v2
+name: prometheus-rules
+description: >-
+  Prometheus alert rules for the Blue Economy Platform observability
+  foundation (OTEL_DESIGN.md section 1 + section-4 production gate):
+  per-service RED skeleton (rate/errors/duration, computed from the OTel
+  HTTP semantic-convention series exported by the collector gateway),
+  observability-backend health rules (collector dropped/refused
+  telemetry, tempo/loki/alertmanager/novu availability) — every alert
+  resolves through Alertmanager to the Novu receiver. The §4 gate-4
+  test-firing procedure lives in docs/observability-test-firing.md.
+  Fail-closed: the service inventory and thresholds are render-gated.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - prometheus
+  - alerting
+  - observability
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "observability-foundation"
+  blueeconomy.platform/upstream-policy: "Rules render against the pinned Prometheus release (components/upstream-components.lock.yaml: prometheus-community/prometheus)"

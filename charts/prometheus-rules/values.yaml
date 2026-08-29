@@ -1,0 +1,36 @@
+# Prometheus alert rules (RED skeleton + observability backend health).
+# Metric contract (honest): the RED expressions use the OTel HTTP
+# semantic-convention series emitted by instrumented services through the
+# collector gateway's Prometheus exporter
+# (http_server_request_duration_seconds_{bucket,count,sum} with the
+# service/namespace resource labels). Rules for a service whose
+# instrumentation has not landed simply never fire — they are the
+# section-4 gate-1 acceptance checklist rendered as code.
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile (dev | staging | prod).
+profile: ""
+
+# Per-service RED alert inventory. Every entry:
+#   name:      service name (Prometheus `service` label value)
+#   namespace: workstream namespace
+#   severity:  critical | warning
+# Render-gated non-empty: an observability wave with no monitored
+# services is a contradiction.
+services: []
+#   - name: geo-service
+#     namespace: blueeco-geo-prod
+#     severity: critical
+
+thresholds:
+  # RED skeleton thresholds (sane defaults; environment-tunable).
+  errorRatePercent: 5        # 5xx share over 5m
+  latencyP95Seconds: 2       # http server p95 over 5m
+  forDuration: 5m
+
+# Backend health rules (collector/tempo/loki/alertmanager/novu).
+backendHealth:
+  enabled: true
+  # Collector drop/refuse ratio (of received) that pages.
+  collectorDropRatioPercent: 1

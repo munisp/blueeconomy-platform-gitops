@@ -1,0 +1,21 @@
+{{- /* Fail-closed approval gates for prometheus-rules. */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+{{- if empty .Values.services -}}
+{{- fail "services must list at least one monitored service (an observability wave with no monitored services is a contradiction)" -}}
+{{- end -}}
+{{- range $svc := .Values.services -}}
+{{- if or (not $svc.name) (not $svc.namespace) (not $svc.severity) -}}
+{{- fail "every services entry requires name, namespace and severity" -}}
+{{- end -}}
+{{- if not (has $svc.severity (list "critical" "warning")) -}}
+{{- fail (printf "services.%s severity must be one of: critical, warning" $svc.name) -}}
+{{- end -}}
+{{- end -}}
+{{- if or (le (int .Values.thresholds.errorRatePercent) 0) (gt (int .Values.thresholds.errorRatePercent) 100) -}}
+{{- fail "thresholds.errorRatePercent must be in (0, 100]" -}}
+{{- end -}}
+{{- if le (float64 .Values.thresholds.latencyP95Seconds) 0.0 -}}
+{{- fail "thresholds.latencyP95Seconds must be positive" -}}
+{{- end -}}
