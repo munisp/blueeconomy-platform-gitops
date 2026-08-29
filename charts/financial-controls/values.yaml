@@ -123,6 +123,9 @@ components:
       CVFF_FEE_CODE: ""
       CVFF_COST_CODE: ""
       CVFF_CUSTODIAL_FEE_BPS: ""
+      # FC-3: unconfirmed FX rates expire after this TTL (Go duration);
+      # required, fail-closed. Expired rates are UNAVAILABLE, never default.
+      FX_PENDING_CONFIRMATION_TTL: 24h
     requiredEnv:
       - TEMPORAL_TASK_QUEUE
       - TIGERBEETLE_CLUSTER_ID_HEX
@@ -136,6 +139,7 @@ components:
       - CVFF_FEE_CODE
       - CVFF_COST_CODE
       - CVFF_CUSTODIAL_FEE_BPS
+      - FX_PENDING_CONFIRMATION_TTL
     secretEnv:
       - DATABASE_URL
     resources:
