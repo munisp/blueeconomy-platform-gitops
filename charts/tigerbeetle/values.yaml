@@ -104,10 +104,62 @@ monitoring:
   metricsPort: 0
 
 backup:
+  # TigerBeetle ledger backup (GAP-PG-05). Design follows TigerBeetle's
+  # documented backup approach — a storage-level (crash-consistent)
+  # snapshot of one redundant replica's data file: every sector write is
+  # checksummed by TigerBeetle, and on restore the replica recovers from
+  # the last consistent checkpoint and replicates forward from the
+  # quorum, which never stops (replicaCount >= 3 required).
+  # Flow (scheduled Job): VolumeSnapshot of the replica PVC -> scratch
+  # PVC from the snapshot -> verifier/uploader pod mounts it read-only,
+  # emits a sha256 manifest and streams the gzip-compressed data file to
+  # the immutable object-storage bucket -> scratch resources are cleaned
+  # up.
+  # NOT_RUN: implemented and render-gated, but never executed against a
+  # live cluster. Enable only after an approved restore drill
+  # (charts/backup-dr restoreTest harness) validates snapshot restore and
+  # the tigerbeetle inspect/replication catch-up for the deployed TB
+  # version; the restore procedure evidence lands in docs/dr-restore.md.
   enabled: false
-  # Set true only after the selected TigerBeetle version's supported backup/recovery procedure is implemented.
   schedule: "0 2 * * *"
-  externalSecretRef: ""
+  # Redundant replica ordinal whose PVC is snapshotted (0-based; must be
+  # < tigerbeetle.replicaCount).
+  replicaOrdinal: 5
+  # CSI VolumeSnapshotClass (must support crash-consistent snapshots).
+  snapshotClassName: ""
+  # Immutable object-storage target (S3-compatible, object-lock capable;
+  # generic HTTPS endpoint — on-prem, sovereign or commercial cloud).
+  storage:
+    bucket: ""
+    prefix: tigerbeetle
+    endpoint: ""
+    region: ""
+    # ExternalSecrets-synced credentials Secret consumed via envFrom
+    # (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY style keys).
+    credentialsSecretRef:
+      name: ""
+  # Digest-pinned tooling images: kubectl for orchestration, an S3 client
+  # image for the upload.
+  kubectlImage:
+    repository: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  storageImage:
+    repository: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  # Backup Job pod egress: the Kubernetes API and the object-storage
+  # endpoint CIDRs (both render-gated when enabled).
+  network:
+    apiServerCIDRs: []
+    storageCIDRs: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
 
 priorityClassName: "system-cluster-critical"
 terminationGracePeriodSeconds: 120

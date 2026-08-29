@@ -81,3 +81,46 @@ restoreTest:
   schedule: ""
   # Ephemeral namespace prefix for restore tests.
   namespacePrefix: restore-test
+
+# Redis AOF backup (GAP-PG-06): per-cluster scheduled Job that forces an
+# AOF rewrite (BGREWRITEAOF), copies the resulting appendonly directory
+# out of the replica pod and uploads it to the immutable backup bucket.
+# NOT_RUN: implemented and render-gated, never executed against a live
+# cluster; the tooling image contract (kubectl + an S3-compatible client)
+# and the exact AOF path for the approved Redis release must be validated
+# in the restore drill before enabling.
+redisAOF:
+  enabled: false
+  schedule: ""
+  # Pinned tooling image providing kubectl and an S3-compatible client.
+  image:
+    repository: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  # Redis clusters to back up. Every entry: name, namespace, pod
+  # (StatefulSet pod name), aofDir (appendonly directory inside the pod),
+  # credentialsSecretRef (REDIS_PASSWORD env for redis-cli; empty when the
+  # deployment runs without requirepass — recorded explicitly).
+  clusters: []
+
+# Kafka topic backup (GAP-PG-06): MirrorMaker-class continuous replication
+# via the source-locked Strimzi operator (components/upstream-components
+# .lock.yaml: strimzi-kafka-operator). Renders a KafkaMirrorMaker2 CR
+# replicating the approved topic pattern to the DR cluster; topic data
+# therefore survives loss of the primary cluster without object-storage
+# restore latency.
+kafkaMirrorMaker2:
+  enabled: false
+  # Source (primary) and target (DR) Kafka bootstrap servers.
+  sourceBootstrapServers: ""
+  targetBootstrapServers: ""
+  # Topics replicated (Java regex against the source cluster catalog).
+  topicsPattern: ""
+  # Consumer group for the MM2 source connector.
+  groupId: blueeconomy-backup-mm2
+  # TLS is mandatory on both ends (platform Kafka posture); the CA
+  # bundle arrives via an ExternalSecrets-synced Secret.
+  tls: true
+  tlsCaCertSecretRef:
+    name: ""
+    certificate: ca.crt

@@ -17,3 +17,35 @@
 {{- if contains "REPLACE_WITH" $storageClass -}}
 {{- fail "persistence.storageClass must name an approved encrypted storage class" -}}
 {{- end -}}
+
+{{- /* TigerBeetle ledger backup gates (GAP-PG-05). */ -}}
+{{- if .Values.backup.enabled -}}
+{{- $cronRe := "^\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+$" -}}
+{{- if not (regexMatch $cronRe (.Values.backup.schedule | default "")) -}}
+{{- fail "backup.schedule is required (five-field cron) when backup.enabled=true" -}}
+{{- end -}}
+{{- if or (lt (int .Values.backup.replicaOrdinal) 0) (ge (int .Values.backup.replicaOrdinal) (int .Values.tigerbeetle.replicaCount)) -}}
+{{- fail "backup.replicaOrdinal must be a valid replica ordinal (0 <= ordinal < tigerbeetle.replicaCount)" -}}
+{{- end -}}
+{{- $snapClass := required "backup.snapshotClassName is required when backup.enabled=true (CSI VolumeSnapshotClass)" .Values.backup.snapshotClassName -}}
+{{- $bucket := required "backup.storage.bucket is required when backup.enabled=true (immutable object-storage bucket)" .Values.backup.storage.bucket -}}
+{{- if not (hasPrefix "https://" .Values.backup.storage.endpoint) -}}
+{{- fail "backup.storage.endpoint must be an HTTPS URL (S3-compatible object storage)" -}}
+{{- end -}}
+{{- $region := required "backup.storage.region is required when backup.enabled=true" .Values.backup.storage.region -}}
+{{- $cred := required "backup.storage.credentialsSecretRef.name is required when backup.enabled=true (ExternalSecrets-synced backup storage credentials)" .Values.backup.storage.credentialsSecretRef.name -}}
+{{- range $img := list "kubectlImage" "storageImage" -}}
+{{- $v := index $.Values.backup $img -}}
+{{- $r := required (printf "backup.%s.repository is required when backup.enabled=true" $img) $v.repository -}}
+{{- $d := required (printf "backup.%s.digest is required when backup.enabled=true" $img) $v.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $d) -}}
+{{- fail (printf "backup.%s.digest must be an immutable lower-case sha256 digest" $img) -}}
+{{- end -}}
+{{- end -}}
+{{- if empty .Values.backup.network.apiServerCIDRs -}}
+{{- fail "backup.network.apiServerCIDRs must list the Kubernetes API egress CIDRs when backup.enabled=true" -}}
+{{- end -}}
+{{- if empty .Values.backup.network.storageCIDRs -}}
+{{- fail "backup.network.storageCIDRs must list the object-storage egress CIDRs when backup.enabled=true" -}}
+{{- end -}}
+{{- end -}}

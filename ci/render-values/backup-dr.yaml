@@ -34,6 +34,8 @@ velero:
         - blueeconomy-security
         - blueeconomy-platform
         - blueeco-tigerbeetle-prod
+        - blueeco-mojaloop-prod
+        - blueeco-geo-prod
 
 walG:
   image:
@@ -47,6 +49,32 @@ walG:
     - name: keycloak-postgres
       namespace: blueeconomy-security
       service: keycloak-postgres-rw.blueeconomy-security.svc.cluster.local
+    - name: geo-postgis
+      namespace: blueeco-geo-prod
+      service: postgis-rw.blueeco-geo-prod.svc.cluster.local
 
 restoreTest:
   schedule: "0 4 * * 0"
+
+# Redis AOF backup (GAP-PG-06; NOT_RUN tooling contract per values.yaml).
+redisAOF:
+  enabled: true
+  schedule: "15 2 * * *"
+  image:
+    repository: registry.blueeconomy.example.gov.ng/blueeconomy/backup-tools
+    digest: sha256:9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c
+  clusters:
+    - name: platform-redis
+      namespace: blueeconomy-platform
+      pod: redis-0
+      aofDir: /data/appendonlydir
+
+# Kafka MirrorMaker-class topic replication to the DR cluster (GAP-PG-06).
+kafkaMirrorMaker2:
+  enabled: true
+  sourceBootstrapServers: kafka.blueeconomy-platform.svc.cluster.local:9092
+  targetBootstrapServers: kafka-dr.blueeconomy-recovery.svc.cluster.local:9092
+  topicsPattern: ".*\\.v1"
+  tlsCaCertSecretRef:
+    name: kafka-cluster-ca-cert
+    certificate: ca.crt

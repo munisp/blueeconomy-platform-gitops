@@ -82,3 +82,35 @@
 {{- fail "restoreTest.schedule is required (five-field cron)" -}}
 {{- end -}}
 {{- end -}}
+
+{{- /* Redis AOF backup gates (GAP-PG-06). */ -}}
+{{- if .Values.redisAOF.enabled -}}
+{{- if not (regexMatch "^\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+$" (.Values.redisAOF.schedule | default "")) -}}
+{{- fail "redisAOF.schedule is required (five-field cron) when redisAOF.enabled=true" -}}
+{{- end -}}
+{{- $rdigest := required "redisAOF.image.digest is required when redisAOF.enabled=true" .Values.redisAOF.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $rdigest) -}}
+{{- fail "redisAOF.image.digest must be an immutable lower-case sha256 digest" -}}
+{{- end -}}
+{{- $rrepo := required "redisAOF.image.repository is required when redisAOF.enabled=true" .Values.redisAOF.image.repository -}}
+{{- if empty .Values.redisAOF.clusters -}}
+{{- fail "redisAOF.clusters must list the Redis clusters to back up" -}}
+{{- end -}}
+{{- range $c := .Values.redisAOF.clusters -}}
+{{- if or (not $c.name) (not $c.namespace) (not $c.pod) (not $c.aofDir) -}}
+{{- fail "every redisAOF.clusters entry requires name, namespace, pod and aofDir" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Kafka MirrorMaker2 gates (GAP-PG-06). */ -}}
+{{- if .Values.kafkaMirrorMaker2.enabled -}}
+{{- $src := required "kafkaMirrorMaker2.sourceBootstrapServers is required when kafkaMirrorMaker2.enabled=true" .Values.kafkaMirrorMaker2.sourceBootstrapServers -}}
+{{- $dst := required "kafkaMirrorMaker2.targetBootstrapServers is required when kafkaMirrorMaker2.enabled=true (the DR Kafka cluster)" .Values.kafkaMirrorMaker2.targetBootstrapServers -}}
+{{- $pattern := required "kafkaMirrorMaker2.topicsPattern is required when kafkaMirrorMaker2.enabled=true" .Values.kafkaMirrorMaker2.topicsPattern -}}
+{{- if not .Values.kafkaMirrorMaker2.tls -}}
+{{- fail "kafkaMirrorMaker2.tls must remain true (platform Kafka posture)" -}}
+{{- end -}}
+{{- $caName := required "kafkaMirrorMaker2.tlsCaCertSecretRef.name is required when kafkaMirrorMaker2.enabled=true (ExternalSecrets-synced Kafka CA bundle)" .Values.kafkaMirrorMaker2.tlsCaCertSecretRef.name -}}
+{{- $caCert := required "kafkaMirrorMaker2.tlsCaCertSecretRef.certificate is required when kafkaMirrorMaker2.enabled=true" .Values.kafkaMirrorMaker2.tlsCaCertSecretRef.certificate -}}
+{{- end -}}
