@@ -15,6 +15,17 @@
 {{- $mongoHost := required "dataStores.mongodb.host is required (Novu persists workflows/subscribers in MongoDB)" .Values.dataStores.mongodb.host -}}
 {{- $redisHost := required "dataStores.redis.host is required (Novu queues/cache run on Redis)" .Values.dataStores.redis.host -}}
 
+{{- /* Mandatory secret surface (PRA-068/Novu live-fire feasibility): the
+       Deployment templates hard-reference these synced Secret keys
+       (MONGO_URL, REDIS_PASSWORD, JWT_SECRET, STORE_ENCRYPTION_KEY,
+       NOVU_API_KEY), so dropping any of them from secretEnv would render
+       a release that crash-loops instead of failing closed at render
+       time. Refuse the drift. */ -}}
+{{- range $mandatory := (list "NOVU_MONGO_URL" "NOVU_REDIS_PASSWORD" "JWT_SECRET" "STORE_ENCRYPTION_KEY" "NOVU_API_KEY") -}}
+{{- if not (has $mandatory (default (list) $.Values.secretEnv)) -}}
+{{- fail (printf "secretEnv must contain %s (the Novu data-store/API contract is render-gated; a prod render without the MongoDB URI or Redis credentials is refused)" $mandatory) -}}
+{{- end -}}
+{{- end -}}
 {{- /* Every secretEnv name must be backed by the ExternalSecret. */ -}}
 {{- range $secretName := (default (list) .Values.secretEnv) -}}
 {{- if not (hasKey $.Values.externalSecrets.keys $secretName) -}}

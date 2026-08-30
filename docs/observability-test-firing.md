@@ -37,3 +37,51 @@ first production enablement and after every change to
   self-host reference): step 4/5 double as its first live validation.
 - Keep the synthetic rule out of any committed overlay: test-firing is
   an operator action, not a standing manifest.
+
+## Novu live-fire prerequisites (W-OPS1 feasibility assessment)
+
+Novu has never been executed against a live cluster (NOT_RUN). A live
+test-fire is feasible in staging; it requires ALL of the following,
+none of which the charts can provision or validate for you:
+
+1. **MongoDB** (workflows/subscribers/events persistence) reachable
+   from the Novu namespace. The chart render-gates
+   `dataStores.mongodb.host` and refuses any render whose `secretEnv`
+   drops `NOVU_MONGO_URL` (the `mongodb://` URI incl. credentials,
+   synced via ExternalSecrets) — a prod render without the MongoDB URI
+   fails closed at render time, never at pod startup.
+2. **Redis** (queues/cache) reachable from the Novu namespace.
+   Render-gated: `dataStores.redis.host` plus the mandatory
+   `NOVU_REDIS_PASSWORD` secretEnv entry (same refusal class as above).
+3. **Workflow + credential bootstrap.** Alertmanager's receiver posts to
+   the Novu api inbound-trigger URL (`novu.webhookUrl` in
+   charts/alertmanager, render-gated). That URL only exists once the
+   alert-intake workflow has been created in Novu, and the workflow's
+   delivery channels need provider credentials — none of which exists on
+   a FRESH Novu install. Bootstrap order: (a) deploy Novu with a
+   pipeline-generated initial `NOVU_API_KEY` in the external secret
+   store (the chart render-gates it via the mandatory `secretEnv`
+   contract); (b) verify the Novu api pod is Ready and the dashboard
+   login works; (c) create the alert-intake workflow in the Novu
+   dashboard (or via the platform API with the bootstrap key) with the
+   approved ops channel (email/SMS/Telegram-class) and its provider
+   credentials; (d) only then set `novu.webhookUrl` to the workflow's
+   inbound-trigger URL and run the test-firing procedure above. Whether
+   the approved Novu version requires an Authorization header on the
+   inbound trigger is an open doc-check at enablement (the Alertmanager
+   webhook receiver cannot add custom headers — if the trigger requires
+   auth, front it with the edge or use a signed trigger URL per that
+   version's docs).
+4. **Remaining honest unknowns** (community self-host contract, not yet
+   verified against a running instance): the exact per-service command
+   layout (`apps/api|worker|ws|web/dist/main.js`) and env surface of
+   the approved upstream Novu image version must be confirmed against
+   that version's self-host docs at first enablement; the startup/
+   readiness probes are TCP-level (an HTTP `/health` path is not
+   asserted until verified live); the `ws` and `web` services'
+   ingress/CORS posture for the dashboard is landing-zone policy.
+
+Record the first live run's evidence (Novu api logs, workflow delivery
+receipts, Alertmanager 2xx) in the wave acceptance report and update
+this runbook with any contract corrections — do NOT amend the chart's
+NOT_RUN honesty note until that evidence exists.

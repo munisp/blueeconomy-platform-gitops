@@ -421,6 +421,30 @@ grep -q 'port: 4317' <<<"$sedona_render"
 grep -q 'port: 4040' <<<"$sedona_render"
 unset sedona_render
 
+# Novu data-store secret gate (Novu live-fire feasibility): the mandatory
+# secretEnv surface (NOVU_MONGO_URL/NOVU_REDIS_PASSWORD/JWT_SECRET/
+# STORE_ENCRYPTION_KEY/NOVU_API_KEY) cannot be narrowed — a prod render
+# without the MongoDB URI or Redis credentials is refused at render time.
+novu_no_mongo="$(mktemp)"
+cat > "$novu_no_mongo" <<'EOF'
+secretEnv:
+  - NOVU_REDIS_PASSWORD
+  - JWT_SECRET
+  - STORE_ENCRYPTION_KEY
+  - NOVU_API_KEY
+EOF
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/novu" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/novu.yaml" \
+    -f "$novu_no_mongo" > /dev/null 2>"$output"; then
+  echo 'novu rendered without the mandatory NOVU_MONGO_URL secretEnv entry' >&2
+  rm -f "$output" "$novu_no_mongo"
+  exit 1
+fi
+grep -Fq 'secretEnv must contain NOVU_MONGO_URL' "$output"
+rm -f "$output" "$novu_no_mongo"
+
 # OTP2 edge-registration gate (apisix-routes pattern): dropping the
 # registered edge route is refused at render time (OTP2 has no auth).
 output="$(mktemp)"
