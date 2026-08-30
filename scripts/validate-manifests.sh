@@ -379,6 +379,48 @@ helm template render-gate "$repo_root/charts/security-operations" \
   --kube-version "$helm_kube_version" \
   -f "$repo_root/ci/render-values/security-operations.yaml" | grep -q 'BESEC_HEALTH_LISTEN_ADDRESS'
 
+# Sedona Spark-side OTel gates (W-OTEL follow-up; default OFF): the opt-in
+# javaagent without its OTLP endpoint is refused, the Prometheus servlet
+# sink without its scrape namespace is refused, and the fully-enabled
+# render carries the javaagent/sink/NetworkPolicy wiring.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/sedona-spark-jobs" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/sedona-spark-jobs.yaml" \
+    --set 'observability.otel.javaagent.enabled=true' > /dev/null 2>"$output"; then
+  echo 'sedona-spark-jobs rendered the OTel javaagent without an OTLP endpoint' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'observability.otel.javaagent.otlpEndpoint is required when observability.otel.javaagent.enabled=true' "$output"
+rm -f "$output"
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/sedona-spark-jobs" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/sedona-spark-jobs.yaml" \
+    --set 'observability.prometheus.enabled=true' > /dev/null 2>"$output"; then
+  echo 'sedona-spark-jobs rendered the Prometheus sink without a scrape namespace' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'observability.prometheus.scrapeNamespace is required when observability.prometheus.enabled=true' "$output"
+rm -f "$output"
+sedona_render="$(helm template render-gate "$repo_root/charts/sedona-spark-jobs" \
+  --kube-version "$helm_kube_version" \
+  -f "$repo_root/ci/render-values/sedona-spark-jobs.yaml" \
+  --set 'observability.otel.javaagent.enabled=true' \
+  --set 'observability.otel.javaagent.otlpEndpoint=http://otel-gw.blueeconomy-observability.svc:4317' \
+  --set 'observability.otel.javaagent.collectorNamespace=blueeconomy-observability' \
+  --set 'observability.prometheus.enabled=true' \
+  --set 'observability.prometheus.scrapeNamespace=blueeconomy-observability')"
+grep -q 'spark.driver.extraJavaOptions: -javaagent:/opt/otel/opentelemetry-javaagent.jar' <<<"$sedona_render"
+grep -q 'org.apache.spark.metrics.sink.PrometheusServlet' <<<"$sedona_render"
+grep -q 'OTEL_EXPORTER_OTLP_ENDPOINT' <<<"$sedona_render"
+grep -q 'prometheus.io/scrape' <<<"$sedona_render"
+grep -q 'port: 4317' <<<"$sedona_render"
+grep -q 'port: 4040' <<<"$sedona_render"
+unset sedona_render
+
 # OTP2 edge-registration gate (apisix-routes pattern): dropping the
 # registered edge route is refused at render time (OTP2 has no auth).
 output="$(mktemp)"

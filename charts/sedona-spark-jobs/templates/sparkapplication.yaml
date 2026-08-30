@@ -38,7 +38,7 @@ spec:
   dynamicAllocation:
     {{- toYaml .Values.spark.dynamicAllocation | nindent 4 }}
   sparkConf:
-    {{- toYaml .Values.spark.sparkConf | nindent 4 }}
+    {{- include "sedona-spark-jobs.sparkConf" . | nindent 4 }}
   hadoopConf:
     {{- toYaml .Values.spark.hadoopConf | nindent 4 }}
   driver:
@@ -48,6 +48,12 @@ spec:
     serviceAccount: {{ default (default (printf "%s-sedona" .Release.Name) .Values.serviceAccount.name) .Values.driver.serviceAccount | quote }}
     labels:
       {{- toYaml .Values.driver.labels | nindent 6 }}
+    {{- if .Values.observability.prometheus.enabled }}
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/path: /metrics/prometheus
+      prometheus.io/port: "4040"
+    {{- end }}
     {{- with .Values.driver.envFrom }}
     envFrom:
       {{- toYaml . | nindent 6 }}
@@ -65,6 +71,12 @@ spec:
     memory: {{ .Values.executor.memory | quote }}
     labels:
       {{- toYaml .Values.executor.labels | nindent 6 }}
+    {{- if .Values.observability.prometheus.enabled }}
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/path: /metrics/executors/prometheus
+      prometheus.io/port: "4040"
+    {{- end }}
     {{- with .Values.executor.envFrom }}
     envFrom:
       {{- toYaml . | nindent 6 }}

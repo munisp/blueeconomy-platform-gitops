@@ -38,3 +38,25 @@
 {{- if or (empty .Values.networkPolicy.catalogNamespace) (eq (len .Values.networkPolicy.catalogPorts) 0) -}}
 {{- fail "networkPolicy catalog namespace and ports are required" -}}
 {{- end -}}
+
+{{- /* Opt-in Spark-side OTel gates (W-OTEL follow-up; default OFF):
+       the javaagent without its OTLP endpoint is refused (telemetry must
+       never silently vanish), and both opt-ins require their NetworkPolicy
+       namespace so the rendered policy is never wider than the contract. */ -}}
+{{- if .Values.observability.otel.javaagent.enabled -}}
+{{- if empty .Values.observability.otel.javaagent.otlpEndpoint -}}
+{{- fail "observability.otel.javaagent.otlpEndpoint is required when observability.otel.javaagent.enabled=true" -}}
+{{- end -}}
+{{- if not (hasPrefix "http" .Values.observability.otel.javaagent.otlpEndpoint) -}}
+{{- fail "observability.otel.javaagent.otlpEndpoint must be an http(s) OTLP endpoint" -}}
+{{- end -}}
+{{- if empty .Values.observability.otel.javaagent.collectorNamespace -}}
+{{- fail "observability.otel.javaagent.collectorNamespace is required when observability.otel.javaagent.enabled=true (NetworkPolicy OTLP egress)" -}}
+{{- end -}}
+{{- if empty .Values.observability.otel.javaagent.agentPath -}}
+{{- fail "observability.otel.javaagent.agentPath is required when observability.otel.javaagent.enabled=true (the job image must carry the agent jar)" -}}
+{{- end -}}
+{{- end -}}
+{{- if and .Values.observability.prometheus.enabled (empty .Values.observability.prometheus.scrapeNamespace) -}}
+{{- fail "observability.prometheus.scrapeNamespace is required when observability.prometheus.enabled=true (NetworkPolicy scrape ingress)" -}}
+{{- end -}}

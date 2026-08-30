@@ -20,6 +20,16 @@ spec:
               - key: spark-role
                 operator: In
                 values: ["driver", "executor"]
+    {{- if .Values.observability.prometheus.enabled }}
+    # Prometheus scrape of the Spark Prometheus servlet sink (UI :4040).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.observability.prometheus.scrapeNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: 4040
+    {{- end }}
   egress:
     - to:
         - podSelector:
@@ -74,4 +84,14 @@ spec:
         - protocol: TCP
           port: {{ . }}
         {{- end }}
+    {{- if .Values.observability.otel.javaagent.enabled }}
+    # OTLP egress for the opt-in javaagent (render-gated endpoint).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.observability.otel.javaagent.collectorNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: 4317
+    {{- end }}
 {{- end }}
