@@ -16,6 +16,13 @@ spec:
       port: {{ $component.port }}
       targetPort: http
       protocol: TCP
+    {{- if $component.grpcPort }}
+    # W-RES gRPC contract port (e.g. declaration-scorer RiskScoreService).
+    - name: grpc
+      port: {{ $component.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+    {{- end }}
   selector:
     {{- include "financial-controls.selectorLabels" $ | nindent 4 }}
     app.kubernetes.io/component: {{ $name | quote }}

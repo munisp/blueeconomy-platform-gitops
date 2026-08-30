@@ -19,3 +19,22 @@
 {{- end }}
 {{- end }}
 {{- $store := required "externalSecrets.storeRef.name is required" .Values.externalSecrets.storeRef.name -}}
+
+{{- /* Declaration-scorer audience contract (W-RES gRPC wave): the scorer
+       verifies KEYCLOAK_EXPECTED_AUDIENCE and the keycloak-realms chart
+       provisions the matching oidc-audience-mapper for exactly
+       'declaration-scorer' on the ports-realm port-interoperability-api
+       client. Drift between the two is refused at render time. */ -}}
+{{- $scorer := index .Values.components "declaration-scorer" -}}
+{{- if $scorer.enabled -}}
+{{- $aud := get (default dict $scorer.env) "KEYCLOAK_EXPECTED_AUDIENCE" -}}
+{{- if ne (printf "%v" $aud) "declaration-scorer" -}}
+{{- fail "declaration-scorer.env.KEYCLOAK_EXPECTED_AUDIENCE must be declaration-scorer (the audience mapper provisioned by the keycloak-realms chart on the port-interoperability-api client)" -}}
+{{- end -}}
+{{- if $scorer.grpcPort -}}
+{{- $grpcAddr := get (default dict $scorer.env) "DECLARATION_SCORER_GRPC_LISTEN_ADDR" -}}
+{{- if ne (printf "%v" $grpcAddr) (printf ":%v" $scorer.grpcPort) -}}
+{{- fail "declaration-scorer.env.DECLARATION_SCORER_GRPC_LISTEN_ADDR must match declaration-scorer.grpcPort (the rendered grpc Service/container port)" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

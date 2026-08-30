@@ -28,6 +28,16 @@
 {{- if not $realm.workstreamNamespace -}}
 {{- fail (printf "realm %s requires workstreamNamespace for client-secret ExternalSecrets" $realm.name) -}}
 {{- end -}}
+{{- /* Confidential-client audience mappers: every entry must be a
+       lower-case service slug (it becomes a token aud value verified by
+       the downstream service's KEYCLOAK_EXPECTED_AUDIENCE contract). */ -}}
+{{- range $c := $realm.clients -}}
+{{- range $aud := (default (list) $c.audienceMappers) -}}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9-]*$" ($aud | default "")) -}}
+{{- fail (printf "realm %s client %s audienceMappers entries must be non-empty lower-case service slugs (got %q)" $realm.name ($c.clientId | default "<missing>") $aud) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- /* Public-client discipline: browser/mobile clients are publicClient=true
        with PKCE S256 and an exact-match redirect allowlist supplied via the
        top-level publicClientRedirects map. HTTPS URIs only, plus the

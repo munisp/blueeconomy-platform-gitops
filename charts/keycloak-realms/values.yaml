@@ -48,6 +48,11 @@ tokenPolicy:
 #     Azure Key Vault object holding the client secret; the realm JSON uses
 #     the keycloak-config-cli "*********" leave-unchanged sentinel, so no
 #     secret material ever appears in this repository or in the ConfigMap.
+#     audienceMappers (optional): service audiences this client's tokens
+#     must carry — each entry renders an oidc-audience-mapper protocol
+#     mapper (included.custom.audience -> access token aud claim) for a
+#     downstream service that verifies KEYCLOAK_EXPECTED_AUDIENCE. Entries
+#     are lower-case slugs, enforced fail-closed at render time.
 #   clearanceScope (ISR realm only): when enabled, the realm declares a
 #     "clearance" user attribute restricted to the approved classification
 #     labels and a "clearance" client scope (default on every realm client)
@@ -83,7 +88,15 @@ realms:
       - fmmbe-oversight
       - icrc-observer
     clients:
+      # port-interoperability-api calls the declaration-scorer gRPC
+      # RiskScoreService with client_credentials tokens (W-RES wave,
+      # blueeconomy-port-interoperability GRPCScorer). The scorer verifies
+      # KEYCLOAK_EXPECTED_AUDIENCE=declaration-scorer, so this client MUST
+      # carry the audience mapper below — without it every scorer call is
+      # UNAUTHENTICATED and declarations park in SCORING_UNAVAILABLE.
       - clientId: port-interoperability-api
+        audienceMappers:
+          - declaration-scorer
       - clientId: ussd-gateway
       - clientId: booking-worker
     # Mobile field-ops app: trucker persona (eCallUp slot booking).

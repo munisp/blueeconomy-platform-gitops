@@ -50,6 +50,9 @@ components:
     image:
       repository: blueeconomy.azurecr.us/blueeconomy/declaration-scorer
       digest: sha256:2d6c1f3e7b2f5e6a8d4f9c3b0a5e7d2c1f4b6a8d0e3f5c7b9d1e3a5c7f9b1d3f
+    env:
+      KEYCLOAK_JWKS_URL: https://keycloak.blueeconomy-platform.svc.cluster.local/realms/blueeconomy-ports-ecallup/protocol/openid-connect/certs
+      KEYCLOAK_ISSUER: https://keycloak.blueeconomy.example.gov.ng/realms/blueeconomy-ports-ecallup
   outbox-publisher:
     image:
       repository: blueeconomy.azurecr.us/blueeconomy/cvff-outbox-publisher

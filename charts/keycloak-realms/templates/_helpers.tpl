@@ -43,6 +43,25 @@ real secret material exists only in the external secret store.
 {{- if $clearance -}}
 {{- $_ := set $client "defaultClientScopes" (list "clearance") -}}
 {{- end -}}
+{{- /* Audience mappers: each entry renders an oidc-audience-mapper so the
+       client's access tokens carry the named service audience in aud
+       (e.g. declaration-scorer for the W-RES gRPC RiskScoreService). */ -}}
+{{- if $c.audienceMappers -}}
+{{- $mappers := list -}}
+{{- range $aud := $c.audienceMappers -}}
+{{- $mappers = append $mappers (dict
+  "name" (printf "audience-%s" $aud)
+  "protocol" "openid-connect"
+  "protocolMapper" "oidc-audience-mapper"
+  "config" (dict
+    "included.custom.audience" $aud
+    "id.token.claim" "false"
+    "access.token.claim" "true"
+    "userinfo.token.claim" "false")
+) -}}
+{{- end -}}
+{{- $_ := set $client "protocolMappers" $mappers -}}
+{{- end -}}
 {{- $clients = append $clients $client -}}
 {{- end -}}
 {{- /* Public clients (browser/mobile): authorization-code flow with PKCE

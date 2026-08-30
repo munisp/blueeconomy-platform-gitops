@@ -218,6 +218,9 @@ components:
       pullPolicy: IfNotPresent
     replicas: 2
     port: 8082
+    # W-RES gRPC RiskScoreService port (rendered as the grpc Service/
+    # container port; must match DECLARATION_SCORER_GRPC_LISTEN_ADDR).
+    grpcPort: 9082
     service:
       enabled: true
       type: ClusterIP
@@ -228,9 +231,27 @@ components:
     env:
       DECLARATION_SCORER_LISTEN_ADDR: ":8082"
       DECLARATION_SCORER_RULES_PATH: /etc/declaration-scorer/rules.json
+      # Keycloak RS256 verification triple (cmd/declaration-scorer: the
+      # production profile refuses to boot without all three, and any
+      # partial set is a boot error everywhere). EXPECTED_AUDIENCE must
+      # stay declaration-scorer — the keycloak-realms chart provisions the
+      # matching oidc-audience-mapper on the ports-realm
+      # port-interoperability-api client (W-RES gRPC contract); drift is
+      # refused at render time.
+      KEYCLOAK_JWKS_URL: ""
+      KEYCLOAK_ISSUER: ""
+      KEYCLOAK_EXPECTED_AUDIENCE: "declaration-scorer"
+      # W-RES gRPC listener (the RiskScoreService contract from
+      # blueeconomy-contracts, served alongside HTTP when set). Empty
+      # disables the gRPC server; the port-interoperability GRPCScorer
+      # requires it.
+      DECLARATION_SCORER_GRPC_LISTEN_ADDR: ":9082"
     requiredEnv:
       - DECLARATION_SCORER_LISTEN_ADDR
       - DECLARATION_SCORER_RULES_PATH
+      - KEYCLOAK_JWKS_URL
+      - KEYCLOAK_ISSUER
+      - KEYCLOAK_EXPECTED_AUDIENCE
     resources:
       requests:
         cpu: 50m

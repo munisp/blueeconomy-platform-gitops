@@ -531,6 +531,76 @@ fi
 grep -Fq '300 seconds or less' "$output"
 rm -f "$output"
 
+# Declaration-scorer audience mapper (W-RES gRPC contract): the rendered
+# ports realm must carry the oidc-audience-mapper for declaration-scorer
+# on the port-interoperability-api client, and a malformed audience entry
+# is refused at render time.
+helm template render-gate "$repo_root/charts/keycloak-realms" \
+  --kube-version "$helm_kube_version" \
+  -f "$repo_root/ci/render-values/keycloak-realms.yaml" | grep -q 'oidc-audience-mapper'
+helm template render-gate "$repo_root/charts/keycloak-realms" \
+  --kube-version "$helm_kube_version" \
+  -f "$repo_root/ci/render-values/keycloak-realms.yaml" | grep -q 'audience-declaration-scorer'
+bad_audience="$(mktemp)"
+cat > "$bad_audience" <<'EOF'
+realms:
+  - name: blueeconomy-ports-ecallup
+    workstreamNamespace: blueeconomy-ports
+    roles:
+      - operator
+    clients:
+      - clientId: port-interoperability-api
+        audienceMappers:
+          - "Declaration Scorer"
+EOF
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/keycloak-realms" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/keycloak-realms.yaml" \
+    -f "$bad_audience" > /dev/null 2>"$output"; then
+  echo 'keycloak-realms rendered a malformed audience mapper entry' >&2
+  rm -f "$output" "$bad_audience"
+  exit 1
+fi
+grep -Fq 'audienceMappers entries must be non-empty lower-case service slugs' "$output"
+rm -f "$output" "$bad_audience"
+
+# Scorer-side audience contract (PRA-068): the declaration-scorer release
+# refuses to render without the Keycloak RS256 triple the binary requires
+# in its production profile, and refuses an audience drifting from the
+# provisioned mapper.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/financial-controls" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/financial-controls.yaml" \
+    --set 'components.declaration-scorer.env.KEYCLOAK_JWKS_URL=' > /dev/null 2>"$output"; then
+  echo 'financial-controls rendered the declaration-scorer without KEYCLOAK_JWKS_URL' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'declaration-scorer.KEYCLOAK_JWKS_URL must be set to an approved environment value' "$output"
+rm -f "$output"
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/financial-controls" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/financial-controls.yaml" \
+    --set 'components.declaration-scorer.env.KEYCLOAK_EXPECTED_AUDIENCE=other-service' > /dev/null 2>"$output"; then
+  echo 'financial-controls rendered a scorer audience drifting from the provisioned mapper' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'KEYCLOAK_EXPECTED_AUDIENCE must be declaration-scorer' "$output"
+rm -f "$output"
+# Positive path: the rendered scorer Deployment carries the Keycloak
+# triple and the gRPC listener/port.
+fc_render="$(helm template render-gate "$repo_root/charts/financial-controls" \
+  --kube-version "$helm_kube_version" \
+  -f "$repo_root/ci/render-values/financial-controls.yaml")"
+grep -q 'KEYCLOAK_EXPECTED_AUDIENCE' <<<"$fc_render"
+grep -q 'DECLARATION_SCORER_GRPC_LISTEN_ADDR' <<<"$fc_render"
+grep -q 'port: 9082' <<<"$fc_render"
+unset fc_render
+
 # CVFF fiduciary segregation gate: widening cvff Dapr component scopes to a
 # non-cvff app-id is rejected at render time.
 output="$(mktemp)"
