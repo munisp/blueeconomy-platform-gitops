@@ -47,6 +47,15 @@
 {{- fail "edgeObservability.opentelemetry.sampleFraction must be in (0, 1]" -}}
 {{- end -}}
 {{- end -}}
+{{- /* APISIX gateway metrics honesty gate (PRA-066): the gateway
+       ServiceMonitor requires the prometheus plugin that serves the
+       endpoint, plus the upstream Service exposing it. */ -}}
+{{- if .Values.edgeObservability.prometheus.serviceMonitor.enabled -}}
+{{- if not .Values.edgeObservability.prometheus.enabled -}}
+{{- fail "edgeObservability.prometheus.serviceMonitor.enabled=true requires edgeObservability.prometheus.enabled=true (never wire a scrape target the gateway does not serve)" -}}
+{{- end -}}
+{{- $gwSvc := required "edgeObservability.prometheus.serviceMonitor.serviceName is required when the APISIX gateway ServiceMonitor is enabled" .Values.edgeObservability.prometheus.serviceMonitor.serviceName -}}
+{{- end -}}
 {{- if .Values.openappsec.serviceMonitor.enabled -}}
 {{- $sm := required "openappsec.serviceMonitor.serviceName is required when openappsec.serviceMonitor.enabled=true (APISIX Service exposing the agent metrics port)" .Values.openappsec.serviceMonitor.serviceName -}}
 {{- end -}}

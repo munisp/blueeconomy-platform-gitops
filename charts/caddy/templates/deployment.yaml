@@ -26,6 +26,10 @@ spec:
           ports:
             - containerPort: 443
               name: https
+          {{- if .Values.metrics.enabled }}
+            - containerPort: {{ .Values.metrics.port }}
+              name: metrics
+          {{- end }}
           {{- if eq .Values.tls.mode "acme" }}
           {{- if eq .Values.tls.acme.dnsProvider.name "rfc2136" }}
           env:
@@ -109,6 +113,11 @@ spec:
     - name: https
       port: 443
       targetPort: https
+    {{- if .Values.metrics.enabled }}
+    - name: metrics
+      port: {{ .Values.metrics.port }}
+      targetPort: metrics
+    {{- end }}
 ---
 {{- if .Values.serviceAccount.create }}
 apiVersion: v1

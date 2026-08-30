@@ -18,6 +18,13 @@
 {{- fail "persistence.storageClass must name an approved encrypted storage class" -}}
 {{- end -}}
 
+{{- /* Metrics honesty gate (PRA-066): TigerBeetle serves no HTTP metrics
+       endpoint, so the ServiceMonitor requires an approved exporter/sidecar
+       port (monitoring.metricsPort != 0). */ -}}
+{{- if and .Values.monitoring.serviceMonitor.enabled (le (int .Values.monitoring.metricsPort) 0) -}}
+{{- fail "monitoring.serviceMonitor.enabled=true requires monitoring.metricsPort to name an approved exporter/sidecar port (TigerBeetle serves no /metrics endpoint itself — never wire a phantom scrape target on the ledger)" -}}
+{{- end -}}
+
 {{- /* TigerBeetle ledger backup gates (GAP-PG-05). */ -}}
 {{- if .Values.backup.enabled -}}
 {{- $cronRe := "^\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+$" -}}

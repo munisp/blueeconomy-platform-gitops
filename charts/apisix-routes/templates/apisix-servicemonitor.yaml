@@ -1,0 +1,23 @@
+{{- if .Values.edgeObservability.prometheus.serviceMonitor.enabled }}
+# APISIX gateway prometheus export scrape (PRA-066): per-route RED metrics
+# from the edgeObservability.prometheus plugin above. Render-gated in
+# 000-validation.yaml — the monitor can never outlive the plugin that
+# serves the endpoint.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "apisix-routes.fullname" . }}-apisix
+  namespace: {{ .Values.apisix.namespace | quote }}
+  labels:
+    {{- include "apisix-routes.labels" . | nindent 4 }}
+    {{- toYaml .Values.edgeObservability.prometheus.serviceMonitor.labels | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.edgeObservability.prometheus.serviceMonitor.serviceName | quote }}
+  endpoints:
+    - port: metrics
+      targetPort: {{ .Values.edgeObservability.prometheus.serviceMonitor.port }}
+      path: {{ .Values.edgeObservability.prometheus.serviceMonitor.path | quote }}
+      interval: 30s
+{{- end }}

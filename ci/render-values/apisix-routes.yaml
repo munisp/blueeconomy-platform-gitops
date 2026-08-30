@@ -10,6 +10,15 @@ apisix:
     serviceName: opa-policies-opa
     servicePort: 8181
 
+# PRA-066: exercise the gateway prometheus-export ServiceMonitor positive
+# path (the per-route prometheus plugin defaults to enabled).
+edgeObservability:
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      serviceName: apisix-gateway
+
 routes:
   - name: platform-s1
     host: api.blueeconomy.example.gov.ng

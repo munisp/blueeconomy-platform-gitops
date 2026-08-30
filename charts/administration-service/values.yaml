@@ -136,6 +136,15 @@ probes:
   livenessPath: /healthz
   readinessPath: /healthz
 
+serviceMonitor:
+  # PRA-066 audited: NO ServiceMonitor is wired for this service because
+  # the binary serves no /metrics endpoint (only the uncharted
+  # admin-notifier exposes expvar /debug/vars). enabled=true is refused at
+  # render time — never a phantom scrape target (OTP2 honesty precedent).
+  # Edge-level RED metrics for this service come from the APISIX
+  # prometheus plugin (apisix-routes edgeObservability.prometheus).
+  enabled: false
+
 podDisruptionBudget:
   # Multi-replica Deployment: keep at least one pod serving during
   # voluntary disruptions.

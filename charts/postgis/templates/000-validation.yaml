@@ -22,6 +22,13 @@
 {{- end -}}
 {{- end -}}
 
+{{- /* Metrics honesty gate (PRA-066): the postgis/postgis image serves no
+       metrics endpoint, so monitoring is cloudnative-pg-only until an
+       approved postgres-exporter sidecar exists. */ -}}
+{{- if and .Values.monitoring.podMonitor.enabled (ne .Values.image.variant "cloudnative-pg") -}}
+{{- fail "monitoring.podMonitor.enabled=true requires image.variant=cloudnative-pg (the postgis/postgis image serves no /metrics endpoint; an approved postgres-exporter sidecar is required first — never wire a phantom scrape target)" -}}
+{{- end -}}
+
 {{- /* Storage: size and class are both render-gated. */ -}}
 {{- $size := required "storage.size is required (e.g. 100Gi; the geo hot path must never land on an accidental default)" .Values.storage.size -}}
 {{- $class := required "storage.storageClass is required" .Values.storage.storageClass -}}

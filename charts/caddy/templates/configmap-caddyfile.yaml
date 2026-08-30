@@ -19,6 +19,13 @@ data:
     	servers {
     		metrics
     	}
+    	{{- if .Values.metrics.enabled }}
+    	# PRA-066: bind the admin endpoint off-loopback so Prometheus can
+    	# scrape /metrics (per-server metrics from `servers { metrics }`).
+    	# Cluster-internal only — the NetworkPolicy contract and the absence
+    	# of any edge listener on this port keep it off the public path.
+    	admin 0.0.0.0:{{ .Values.metrics.port }}
+    	{{- end }}
     }
 
     (platform_security) {

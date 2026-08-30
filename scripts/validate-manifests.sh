@@ -268,6 +268,117 @@ fi
 grep -Fq 'serviceMonitor.enabled=true requires otpFeatures.actuatorApi=true' "$output"
 rm -f "$output"
 
+# ── PRA-066 ServiceMonitor/PodMonitor coverage gates ─────────────────────
+# APISIX gateway honesty gate: the gateway ServiceMonitor without the
+# per-route prometheus plugin that serves the export is refused.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/apisix-routes" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/apisix-routes.yaml" \
+    --set 'edgeObservability.prometheus.enabled=false' > /dev/null 2>"$output"; then
+  echo 'apisix-routes rendered the gateway ServiceMonitor without the prometheus plugin' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'requires edgeObservability.prometheus.enabled=true' "$output"
+rm -f "$output"
+# Positive path: the fixture renders the gateway ServiceMonitor.
+helm template render-gate "$repo_root/charts/apisix-routes" \
+  --kube-version "$helm_kube_version" \
+  -f "$repo_root/ci/render-values/apisix-routes.yaml" | grep -q 'kind: ServiceMonitor'
+
+# Caddy metrics honesty gate: the edge ServiceMonitor without the admin
+# /metrics endpoint bound and exposed is refused; the fixture exercises
+# the positive path (admin listener + Service port + ServiceMonitor).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/caddy" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/caddy.yaml" \
+    --set 'metrics.enabled=false' > /dev/null 2>"$output"; then
+  echo 'caddy rendered a ServiceMonitor without its metrics endpoint' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'serviceMonitor.enabled=true requires metrics.enabled=true' "$output"
+rm -f "$output"
+caddy_render="$(helm template render-gate "$repo_root/charts/caddy" \
+  --kube-version "$helm_kube_version" \
+  -f "$repo_root/ci/render-values/caddy.yaml")"
+grep -q 'admin 0.0.0.0:2019' <<<"$caddy_render"
+grep -q 'kind: ServiceMonitor' <<<"$caddy_render"
+unset caddy_render
+
+# PostGIS monitoring gate: the operator PodMonitor is cloudnative-pg-only;
+# the postgis-image variant (no /metrics endpoint) refuses it. The cnpg
+# fixture exercises the positive path.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/postgis" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/postgis-postgis-image.yaml" \
+    --set 'monitoring.podMonitor.enabled=true' > /dev/null 2>"$output"; then
+  echo 'postgis rendered a PodMonitor for the postgis-image variant (no metrics endpoint)' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'monitoring.podMonitor.enabled=true requires image.variant=cloudnative-pg' "$output"
+rm -f "$output"
+helm template render-gate "$repo_root/charts/postgis" \
+  --kube-version "$helm_kube_version" \
+  -f "$repo_root/ci/render-values/postgis.yaml" | grep -q 'enablePodMonitor: true'
+
+# TigerBeetle metrics honesty gate: the ledger serves no HTTP metrics, so
+# the ServiceMonitor without an approved exporter port is refused.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/tigerbeetle" \
+    --kube-version "$helm_kube_version" \
+    --set 'image.repository=registry.example.gov.ng/tigerbeetle' \
+    --set 'image.digest=sha256:3a4b5c6d3a4b5c6d3a4b5c6d3a4b5c6d3a4b5c6d3a4b5c6d3a4b5c6d3a4b5c6d' \
+    --set-string 'tigerbeetle.clusterID=1' \
+    --set 'persistence.storageClass=encrypted-ssd' \
+    --set 'backup.enabled=false' \
+    --set 'monitoring.serviceMonitor.enabled=true' > /dev/null 2>"$output"; then
+  echo 'tigerbeetle rendered a ServiceMonitor without an approved exporter port' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'requires monitoring.metricsPort to name an approved exporter/sidecar port' "$output"
+rm -f "$output"
+
+# Phantom-scrape refusal gates (PRA-066 audit): administration-service and
+# the two nginx SPA portals serve no /metrics endpoint, so enabling a
+# ServiceMonitor is refused at render time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/administration-service" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/administration-service.yaml" \
+    --set 'serviceMonitor.enabled=true' > /dev/null 2>"$output"; then
+  echo 'administration-service rendered a phantom ServiceMonitor (no /metrics endpoint)' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'is refused: the admin-service binary serves GET /healthz' "$output"
+rm -f "$output"
+for portal in beneficiary-portal ministry-portal; do
+  output="$(mktemp)"
+  if helm template render-gate "$repo_root/charts/$portal" \
+      --kube-version "$helm_kube_version" \
+      -f "$repo_root/ci/render-values/$portal.yaml" \
+      --set 'serviceMonitor.enabled=true' > /dev/null 2>"$output"; then
+    echo "$portal rendered a phantom ServiceMonitor (no /metrics endpoint)" >&2
+    rm -f "$output"
+    exit 1
+  fi
+  grep -Fq 'is refused: the '"$portal"' image' "$output"
+  rm -f "$output"
+done
+
+# PRA-066 secops health listener: the rendered detection-engine Deployment
+# must carry BESEC_HEALTH_LISTEN_ADDRESS (fail-closed requiredEnv gate
+# lives in the chart) so probes/metrics work as deployed.
+helm template render-gate "$repo_root/charts/security-operations" \
+  --kube-version "$helm_kube_version" \
+  -f "$repo_root/ci/render-values/security-operations.yaml" | grep -q 'BESEC_HEALTH_LISTEN_ADDRESS'
+
 # OTP2 edge-registration gate (apisix-routes pattern): dropping the
 # registered edge route is refused at render time (OTP2 has no auth).
 output="$(mktemp)"

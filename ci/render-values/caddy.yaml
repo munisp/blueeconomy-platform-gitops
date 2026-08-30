@@ -15,6 +15,13 @@ upstreams:
   apisixAdmin:
     address: apisix-admin.blueeconomy-security.svc.cluster.local:9180
 
+# PRA-066: exercise the edge metrics positive path — admin /metrics bound
+# off-loopback, Service port exposed, ServiceMonitor rendered.
+metrics:
+  enabled: true
+serviceMonitor:
+  enabled: true
+
 tls:
   mode: acme
   acme:

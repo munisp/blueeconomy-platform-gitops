@@ -43,7 +43,12 @@ spec:
         name: {{ .Values.credentialsSecretRef.name }}
   {{- end }}
   monitoring:
-    enablePodMonitor: false
+    # PRA-066: operator-rendered PodMonitor on the instance /metrics :9187.
+    enablePodMonitor: {{ .Values.monitoring.podMonitor.enabled }}
+    {{- if .Values.monitoring.podMonitor.enabled }}
+    podMonitorLabels:
+      {{- toYaml .Values.monitoring.podMonitor.labels | nindent 6 }}
+    {{- end }}
 {{- else }}
 # postgis-image variant: plain StatefulSet on postgis/postgis:15-3.5 (no
 # operator dependency). PodSecurity restricted; credentials only from the

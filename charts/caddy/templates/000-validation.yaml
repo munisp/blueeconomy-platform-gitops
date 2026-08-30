@@ -1,4 +1,10 @@
 {{- /* Fail-closed approval gates for the Caddy edge. */ -}}
+{{- /* Metrics honesty gate (PRA-066): the ServiceMonitor requires the
+       metrics endpoint it scrapes (admin endpoint bound off-loopback and
+       exposed on the Service). */ -}}
+{{- if and .Values.serviceMonitor.enabled (not .Values.metrics.enabled) -}}
+{{- fail "serviceMonitor.enabled=true requires metrics.enabled=true (the Caddy admin /metrics endpoint must be bound and exposed; never wire a scrape target the endpoint does not serve)" -}}
+{{- end -}}
 {{- $digest := required "image.digest is required" .Values.image.digest -}}
 {{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
 {{- fail "image.digest must be an immutable lower-case sha256 digest" -}}

@@ -3,6 +3,11 @@
 {{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
 {{- end -}}
 {{- $repository := required "image.repository is required" .Values.image.repository -}}
+{{- /* Metrics honesty gate (PRA-066): the nginx-unprivileged SPA image
+       serves /healthz only — no Prometheus endpoint. */ -}}
+{{- if .Values.serviceMonitor.enabled -}}
+{{- fail "serviceMonitor.enabled=true is refused: the ministry-portal image (nginx-unprivileged serving the static SPA) exposes /healthz only — no /metrics endpoint exists to scrape; an approved exporter sidecar must be approved before a scrape target can be wired honestly (edge RED metrics come from the APISIX prometheus plugin)" -}}
+{{- end -}}
 {{- $oidc := .Values.platformConfig.oidc -}}
 {{- $authority := required "platformConfig.oidc.authority is required (HTTPS Keycloak issuer of the approved ministry realm)" $oidc.authority -}}
 {{- if not (hasPrefix "https://" $authority) -}}

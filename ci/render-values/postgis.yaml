@@ -6,6 +6,12 @@ image:
   cloudnativePG:
     repository: ghcr.io/cloudnative-pg/postgis
     digest: sha256:3a4b5c6d3a4b5c6d3a4b5c6d3a4b5c6d3a4b5c6d3a4b5c6d3a4b5c6d3a4b5c6d
+
+# PRA-066: exercise the operator PodMonitor positive path (instance
+# /metrics :9187).
+monitoring:
+  podMonitor:
+    enabled: true
   postgisImage:
     repository: postgis/postgis
     digest: sha256:9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c

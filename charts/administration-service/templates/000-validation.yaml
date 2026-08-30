@@ -1,5 +1,11 @@
 {{- /* Fail-closed approval gates for blueeconomy-administration-service
        (binary env contract: internal/admin/config.go). */ -}}
+{{- /* Metrics honesty gate (PRA-066): the admin-service binary serves no
+       /metrics endpoint, so a ServiceMonitor would be a phantom scrape
+       target. */ -}}
+{{- if .Values.serviceMonitor.enabled -}}
+{{- fail "serviceMonitor.enabled=true is refused: the admin-service binary serves GET /healthz plus the /v1 routes only (internal/admin) — no /metrics endpoint exists to scrape; an approved metrics endpoint must land in the binary before a scrape target can be wired honestly (edge RED metrics come from the APISIX prometheus plugin)" -}}
+{{- end -}}
 {{- $repo := required "image.repository is required" .Values.image.repository -}}
 {{- $digest := required "image.digest is required" .Values.image.digest -}}
 {{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}

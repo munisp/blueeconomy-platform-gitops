@@ -92,6 +92,15 @@ probes:
   livenessPath: /healthz
   readinessPath: /healthz
 
+serviceMonitor:
+  # PRA-066 audited: NO ServiceMonitor is wired for this portal — the
+  # nginx-unprivileged image serves the static SPA and /healthz only; no
+  # Prometheus endpoint exists (deploy/nginx.conf). enabled=true is
+  # refused at render time — never a phantom scrape target. Edge-level RED
+  # metrics come from the APISIX prometheus plugin (apisix-routes
+  # edgeObservability.prometheus).
+  enabled: false
+
 resources:
   requests:
     cpu: 50m

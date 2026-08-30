@@ -49,6 +49,18 @@ database:
   # geo-service release, not this chart.
   appRole: geo
 
+# Metrics (PRA-066). variant=cloudnative-pg: the operator's built-in
+# PodMonitor (the instance image serves /metrics on :9187 — real coverage,
+# no sidecar). variant=postgis-image: the postgis/postgis image serves NO
+# metrics endpoint; enabling monitoring there is refused at render time
+# until an approved postgres-exporter sidecar exists (never a phantom
+# scrape target).
+monitoring:
+  podMonitor:
+    enabled: false
+    labels:
+      blueeconomy.platform/workstream: geo
+
 backup:
   # Backup wiring must stay consistent with charts/backup-dr: WAL-G archives
   # to the same immutable store selected by backup-dr storage.provider.

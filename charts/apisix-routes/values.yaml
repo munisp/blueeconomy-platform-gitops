@@ -95,6 +95,20 @@ edgeObservability:
   prometheus:
     # prometheus plugin on every route (per-route RED metrics).
     enabled: true
+    serviceMonitor:
+      # Gateway-level scrape of the APISIX prometheus export
+      # (/apisix/prometheus/metrics) on the pinned upstream APISIX Service
+      # (PRA-066). Render-gated: enabling the monitor while the per-route
+      # prometheus plugin above is disabled is refused — never wire a
+      # scrape target the gateway does not serve (OTP2 honesty precedent).
+      enabled: false
+      # APISIX gateway Service exposing the prometheus export port
+      # (render-gated when enabled).
+      serviceName: ""
+      port: 9091
+      path: /apisix/prometheus/metrics
+      labels:
+        blueeconomy.platform/workstream: platform
 
 # OpenAppSec WAF agent (embedded in the APISIX pod per the caddy chart
 # contract): Prometheus scrape wiring. NOTE (vendor limitation, recorded

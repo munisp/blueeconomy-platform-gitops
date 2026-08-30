@@ -108,6 +108,24 @@ openappsec:
   # gate refuses to disable it.
   required: true
 
+# Edge Prometheus metrics (PRA-066). The Caddyfile already renders
+# `servers { metrics }`; those per-server metrics are served ONLY on the
+# Caddy admin endpoint, which binds localhost:2019 by default — not
+# scrapeable. metrics.enabled binds the admin endpoint to the pod
+# interface, adds the metrics port to the container and the caddy-edge
+# Service, and the ServiceMonitor is render-gated on it (never wire a
+# scrape target the endpoint does not expose).
+metrics:
+  enabled: false
+  port: 2019
+
+serviceMonitor:
+  # Prometheus scrape of the Caddy admin /metrics endpoint. Render-gated:
+  # enabled=true requires metrics.enabled=true.
+  enabled: false
+  labels:
+    blueeconomy.platform/workstream: platform
+
 keycloak:
   # OIDC relying-party configuration for the admin consoles: the APISIX
   # openid-connect plugin (bearer-only for APIs, authorization-code for
