@@ -1,0 +1,29 @@
+apiVersion: v2
+name: trufi-planner
+description: >-
+  Citizen multimodal trip-planner web app for the Blue Economy Platform
+  (CITIZEN_SERVICES_ADVISORY.md section 5: "OTP2 with Trufi/Digitransit
+  options" for door-to-door journey planning). Packages the OpenTripPlanner
+  React UI (opentripplanner/otp-react-redux, MIT license — chosen over
+  Trufi Core, GPL-3.0 Flutter mobile, and digitransit-ui, EUPL-1.2 OR
+  AGPL-3.0; see values.yaml for the full justification), wired to the
+  platform OTP2 release through the APISIX edge. Fail-closed:
+  digest-pinned image, resources required, NetworkPolicy (ingress from
+  the APISIX edge only), PDB/HPA, edge route registration mandatory, and
+  browser RUM (OTLP/HTTP to the collector :4318) render-gated with the
+  platform CORS allowed-origins contract (wildcard refused in prod).
+type: application
+version: 0.1.0
+appVersion: "4.0.0"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - trufi
+  - otp-react-redux
+  - multimodal
+  - trip-planner
+  - citizen-services
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "citizen-services"
+  blueeconomy.platform/upstream: "https://github.com/opentripplanner/otp-react-redux (MIT)"
+  blueeconomy.platform/upstream-policy: "Pin verified upstream image digests; do not deploy unreviewed defaults"

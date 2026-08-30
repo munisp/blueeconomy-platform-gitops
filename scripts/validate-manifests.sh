@@ -61,7 +61,7 @@ for chart in tigerbeetle mojaloop-overlay sedona-spark-jobs core-services region
   postgis martin geo-service apisix-routes \
   tax-stamps ml-stack data-platform waterway-safety cv-service emqx \
   otel-collector-agent otel-collector-gateway tempo loki alertmanager \
-  novu prometheus-rules keycloak; do
+  novu prometheus-rules keycloak opentripplanner trufi-planner; do
   test -s "$repo_root/charts/$chart/Chart.yaml"
   test -s "$repo_root/charts/$chart/values.yaml"
 done
@@ -152,6 +152,8 @@ assert_default_render_fails_closed alertmanager 'profile must be one of: dev, st
 assert_default_render_fails_closed novu 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed prometheus-rules 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed keycloak 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed opentripplanner 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed trufi-planner 'profile must be one of: dev, staging, prod'
 
 # Positive render gates: every shared-platform chart must render fully with
 # its CI render fixture (fail-closed defaults exercised separately above).
@@ -162,11 +164,201 @@ for chart in ferry-ticketing financial-controls port-interoperability security-o
   cilium opa-policies sedona-spark-jobs martin geo-service apisix-routes \
   tax-stamps ml-stack data-platform waterway-safety cv-service emqx \
   otel-collector-agent otel-collector-gateway tempo loki alertmanager \
-  novu prometheus-rules keycloak; do
+  novu prometheus-rules keycloak opentripplanner trufi-planner; do
   helm template render-gate "$repo_root/charts/$chart" \
     --kube-version "$helm_kube_version" \
     -f "$repo_root/ci/render-values/$chart.yaml" > /dev/null
 done
+
+# W-FEAT-8 multimodal trip planner: render both profile fixtures for the
+# OTP2 engine (prod mode=build + dev mode=serve) and the citizen planner
+# web app (prod + dev), then assert every fail-closed gate.
+for fixture in "$repo_root"/ci/render-values/opentripplanner*.yaml \
+  "$repo_root"/ci/render-values/trufi-planner*.yaml; do
+  chart_name="$(basename "$fixture" .yaml)"
+  chart_name="${chart_name%%-dev}"
+  helm template render-gate "$repo_root/charts/$chart_name" \
+    --kube-version "$helm_kube_version" \
+    -f "$fixture" > /dev/null
+done
+
+# OTP2 graph-build gate: mode=build without the static GTFS feed URL is
+# refused at render time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/opentripplanner" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/opentripplanner.yaml" \
+    --set 'gtfs.staticUrl=' > /dev/null 2>"$output"; then
+  echo 'opentripplanner rendered mode=build without gtfs.staticUrl' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'gtfs.staticUrl is required when mode=build' "$output"
+rm -f "$output"
+
+# OTP2 graph-storage gate: mode=build without the shared graph volume is
+# refused at render time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/opentripplanner" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/opentripplanner.yaml" \
+    --set 'persistence.size=' --set 'persistence.existingClaim=' > /dev/null 2>"$output"; then
+  echo 'opentripplanner rendered mode=build without graph storage' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'persistence.size or persistence.existingClaim is required when mode=build' "$output"
+rm -f "$output"
+
+# OTP2 mode enum gate: an unknown delivery mode is refused at render
+# time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/opentripplanner" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/opentripplanner.yaml" \
+    --set 'mode=bogus' > /dev/null 2>"$output"; then
+  echo 'opentripplanner rendered with an unknown mode' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'mode must be one of: build, serve' "$output"
+rm -f "$output"
+
+# OTP2 serve-mode storage gate: mode=serve with neither a prebuilt graph
+# URL nor a graph volume is refused at render time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/opentripplanner" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/opentripplanner.yaml" \
+    --set 'mode=serve' --set 'graph.url=' \
+    --set 'persistence.size=' --set 'persistence.existingClaim=' > /dev/null 2>"$output"; then
+  echo 'opentripplanner rendered mode=serve without any graph source' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'mode=serve requires graph.url or a graph persistence volume' "$output"
+rm -f "$output"
+
+# OTP2 honest-OTel gate: the opt-in javaagent without its OTLP endpoint
+# is refused at render time (telemetry must never silently vanish).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/opentripplanner" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/opentripplanner.yaml" \
+    --set 'telemetry.javaagent.otlpEndpoint=' > /dev/null 2>"$output"; then
+  echo 'opentripplanner rendered the javaagent without an OTLP endpoint' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'telemetry.javaagent.otlpEndpoint is required when telemetry.javaagent.enabled=true' "$output"
+rm -f "$output"
+
+# OTP2 metrics honesty gate: a ServiceMonitor without the ActuatorAPI
+# feature is refused at render time (never wire a scrape target OTP2
+# does not serve).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/opentripplanner" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/opentripplanner.yaml" \
+    --set 'otpFeatures.actuatorApi=false' > /dev/null 2>"$output"; then
+  echo 'opentripplanner rendered a ServiceMonitor without the ActuatorAPI' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'serviceMonitor.enabled=true requires otpFeatures.actuatorApi=true' "$output"
+rm -f "$output"
+
+# OTP2 edge-registration gate (apisix-routes pattern): dropping the
+# registered edge route is refused at render time (OTP2 has no auth).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/opentripplanner" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/opentripplanner.yaml" \
+    --set 'edge.routeRegistration.required=false' > /dev/null 2>"$output"; then
+  echo 'opentripplanner rendered with the edge route-registration requirement disabled' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'edge.routeRegistration.required must remain true' "$output"
+rm -f "$output"
+
+# OTP2 GTFS-RT auth gate: enabling updater auth without the
+# ExternalSecrets token key is refused at render time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/opentripplanner" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/opentripplanner.yaml" \
+    --set 'gtfsRt.auth.tokenSecretKey=OTP_UNREGISTERED_TOKEN' > /dev/null 2>"$output"; then
+  echo 'opentripplanner rendered updater auth without its ExternalSecrets token key' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'is required because gtfsRt.auth.enabled=true' "$output"
+rm -f "$output"
+
+# Trufi-planner prod RUM gate: a plaintext (http) browser RUM endpoint
+# is refused in prod (exports cross the public edge).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/trufi-planner" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/trufi-planner.yaml" \
+    --set 'rum.endpoint=http://insecure.example.gov.ng/otel-http' > /dev/null 2>"$output"; then
+  echo 'trufi-planner rendered a plaintext RUM endpoint in prod' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'rum.endpoint must be an HTTPS URL when profile=prod' "$output"
+rm -f "$output"
+
+# Trufi-planner wildcard-origin gate (CORS precedent): the wildcard
+# public origin is refused in every profile.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/trufi-planner" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/trufi-planner.yaml" \
+    --set 'edge.publicOrigin=*' > /dev/null 2>"$output"; then
+  echo 'trufi-planner rendered a wildcard public origin' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'edge.publicOrigin must never be the wildcard origin' "$output"
+rm -f "$output"
+
+# Trufi-planner edge-registration gate: dropping the registered edge
+# route is refused at render time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/trufi-planner" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/trufi-planner.yaml" \
+    --set 'edge.routeRegistration.required=false' > /dev/null 2>"$output"; then
+  echo 'trufi-planner rendered with the edge route-registration requirement disabled' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'edge.routeRegistration.required must remain true' "$output"
+rm -f "$output"
+
+# Trufi-planner OTP2 wiring gate: the SPA without its OTP2 API base is
+# refused at render time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/trufi-planner" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/trufi-planner.yaml" \
+    --set 'otp.apiBaseUrl=' > /dev/null 2>"$output"; then
+  echo 'trufi-planner rendered without otp.apiBaseUrl' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'otp.apiBaseUrl is required' "$output"
+rm -f "$output"
+
+# RUM CORS values flow (W-FEAT-8): the otel-collector-agent dev fixture
+# must carry the trufi-planner dev origin, and the rendered collector
+# config must emit it on the :4318 OTLP/HTTP receiver.
+grep -q 'http://localhost:8088' "$repo_root/ci/render-values/otel-collector-agent-dev.yaml"
+helm template render-gate "$repo_root/charts/otel-collector-agent" \
+  --kube-version "$helm_kube_version" \
+  -f "$repo_root/ci/render-values/otel-collector-agent-dev.yaml" | grep -q 'http://localhost:8088'
 
 # Edge TLS provider families (cloud-agnostic contract): render every
 # per-provider caddy fixture — rfc2136 (provider-neutral default),
@@ -692,4 +884,4 @@ helm template core-services "$workspace/charts/core-services" --kube-version "$h
 HELM_KUBE_VERSION="$helm_kube_version" bash "$repo_root/scripts/validate-mojaloop-overlay-security.sh"
 HELM_KUBE_VERSION="$helm_kube_version" bash "$repo_root/scripts/validate-regional-dr.sh"
 
-printf '%s\n' 'Validated GitOps base manifests, workstream namespaces (ports/ferries/cvff with fiduciary segregation; seafarer/fisheries/isr with ISR national-security segregation), core-service namespaces (tigerbeetle/mojaloop/geo), recovery namespace, upstream source locks (incl. Prometheus, OpenTelemetry Collector, Argo CD, and the gap-#41 hash-locked cilium/velero/caddy/opa pins), chart sources (incl. beneficiary-portal, the battle-hardened edge charts cilium/caddy/opa-policies/backup-dr and the geo deploy surface postgis/martin/geo-service/apisix-routes), fail-closed value gates, shared-platform render fixtures (incl. phase-2 service charts, beneficiary-portal, all six per-workstream Dapr fixtures plus the hashicorpVault/external secret-store and kafka-tls fixtures, all four caddy TLS provider fixtures, both backup-dr storage provider fixtures, both postgis image-variant fixtures and the sedona vessel-trajectory-silver fixture), helm lint for every chart, Keycloak short-TTL, PKCE public-client redirect allowlists, ISR clearance and all six workstream Dapr scope-segregation gates, ISR outbox-mode and cold-chain breach-SLA gates, Cilium fiduciary-segregation, kernel-baseline and geo-namespace gates, the Caddy OpenAppSec contract-flag gate, the OPA producer key-directory gate, the backup-dr immutability consistency gate, the cloud-agnostic provider gates (unknown DNS/ACME provider, rfc2136 nameserver/TSIG, s3-compatible endpoint, hashicorpVault server, postgis image enum and backup provider), the Martin edge route-registration gates, the geo-service prod-profile GEO_TEST_* gate, the signing unification gate (exactly one convention per service, docs/signing-config.md), the APISIX route-inventory gate, the Kafka TLS/SASL gates (caCert required, tls.required prod posture, SASL/PLAIN requires TLS), Kafka topic namespace prefixes (incl. geo.*), Argo CD project/ApplicationSet manifests, regional DR contract, Mojaloop security overrides and umbrella dependencies.'
+printf '%s\n' 'Validated GitOps base manifests, workstream namespaces (ports/ferries/cvff with fiduciary segregation; seafarer/fisheries/isr with ISR national-security segregation), core-service namespaces (tigerbeetle/mojaloop/geo), recovery namespace, upstream source locks (incl. Prometheus, OpenTelemetry Collector, Argo CD, and the gap-#41 hash-locked cilium/velero/caddy/opa pins), chart sources (incl. beneficiary-portal, the battle-hardened edge charts cilium/caddy/opa-policies/backup-dr and the geo deploy surface postgis/martin/geo-service/apisix-routes), fail-closed value gates, shared-platform render fixtures (incl. phase-2 service charts, beneficiary-portal, all six per-workstream Dapr fixtures plus the hashicorpVault/external secret-store and kafka-tls fixtures, all four caddy TLS provider fixtures, both backup-dr storage provider fixtures, both postgis image-variant fixtures and the sedona vessel-trajectory-silver fixture), helm lint for every chart, Keycloak short-TTL, PKCE public-client redirect allowlists, ISR clearance and all six workstream Dapr scope-segregation gates, ISR outbox-mode and cold-chain breach-SLA gates, Cilium fiduciary-segregation, kernel-baseline and geo-namespace gates, the Caddy OpenAppSec contract-flag gate, the OPA producer key-directory gate, the backup-dr immutability consistency gate, the cloud-agnostic provider gates (unknown DNS/ACME provider, rfc2136 nameserver/TSIG, s3-compatible endpoint, hashicorpVault server, postgis image enum and backup provider), the Martin edge route-registration gates, the geo-service prod-profile GEO_TEST_* gate, the signing unification gate (exactly one convention per service, docs/signing-config.md), the APISIX route-inventory gate, the Kafka TLS/SASL gates (caCert required, tls.required prod posture, SASL/PLAIN requires TLS), Kafka topic namespace prefixes (incl. geo.*), Argo CD project/ApplicationSet manifests, regional DR contract, Mojaloop security overrides and umbrella dependencies, and the W-FEAT-8 multimodal trip planner (opentripplanner build/serve graph-storage and GTFS-RT gates, honest opt-in OTel javaagent endpoint gate, ActuatorAPI ServiceMonitor gate, trufi-planner OTP2-wiring/edge-registration/HTTPS-RUM and wildcard-origin gates, and the trufi RUM origin in the collector :4318 CORS values flow).'

@@ -10,9 +10,13 @@ image:
 gatewayEndpoint: render-gate-otel-collector-gateway.blueeconomy-observability.svc.cluster.local:4317
 
 # Dev-profile browser RUM origins (localhost portal dev servers).
+# http://localhost:8088 is the trufi-planner dev origin (W-FEAT-8):
+# every planner edge.publicOrigin must be registered in this list — the
+# browser's OTLP/HTTP exports to :4318 are CORS-preflighted against it.
 rumAllowedOrigins:
   - http://localhost:3000
   - http://localhost:4200
+  - http://localhost:8088
 
 receivers:
   kafka:

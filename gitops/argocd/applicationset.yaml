@@ -109,6 +109,15 @@ spec:
           # workstream namespace alongside the waterway-safety gateway.
           - chart: emqx
             namespace: blueeconomy-ferries
+          # Citizen multimodal trip planning (W-FEAT-8, advisory
+          # section 5): the OTP2 routing engine (GTFS static + GTFS-RT
+          # from geo-service) and the citizen planner web app
+          # (otp-react-redux, MIT), both reconciled into the ferries
+          # workstream namespace alongside the water-transport services.
+          - chart: opentripplanner
+            namespace: blueeconomy-ferries
+          - chart: trufi-planner
+            namespace: blueeconomy-ferries
           # Umbrella release for coordinated core-service deployments;
           # dependencies are disabled by default until production formation
           # approval lands in the environment values.

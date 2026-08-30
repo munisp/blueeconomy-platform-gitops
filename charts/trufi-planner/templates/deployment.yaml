@@ -1,0 +1,87 @@
+{{- $fullName := include "trufi-planner.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "trufi-planner.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.hpa.enabled }}
+  replicas: {{ .Values.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "trufi-planner.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "trufi-planner.selectorLabels" . | nindent 8 }}
+      annotations:
+        blueeconomy.platform/edge-route: {{ .Values.edge.routeRegistration.apisixRouteRef | quote }}
+        blueeconomy.platform/upstream: "opentripplanner/otp-react-redux (MIT)"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: planner
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ int .Values.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 20
+          volumeMounts:
+            - name: config
+              mountPath: {{ .Values.configMount.path | quote }}
+              subPath: {{ .Values.configMount.subPath | quote }}
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $fullName }}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "trufi-planner.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "trufi-planner.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ int .Values.port }}
+      targetPort: http
