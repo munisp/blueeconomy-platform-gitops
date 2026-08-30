@@ -72,6 +72,24 @@ if find "$repo_root/charts" -type f \( -name 'values.yaml' -o -name 'Chart.yaml'
   exit 1
 fi
 
+# Phantom-Permify gate (W-OPS1): no Permify component exists anywhere in
+# the estate and the license-decided outcome is that none will
+# (docs/permify-authorization-decision.md — AGPL-3.0 core conflicts with
+# the permissive-only component policy; OpenFGA is the successor). Any
+# Permify reference under charts/ must therefore point at the decision
+# document on the same line; anything else is refused as phantom wiring
+# for a component that does not exist.
+if grep -rni 'permify' "$repo_root/charts" | grep -v 'permify-authorization-decision\.md'; then
+  echo 'phantom Permify reference in charts without a docs/permify-authorization-decision.md pointer' >&2
+  exit 1
+fi
+# Positive assertions: the decision document exists and records the
+# license-decided outcome (AGPL-3.0 excludes the chart; OpenFGA is the
+# recommended successor).
+test -s "$repo_root/docs/permify-authorization-decision.md"
+grep -q 'AGPL-3.0' "$repo_root/docs/permify-authorization-decision.md"
+grep -q 'OpenFGA' "$repo_root/docs/permify-authorization-decision.md"
+
 assert_default_render_fails_closed() {
   local chart="$1"
   local expected="$2"
