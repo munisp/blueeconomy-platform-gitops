@@ -9,6 +9,7 @@ externalSecrets:
     TENANT_GATEWAY_KEY: ports/render-fixture/tenant-gateway-key
     MOJALOOP_BEARER_TOKEN: ports/render-fixture/mojaloop-bearer-token
     REDIS_URL: ports/render-fixture/redis-url
+    KEYCLOAK_CLIENT_SECRET: ports/render-fixture/keycloak-client-secret
 
 components:
   api:
@@ -26,6 +27,11 @@ components:
       NSW_AUDIENCE: port-interoperability
       MOJALOOP_BASE_URL: https://mojaloop-switch.blueeco-mojaloop-prod.svc.cluster.local
       FGN_SHARE_BASIS_POINTS: "250"
+      # W-RES gRPC declaration scorer (financial-controls release, grpc
+      # Service port 9082) + client_credentials token source coordinates.
+      DECLARATIONS_SCORER_GRPC_ADDR: financial-controls-declaration-scorer.blueeconomy-cvff.svc.cluster.local:9082
+      KEYCLOAK_TOKEN_URL: https://keycloak.blueeconomy.example.gov.ng/realms/blueeconomy-ports-ecallup/protocol/openid-connect/token
+      KEYCLOAK_CLIENT_ID: port-interoperability-api
   ussd-gateway:
     image:
       repository: blueeconomy.azurecr.us/blueeconomy/ussd-gateway

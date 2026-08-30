@@ -685,6 +685,41 @@ grep -q 'DECLARATION_SCORER_GRPC_LISTEN_ADDR' <<<"$fc_render"
 grep -q 'port: 9082' <<<"$fc_render"
 unset fc_render
 
+# Caller-side scorer contract (PRA-068): the port-interoperability api
+# binary treats DECLARATIONS_SCORER_GRPC_ADDR and the Keycloak
+# client_credentials triple as boot-fatal requiredEnv — the release
+# refuses to render without them, and the client secret must be
+# ExternalSecrets-backed.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/port-interoperability" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/port-interoperability.yaml" \
+    --set 'components.api.env.DECLARATIONS_SCORER_GRPC_ADDR=' > /dev/null 2>"$output"; then
+  echo 'port-interoperability rendered without DECLARATIONS_SCORER_GRPC_ADDR' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'api.DECLARATIONS_SCORER_GRPC_ADDR must be set to an approved environment value' "$output"
+rm -f "$output"
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/port-interoperability" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/port-interoperability.yaml" \
+    --set-json 'externalSecrets.keys={"DATABASE_URL":"ports/render-fixture/database-url","TENANT_GATEWAY_KEY":"ports/render-fixture/tenant-gateway-key","MOJALOOP_BEARER_TOKEN":"ports/render-fixture/mojaloop-bearer-token","REDIS_URL":"ports/render-fixture/redis-url"}' > /dev/null 2>"$output"; then
+  echo 'port-interoperability rendered without an ExternalSecrets-backed KEYCLOAK_CLIENT_SECRET' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'externalSecrets.keys.KEYCLOAK_CLIENT_SECRET is required because api consumes it via secretEnv' "$output"
+rm -f "$output"
+# Positive path: the rendered api Deployment carries the scorer contract.
+pi_render="$(helm template render-gate "$repo_root/charts/port-interoperability" \
+  --kube-version "$helm_kube_version" \
+  -f "$repo_root/ci/render-values/port-interoperability.yaml")"
+grep -q 'DECLARATIONS_SCORER_GRPC_ADDR' <<<"$pi_render"
+grep -q 'KEYCLOAK_CLIENT_SECRET' <<<"$pi_render"
+unset pi_render
+
 # CVFF fiduciary segregation gate: widening cvff Dapr component scopes to a
 # non-cvff app-id is rejected at render time.
 output="$(mktemp)"

@@ -76,6 +76,14 @@ components:
       MOJALOOP_BASE_URL: ""
       TEMPORAL_TASK_QUEUE: ecallup-booking
       FGN_SHARE_BASIS_POINTS: ""
+      # W-RES gRPC declaration scorer (cmd/port-interoperability:
+      # requiredEnv — boot-fatal). The scorer channel authenticates via
+      # Keycloak client_credentials; the ports-realm client carries the
+      # declaration-scorer audience mapper (keycloak-realms chart). The
+      # static DECLARATIONS_SCORER_BEARER_TOKEN path is retired upstream.
+      DECLARATIONS_SCORER_GRPC_ADDR: ""
+      KEYCLOAK_TOKEN_URL: ""
+      KEYCLOAK_CLIENT_ID: ""
     requiredEnv:
       - PORT
       - MIGRATION_PATH
@@ -90,10 +98,16 @@ components:
       - MOJALOOP_BASE_URL
       - TEMPORAL_TASK_QUEUE
       - FGN_SHARE_BASIS_POINTS
+      - DECLARATIONS_SCORER_GRPC_ADDR
+      - KEYCLOAK_TOKEN_URL
+      - KEYCLOAK_CLIENT_ID
     secretEnv:
       - DATABASE_URL
       - TENANT_GATEWAY_KEY
       - MOJALOOP_BEARER_TOKEN
+      # client_credentials secret for the scorer token source (boot-fatal
+      # in the binary); synced via ExternalSecrets only.
+      - KEYCLOAK_CLIENT_SECRET
     resources:
       requests:
         cpu: 100m
