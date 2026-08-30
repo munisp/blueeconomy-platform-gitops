@@ -1,0 +1,21 @@
+{{- if .Values.serviceMonitor.enabled }}
+# OTP2 Prometheus metrics (ActuatorAPI sandbox feature, Micrometer):
+# JVM + Jersey + GraphQL timing metrics. Render-gated: the chart refuses
+# serviceMonitor.enabled=true with otpFeatures.actuatorApi=false, so this
+# scrape target always exists.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "opentripplanner.fullname" . }}
+  labels:
+    {{- include "opentripplanner.labels" . | nindent 4 }}
+    {{- toYaml .Values.serviceMonitor.labels | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "opentripplanner.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /otp/actuators/prometheus
+      interval: 30s
+{{- end }}

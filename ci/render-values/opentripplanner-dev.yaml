@@ -1,0 +1,56 @@
+# CI render-gate fixture ONLY (dev profile variant, mode=serve with a
+# prebuilt graph URL and per-pod emptyDir graph copies). NOT deployable:
+# synthetic digests and illustrative references.
+profile: dev
+mode: serve
+
+image:
+  repository: opentripplanner/opentripplanner
+  digest: sha256:2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b
+
+# graph.url permits multi-replica serving (per-pod graph copies).
+replicas: 2
+
+downloader:
+  image:
+    repository: curlimages/curl
+    digest: sha256:3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c
+
+graph:
+  # In-cluster artifact service carrying the approved prebuilt graph.obj.
+  url: http://render-gate-artifacts.blueeconomy-platform.svc.cluster.local/graphs/dev/graph.obj
+
+gtfsRt:
+  feedId: blueeconomy-dev
+  frequencySec: 60
+  vehiclePositionsUrl: http://render-gate-geo-service.blueeco-geo-prod.svc.cluster.local:8080/feeds/gtfs-rt/vehiclepositions.pb
+  tripUpdatesUrl: http://render-gate-geo-service.blueeco-geo-prod.svc.cluster.local:8080/feeds/gtfs-rt/tripupdates.pb
+  alertsUrl: http://render-gate-geo-service.blueeco-geo-prod.svc.cluster.local:8080/feeds/gtfs-rt/alerts.pb
+  auth:
+    enabled: false
+
+otpFeatures:
+  actuatorApi: true
+
+# Javaagent OFF in dev (the default): proves the opt-in pattern is not
+# required to render.
+telemetry:
+  javaagent:
+    enabled: false
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 2Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+
+networkPolicy:
+  apisixNamespace: blueeconomy-security
+  geoServiceNamespace: blueeco-geo-prod
+
+edge:
+  routeRegistration:
+    required: true
+    apisixRouteRef: ferries-opentripplanner-dev

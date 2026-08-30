@@ -1,0 +1,90 @@
+{{- if eq .Values.mode "build" -}}
+{{- $fullName := include "opentripplanner.fullname" . -}}
+# One-shot graph-build Job (mode=build): downloads the static GTFS bundle
+# (geo-service feed factory) and the optional OSM PBF into the shared
+# graph volume, then runs OTP `--build --save`. Serve pods wait for
+# graph.obj via their wait-for-graph init container.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullName }}-graph-build
+  labels:
+    {{- include "opentripplanner.labels" . | nindent 4 }}
+    blueeconomy.platform/component: graph-build
+spec:
+  # A failed graph build must surface, never silently retry forever.
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "opentripplanner.selectorLabels" . | nindent 8 }}
+        blueeconomy.platform/component: graph-build
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: fetch-inputs
+          image: "{{ .Values.downloader.image.repository }}@{{ .Values.downloader.image.digest }}"
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              echo "fetching static GTFS bundle: {{ .Values.gtfs.staticUrl }}"
+              curl -fsSL --retry 3 -o /var/opentripplanner/gtfs.zip "{{ .Values.gtfs.staticUrl }}"
+              {{- if .Values.gtfs.osmPbfUrl }}
+              echo "fetching OSM PBF: {{ .Values.gtfs.osmPbfUrl }}"
+              curl -fsSL --retry 3 -o /var/opentripplanner/osm.pbf "{{ .Values.gtfs.osmPbfUrl }}"
+              {{- end }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: graph
+              mountPath: /var/opentripplanner
+      containers:
+        - name: graph-build
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Upstream container contract: CLI args go straight to OTP
+          # (OTP2 Container-Image docs).
+          args: ["--build", "--save", "/var/opentripplanner"]
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ .Values.javaToolOptions | quote }}
+          resources:
+            {{- toYaml .Values.buildResources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: graph
+              mountPath: /var/opentripplanner
+            - name: config
+              mountPath: /var/opentripplanner/otp-config.json
+              subPath: otp-config.json
+              readOnly: true
+            - name: config
+              mountPath: /var/opentripplanner/build-config.json
+              subPath: build-config.json
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: graph
+          persistentVolumeClaim:
+            claimName: {{ include "opentripplanner.pvcName" . }}
+        - name: config
+          configMap:
+            name: {{ $fullName }}
+        - name: tmp
+          emptyDir: {}
+{{- end }}

@@ -1,0 +1,74 @@
+{{- $fullName := include "opentripplanner.fullname" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "opentripplanner.labels" . | nindent 4 }}
+data:
+  # otp-config.json — OTP2 system-wide feature toggles (mounted into the
+  # OTP base directory /var/opentripplanner).
+  otp-config.json: |
+    {
+      "otpFeatures": {
+        // ActuatorAPI (sandbox): /otp/actuators/health + /otp/actuators/
+        // prometheus (Micrometer JVM + Jersey + GraphQL timing metrics).
+        "ActuatorAPI": {{ .Values.otpFeatures.actuatorApi }},
+        // Legacy (GTFS) GraphQL API consumed by the otp-react-redux
+        // citizen planner web app.
+        "SandboxAPILegacyGraphQLApi": {{ .Values.otpFeatures.legacyGraphQLApi }},
+        // The built-in debug client is never exposed on a citizen edge.
+        "DebugClient": false
+      }
+    }
+  # build-config.json — graph-build phase options. Kept minimal on
+  # purpose; environment overlays extend via values if an approved build
+  # tuning is needed.
+  build-config.json: |
+    {
+      // Intentionally empty: approved build-phase tunings land here via
+      // environment review (OTP2 defaults apply otherwise).
+    }
+  # router-config.json — GTFS-RT updaters polling the geo-service
+  # realtime feed endpoints (VehiclePositions / TripUpdates / Alerts).
+  # OTP2 substitutes ${VAR} from the process environment before parsing,
+  # so the updater bearer token arrives via the ExternalSecrets-synced
+  # Secret and is never inline in this manifest.
+  router-config.json: |
+    {
+      "updaters": [
+        {
+          "type": "vehicle-positions",
+          "feedId": {{ .Values.gtfsRt.feedId | quote }},
+          "frequencySec": {{ int .Values.gtfsRt.frequencySec }},
+          "url": {{ .Values.gtfsRt.vehiclePositionsUrl | quote }}
+          {{- if .Values.gtfsRt.auth.enabled }},
+          "headers": {
+            {{ .Values.gtfsRt.auth.headerName | quote }}: "Bearer {{ "${" }}OTP_GTFS_RT_TOKEN{{ "}" }}"
+          }
+          {{- end }}
+        },
+        {
+          "type": "stop-time-updater",
+          "feedId": {{ .Values.gtfsRt.feedId | quote }},
+          "frequencySec": {{ int .Values.gtfsRt.frequencySec }},
+          "url": {{ .Values.gtfsRt.tripUpdatesUrl | quote }}
+          {{- if .Values.gtfsRt.auth.enabled }},
+          "headers": {
+            {{ .Values.gtfsRt.auth.headerName | quote }}: "Bearer {{ "${" }}OTP_GTFS_RT_TOKEN{{ "}" }}"
+          }
+          {{- end }}
+        },
+        {
+          "type": "real-time-alerts",
+          "feedId": {{ .Values.gtfsRt.feedId | quote }},
+          "frequencySec": {{ int .Values.gtfsRt.frequencySec }},
+          "url": {{ .Values.gtfsRt.alertsUrl | quote }}
+          {{- if .Values.gtfsRt.auth.enabled }},
+          "headers": {
+            {{ .Values.gtfsRt.auth.headerName | quote }}: "Bearer {{ "${" }}OTP_GTFS_RT_TOKEN{{ "}" }}"
+          }
+          {{- end }}
+        }
+      ]
+    }

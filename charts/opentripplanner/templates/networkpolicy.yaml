@@ -1,0 +1,73 @@
+{{- $fullName := include "opentripplanner.fullname" . -}}
+# OTP2 network posture: ingress ONLY from the APISIX gateway namespace
+# (edge enforces authn; OTP2 has none) plus Prometheus scraping; egress
+# ONLY to the geo-service namespace (static GTFS + GTFS-RT updater
+# polls), DNS, approved external graph-input CIDRs, and (when the opt-in
+# javaagent is enabled) the OTel collector namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "opentripplanner.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "opentripplanner.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.apisixNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Prometheus scraping of /otp/actuators/prometheus.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.prometheusNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # geo-service feed endpoints (the only approved service dependency).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.geoServiceNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ int .Values.networkPolicy.geoServicePort }}
+    # DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- range .Values.networkPolicy.externalInputCIDRs }}
+    # Approved external graph-input sources (HTTPS).
+    - to:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+    {{- if .Values.telemetry.javaagent.enabled }}
+    # Opt-in OTel javaagent OTLP egress to the collector.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.otelCollectorNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+    {{- end }}

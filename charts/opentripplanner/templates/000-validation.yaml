@@ -1,0 +1,143 @@
+{{- /* Fail-closed approval gates for opentripplanner (OTP2). */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+{{- $repo := required "image.repository is required (opentripplanner/opentripplanner or an approved mirror)" .Values.image.repository -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+
+{{- /* Delivery mode enum. */ -}}
+{{- if not (has .Values.mode (list "build" "serve")) -}}
+{{- fail "mode must be one of: build, serve" -}}
+{{- end -}}
+
+{{- $usesPersistence := or .Values.persistence.existingClaim .Values.persistence.size -}}
+{{- $hasRwx := has "ReadWriteMany" .Values.persistence.accessModes -}}
+
+{{- /* URL-sourced inputs require the downloader image; external (non
+       cluster-local HTTPS) inputs require approved egress CIDRs. */ -}}
+{{- $needsDownloader := false -}}
+{{- $needsExternalEgress := false -}}
+{{- range $u := list .Values.gtfs.staticUrl .Values.gtfs.osmPbfUrl .Values.graph.url -}}
+{{- if $u -}}
+{{- if not (or (hasPrefix "http://" $u) (hasPrefix "https://" $u)) -}}
+{{- fail "gtfs.staticUrl, gtfs.osmPbfUrl and graph.url must be http(s) URLs" -}}
+{{- end -}}
+{{- if and (hasPrefix "https://" $u) (not (contains ".svc.cluster.local" $u)) -}}
+{{- $needsExternalEgress = true -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- if eq .Values.mode "build" -}}
+{{- $staticUrl := required "gtfs.staticUrl is required when mode=build (the geo-service static GTFS feed, e.g. http://<geo-service>.blueeco-geo-prod.svc.cluster.local:8080/feeds/gtfs.zip)" .Values.gtfs.staticUrl -}}
+{{- $needsDownloader = true -}}
+{{- if not $usesPersistence -}}
+{{- fail "persistence.size or persistence.existingClaim is required when mode=build (the graph-build Job and the serve pods share the graph volume)" -}}
+{{- end -}}
+{{- if or (empty .Values.buildResources.requests.cpu) (empty .Values.buildResources.requests.memory) (empty .Values.buildResources.limits.cpu) (empty .Values.buildResources.limits.memory) -}}
+{{- fail "buildResources.requests and buildResources.limits (cpu and memory) are required when mode=build" -}}
+{{- end -}}
+{{- end -}}
+
+{{- if eq .Values.mode "serve" -}}
+{{- if not (or .Values.graph.url $usesPersistence) -}}
+{{- fail "mode=serve requires graph.url or a graph persistence volume (persistence.size or persistence.existingClaim) — no approved graph storage was given" -}}
+{{- end -}}
+{{- if .Values.graph.url -}}
+{{- $needsDownloader = true -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Multi-replica serving needs per-pod graphs (graph.url emptyDir) or
+       an RWX volume; a single RWO volume cannot attach to many pods. */ -}}
+{{- if gt (int .Values.replicas) 1 -}}
+{{- if and (not .Values.graph.url) (or (not $usesPersistence) (not $hasRwx)) -}}
+{{- fail "replicas > 1 requires graph.url (per-pod graph copies) or persistence.accessModes including ReadWriteMany" -}}
+{{- end -}}
+{{- end -}}
+
+{{- if $needsDownloader -}}
+{{- $dlRepo := required "downloader.image.repository is required (curlimages/curl or an approved mirror) because the release fetches graph inputs from URLs" .Values.downloader.image.repository -}}
+{{- $dlDigest := required "downloader.image.digest is required" .Values.downloader.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $dlDigest) -}}
+{{- fail "downloader.image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* GTFS-RT updater contract: all three realtime feeds are required
+       (advisory section 5 — ETAs computed from positions, never
+       crew-entered). */ -}}
+{{- $feedId := required "gtfsRt.feedId is required (must match the geo-service static feed id the realtime entities bind to)" .Values.gtfsRt.feedId -}}
+{{- range $pair := list (list "gtfsRt.vehiclePositionsUrl" .Values.gtfsRt.vehiclePositionsUrl) (list "gtfsRt.tripUpdatesUrl" .Values.gtfsRt.tripUpdatesUrl) (list "gtfsRt.alertsUrl" .Values.gtfsRt.alertsUrl) -}}
+{{- $name := index $pair 0 -}}
+{{- $url := index $pair 1 -}}
+{{- if not $url -}}
+{{- fail (printf "%s is required (geo-service GTFS-RT feed endpoint)" $name) -}}
+{{- end -}}
+{{- if not (or (hasPrefix "http://" $url) (hasPrefix "https://" $url)) -}}
+{{- fail (printf "%s must be an http(s) URL" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- if le (int .Values.gtfsRt.frequencySec) 0 -}}
+{{- fail "gtfsRt.frequencySec must be positive" -}}
+{{- end -}}
+
+{{- if .Values.gtfsRt.auth.enabled -}}
+{{- if not (hasKey .Values.externalSecrets.keys .Values.gtfsRt.auth.tokenSecretKey) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because gtfsRt.auth.enabled=true (updater bearer token via ExternalSecrets only)" .Values.gtfsRt.auth.tokenSecretKey) -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.externalSecrets.keys -}}
+{{- $store := required "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore)" .Values.externalSecrets.storeRef.name -}}
+{{- end -}}
+
+{{- /* Metrics contract: never wire a scrape target OTP2 does not serve. */ -}}
+{{- if and .Values.serviceMonitor.enabled (not .Values.otpFeatures.actuatorApi) -}}
+{{- fail "serviceMonitor.enabled=true requires otpFeatures.actuatorApi=true (OTP2 only exposes /otp/actuators/prometheus with the ActuatorAPI sandbox feature)" -}}
+{{- end -}}
+
+{{- /* Honest OTel: opt-in javaagent, refused without its endpoint. */ -}}
+{{- if .Values.telemetry.javaagent.enabled -}}
+{{- $endpoint := required "telemetry.javaagent.otlpEndpoint is required when telemetry.javaagent.enabled=true (OTLP endpoint of the collector agent/gateway; telemetry must never silently vanish)" .Values.telemetry.javaagent.otlpEndpoint -}}
+{{- $agentRepo := required "telemetry.javaagent.image.repository is required when telemetry.javaagent.enabled=true" .Values.telemetry.javaagent.image.repository -}}
+{{- $agentDigest := required "telemetry.javaagent.image.digest is required when telemetry.javaagent.enabled=true" .Values.telemetry.javaagent.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $agentDigest) -}}
+{{- fail "telemetry.javaagent.image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Resources are mandatory. */ -}}
+{{- if or (empty .Values.resources.requests.cpu) (empty .Values.resources.requests.memory) (empty .Values.resources.limits.cpu) (empty .Values.resources.limits.memory) -}}
+{{- fail "resources.requests and resources.limits (cpu and memory) are required" -}}
+{{- end -}}
+
+{{- /* Edge route registration is mandatory: OTP2's APIs are
+       unauthenticated, so the release may only exist behind the
+       registered APISIX edge route. */ -}}
+{{- if not .Values.edge.routeRegistration.required -}}
+{{- fail "edge.routeRegistration.required must remain true (OTP2 has no auth; the edge enforces authn/authz)" -}}
+{{- end -}}
+{{- $routeRef := required "edge.routeRegistration.apisixRouteRef is required (the ApisixRoute CR from charts/apisix-routes registering this OTP2 release on the edge)" .Values.edge.routeRegistration.apisixRouteRef -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- $apisixNs := required "networkPolicy.apisixNamespace is required (the only approved ingress source)" .Values.networkPolicy.apisixNamespace -}}
+{{- $geoNs := required "networkPolicy.geoServiceNamespace is required (the only approved non-DNS egress target: static GTFS + GTFS-RT updater polls)" .Values.networkPolicy.geoServiceNamespace -}}
+{{- if and $needsExternalEgress (empty .Values.networkPolicy.externalInputCIDRs) -}}
+{{- fail "networkPolicy.externalInputCIDRs must list the approved HTTPS egress CIDRs for the external graph-input URLs" -}}
+{{- end -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for opentripplanner" -}}
+{{- end -}}
+
+{{- /* HPA/PDB coherence. */ -}}
+{{- if .Values.hpa.enabled -}}
+{{- if lt (int .Values.hpa.minReplicas) 1 -}}
+{{- fail "hpa.minReplicas must be at least 1" -}}
+{{- end -}}
+{{- if lt (int .Values.hpa.maxReplicas) (int .Values.hpa.minReplicas) -}}
+{{- fail "hpa.maxReplicas must be >= hpa.minReplicas" -}}
+{{- end -}}
+{{- end -}}
