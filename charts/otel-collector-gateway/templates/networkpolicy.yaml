@@ -1,8 +1,7 @@
 # Gateway network posture: OTLP ingress from the collector agents (and
-# edge OTel sources such as Keycloak/Permify that target the gateway
-# directly per OTEL_DESIGN.md section 3), Prometheus scrapes from the
-# same namespace; egress to the Tempo/Loki backends (same namespace) and
-# DNS only.
+# edge OTel sources such as Keycloak that target the gateway directly per
+# OTEL_DESIGN.md section 3), Prometheus scrapes from the same namespace;
+# egress to the Tempo/Loki backends (same namespace) and DNS only.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -28,8 +27,10 @@ spec:
         - protocol: TCP
           port: 8888
     # Edge OTel sources that point at the gateway directly (Keycloak
-    # tracing, Permify OTLP — security namespace; APISIX edge spans are
-    # emitted by the APISIX deployment in the same namespace).
+    # tracing — security namespace; APISIX edge spans are emitted by the
+    # APISIX deployment in the same namespace). The authorization-service
+    # successor (OpenFGA per docs/permify-authorization-decision.md) will
+    # join this rule when it is charted.
     - from:
         - namespaceSelector:
             matchLabels:
