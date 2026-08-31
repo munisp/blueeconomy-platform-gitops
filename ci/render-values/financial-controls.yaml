@@ -6,6 +6,9 @@ externalSecrets:
     kind: ClusterSecretStore
   keys:
     DATABASE_URL: cvff/render-fixture/database-url
+    # kid=base64url-Ed25519-public-key pairs consumed by stamps-intake
+    # (name-only reference; no key material in this fixture).
+    STAMPS_INTAKE_TRUSTED_KEYS: cvff/render-fixture/stamps-intake-trusted-keys
 
 components:
   intent-api:
@@ -60,6 +63,12 @@ components:
     env:
       KAFKA_BROKERS: kafka.blueeconomy-platform.svc.cluster.local:9092
       KAFKA_TOPIC: cvff.disbursement.v1
+  stamps-intake:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/stamps-intake
+      digest: sha256:3b7f2c9e1a4d6f8b0c2e5a7d9f1b3c5e7a9d1f3b5c7e9a1d3f5b7c9e1a3d5f7b
+    env:
+      KAFKA_BROKERS: kafka.blueeconomy-platform.svc.cluster.local:9092
 
 networkPolicy:
   allowedIngressNamespaces: ["blueeconomy-edge"]

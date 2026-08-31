@@ -299,6 +299,10 @@ components:
       digest: ""
       pullPolicy: IfNotPresent
     replicas: 1
+    # Dapr app-id, required like every component when dapr.enabled=true
+    # (deployments.yaml refuses to render without it). Must stay in the
+    # cvff workstream app-id scope list (charts/dapr-components).
+    daprAppId: stamps-intake
     env:
       KAFKA_BROKERS: ""
       STAMPS_INTAKE_GROUP_ID: "financial-controls-stamps-intake"

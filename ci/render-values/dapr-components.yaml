@@ -7,6 +7,7 @@ workstream:
     - cvff-outbox-publisher
     - cvff-api
     - declaration-scorer
+    - stamps-intake
 
 pubsub:
   kafka:
