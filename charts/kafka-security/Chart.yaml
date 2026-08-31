@@ -1,0 +1,25 @@
+apiVersion: v2
+name: kafka-security
+description: >-
+  Strimzi Kafka cluster hardening templates (WP-E): TLS listeners and
+  SASL/SCRAM-SHA-512 authentication for the platform event bus, rendered as
+  Kafka/KafkaUser CRs against the source-locked strimzi-kafka-operator
+  (components/upstream-components.lock.yaml). Disabled by default and
+  fail-closed: the chart refuses to render without explicit opt-in, refuses
+  plaintext listeners and non-SCRAM mechanisms, and carries secret NAMES
+  only — credentials are operator-generated or ExternalSecrets-synced,
+  never stored in this repository.
+type: application
+version: 0.1.0
+appVersion: "3.8.0"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - kafka
+  - strimzi
+  - tls
+  - sasl
+  - scram-sha-512
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "event-bus-security"
+  blueeconomy.platform/upstream-policy: "CRs apply only against the source-locked strimzi-kafka-operator release"
