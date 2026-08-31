@@ -64,52 +64,8 @@
 {{- fail (printf "platformConfig.services[%d].requiredRoles must be a non-empty string array" $i) -}}
 {{- end -}}
 {{- end -}}
-{{- /* Geospatial tracking-console wiring (decision D8), mirroring
-       src/runtime-config.ts validateGeospatialConfiguration: the geo API
-       is HTTPS-only; the tile template carries {z}/{x}/{y} and is either
-       HTTPS or a same-origin absolute path; Cesium and GeoLibre are
-       self-hosted same-origin paths only. */ -}}
-{{- if .Values.platformConfig.geospatial.enabled -}}
-{{- $geo := .Values.platformConfig.geospatial -}}
-{{- if not (hasPrefix "https://" (printf "%v" $geo.geoApiUrl)) -}}
-{{- fail "platformConfig.geospatial.geoApiUrl must be an HTTPS URL" -}}
-{{- end -}}
-{{- $tile := printf "%v" $geo.tileUrl -}}
-{{- if or (not (contains "{z}" $tile)) (not (contains "{x}" $tile)) (not (contains "{y}" $tile)) -}}
-{{- fail "platformConfig.geospatial.tileUrl must be a raster tile template containing {z}, {x} and {y}" -}}
-{{- end -}}
-{{- if hasPrefix "/" $tile -}}
-{{- if or (hasPrefix "//" $tile) (contains "?" $tile) (contains "#" $tile) -}}
-{{- fail "platformConfig.geospatial.tileUrl must not carry query parameters, fragments or a scheme-relative host" -}}
-{{- end -}}
-{{- else -}}
-{{- if not (hasPrefix "https://" $tile) -}}
-{{- fail "platformConfig.geospatial.tileUrl must be an HTTPS URL or a same-origin absolute path" -}}
-{{- end -}}
-{{- if or (contains "@" $tile) (contains "?" $tile) (contains "#" $tile) -}}
-{{- fail "platformConfig.geospatial.tileUrl must be an HTTPS URL without credentials, query parameters or fragments" -}}
-{{- end -}}
-{{- end -}}
-{{- $poll := int $geo.pollIntervalMs -}}
-{{- if or (lt $poll 5000) (gt $poll 300000) -}}
-{{- fail "platformConfig.geospatial.pollIntervalMs must be an integer between 5000 and 300000" -}}
-{{- end -}}
-{{- if $geo.cesiumBaseUrl -}}
-{{- if not (hasPrefix "/" (printf "%v" $geo.cesiumBaseUrl)) -}}
-{{- fail "platformConfig.geospatial.cesiumBaseUrl must be a same-origin absolute path (self-hosted Cesium assets)" -}}
-{{- end -}}
-{{- end -}}
-{{- if $geo.geolibreEnabled -}}
-{{- if not $geo.geolibreUrl -}}
-{{- fail "platformConfig.geospatial.geolibreUrl is required when geolibreEnabled is true" -}}
-{{- end -}}
-{{- end -}}
-{{- if $geo.geolibreUrl -}}
-{{- if not (hasPrefix "/" (printf "%v" $geo.geolibreUrl)) -}}
-{{- fail "platformConfig.geospatial.geolibreUrl must be a same-origin absolute path (reverse-proxied GeoLibre deployment)" -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
+{{- /* Audit G4: geospatial/tracking-console validation removed — the SPA
+       ships no geospatial consumer; the config block no longer exists. */ -}}
 {{- if .Values.ingress.enabled -}}
 {{- $host := required "ingress.host is required (approved public portal hostname)" .Values.ingress.host -}}
 {{- if contains "*" $host -}}

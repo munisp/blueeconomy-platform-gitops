@@ -67,26 +67,10 @@ platformConfig:
     allowedRoles: []
   # Approved service directory: at least one entry, every healthUrl HTTPS.
   services: []
-  # Optional geospatial tracking-console wiring (decision D8). When
-  # disabled the tracking routes render an explicit "not configured"
-  # state; when enabled every endpoint is render-gated exactly like the
-  # portal's own client-side validation.
-  geospatial:
-    enabled: false
-    # HTTPS base URL of the geo-service /v1/geo API behind the gateway.
-    geoApiUrl: ""
-    # Raster tile template containing {z}, {x} and {y}: an HTTPS URL or a
-    # same-origin absolute path (sovereign tile servers reverse-proxied
-    # onto the portal origin).
-    tileUrl: ""
-    tileAttribution: ""
-    pollIntervalMs: 15000
-    # Self-hosted Cesium assets: same-origin absolute path only (D5).
-    cesiumBaseUrl: ""
-    # GeoLibre pilot: same-origin reverse-proxied analysis app only (the
-    # strict CSP frame-src 'self' must hold).
-    geolibreEnabled: false
-    geolibreUrl: ""
+  # NOTE (audit G4): the former geospatial/tracking-console block
+  # (Cesium/GeoLibre/tile wiring) was removed — the ministry-portal SPA
+  # contains no geospatial code, so the rendered configuration had no
+  # consumer. Re-introduce only together with the client-side feature.
 
 probes:
   livenessPath: /healthz

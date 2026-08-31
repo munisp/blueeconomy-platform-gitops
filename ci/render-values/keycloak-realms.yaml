@@ -22,3 +22,5 @@ externalSecrets:
 publicClientRedirects:
   beneficiary-portal:
     - https://beneficiary-portal.render-fixture.example.invalid/auth/callback
+  ministry-portal:
+    - https://ministry-portal.render-fixture.example.invalid/auth/callback

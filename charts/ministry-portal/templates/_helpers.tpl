@@ -68,24 +68,5 @@ discovery metadata only; no secret material may ever appear here.
   )
   "services" $services
 -}}
-{{- if .Values.platformConfig.geospatial.enabled -}}
-{{- $geo := .Values.platformConfig.geospatial -}}
-{{- $geoDoc := dict
-  "geo_api_url" $geo.geoApiUrl
-  "tile_url" $geo.tileUrl
-  "poll_interval_ms" (int $geo.pollIntervalMs)
-  "geolibre_enabled" (eq true $geo.geolibreEnabled)
--}}
-{{- if $geo.tileAttribution -}}
-{{- $_ := set $geoDoc "tile_attribution" $geo.tileAttribution -}}
-{{- end -}}
-{{- if $geo.cesiumBaseUrl -}}
-{{- $_ := set $geoDoc "cesium_base_url" $geo.cesiumBaseUrl -}}
-{{- end -}}
-{{- if $geo.geolibreUrl -}}
-{{- $_ := set $geoDoc "geolibre_url" $geo.geolibreUrl -}}
-{{- end -}}
-{{- $_ := set $doc "geospatial" $geoDoc -}}
-{{- end -}}
 {{- $doc | toPrettyJson -}}
 {{- end -}}
