@@ -289,6 +289,35 @@ components:
         cpu: 500m
         memory: 256Mi
 
+  # stamps-intake consumes the tax-stamps excise stamp lifecycle events from
+  # the four stamps.* topics (JWS-verified against STAMPS_INTAKE_TRUSTED_KEYS,
+  # idempotent landing; fail-closed consumer group).
+  stamps-intake:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    env:
+      KAFKA_BROKERS: ""
+      STAMPS_INTAKE_GROUP_ID: "financial-controls-stamps-intake"
+    requiredEnv:
+      - KAFKA_BROKERS
+      - STAMPS_INTAKE_GROUP_ID
+    secretEnv:
+      - DATABASE_URL
+      # kid=base64url-Ed25519-public-key pairs (comma-separated); env-only,
+      # fail-closed at boot when absent or malformed.
+      - STAMPS_INTAKE_TRUSTED_KEYS
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
 networkPolicy:
   enabled: true
   # CVFF fiduciary segregation: no other workstream namespace may connect in.

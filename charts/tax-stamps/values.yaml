@@ -104,6 +104,9 @@ externalSecrets:
 secretEnv:
   - TAXSTAMPS_DATABASE_URL
   - TAXSTAMPS_REDIS_URL
+  # Bearer token for the financial-controls settlements boundary; the rail
+  # is only configured when endpoint AND token are both present.
+  - TAXSTAMPS_FINANCIAL_CONTROLS_TOKEN
 
 signingKey:
   # ExternalSecrets key holding the PEM; mounted at mountPath/signing-key.pem.
@@ -129,7 +132,15 @@ env:
   # COPY policies ./policies).
   TAXSTAMPS_POLICY_DIR: /app/policies
   TAXSTAMPS_KAFKA_BOOTSTRAP_SERVERS: ""
-  TAXSTAMPS_KAFKA_DECLARATIONS_TOPIC_PATTERN: "declarations.*"
+  # Comma-separated topic patterns: the port-interoperability producer
+  # publishes declarations on trade.declarations.v1 (envelope v1.0 FHIR
+  # Basic domain-payload), so it must be subscribed alongside declarations.*.
+  TAXSTAMPS_KAFKA_DECLARATIONS_TOPIC_PATTERN: "declarations.*,trade.declarations.v1"
+  # Producer-contract normalization: eventType=mode pairs mapping the
+  # producer wire format onto the structural declaration resource.
+  TAXSTAMPS_DECLARATION_EVENT_MAP: "trade.declaration.submitted.v1=declaration"
+  # Trusted JWS kid prefix allow-list for inbound declaration envelopes.
+  TAXSTAMPS_TRUSTED_KID_PREFIXES: "port-interoperability-"
   TAXSTAMPS_KAFKA_CONSUMER_GROUP: "blueeconomy-tax-stamps"
   # OIDC (Keycloak JWKS). The API is fail-closed 503 without bearer authn;
   # the chart requires the wiring outright.
