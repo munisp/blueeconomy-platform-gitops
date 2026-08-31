@@ -1,0 +1,73 @@
+# Kafka TLS/SASL hardening templates (WP-E), rendered against the
+# source-locked strimzi-kafka-operator. Cloud-agnostic: plain Strimzi CRs,
+# no cloud service dependencies.
+# Fail-closed: disabled by default; every render requires explicit opt-in
+# plus approved environment values. Secret NAMES only — no credential
+# material ever appears in this repository, and placeholder tokens are
+# refused at render time.
+nameOverride: ""
+fullnameOverride: ""
+
+kafkaSecurity:
+  # PROTECTED: explicit opt-in. The render gate refuses to produce any
+  # manifest while this is false.
+  enabled: false
+
+cluster:
+  # Kafka cluster name (Kafka CR metadata.name). Required.
+  name: ""
+  # Kafka operand version; must be supported by the source-locked Strimzi
+  # operator (components/upstream-components.lock.yaml). Required.
+  kafkaVersion: ""
+  # Broker replicas; quorum-safe minimum is 3 (render-gated).
+  replicas: 3
+  storage:
+    # persistent-claim only; jbod/ephemeral are refused (ledger-grade
+    # durability posture for the event bus).
+    class: ""
+    size: 100Gi
+    # PVCs must never be auto-deleted with the cluster.
+    deleteClaim: false
+
+listeners:
+  # TLS listener (replication + authenticated clients). Mandatory; the
+  # render gate refuses to disable TLS. Port 9093.
+  tls:
+    port: 9093
+  # SASL listener: SCRAM-SHA-512 over TLS. Port 9094. The mechanism enum
+  # is fail-closed: plain/scram-sha-256 are refused.
+  sasl:
+    port: 9094
+    mechanism: scram-sha-512
+
+# Strimzi "simple" authorization (ACLs on KafkaUser entries). The platform
+# posture denies by default; only the ACLs declared below exist.
+authorization:
+  type: simple
+
+# Service users (KafkaUser CRs). authentication is fixed to scram-sha-512;
+# the operator generates each password into a Secret named after the user
+# (<name>) in the cluster namespace — the NAME is the only thing this
+# repository knows. ACLs are the least-privilege contract per service.
+users: []
+#  - name: cvff-outbox-publisher
+#    acls:
+#      - resource: {type: topic, name: "cvff.", patternType: prefix}
+#        operations: [Write, Describe]
+#      - resource: {type: group, name: "cvff-", patternType: prefix}
+#        operations: [Read]
+
+# Cluster CA distribution to consumer namespaces via the repo's
+# external-secrets pattern: the operator-published cluster CA Secret NAME
+# is synced (cert content never appears here). Disabled when namespaces is
+# empty; when enabled, storeRef.name is render-gated.
+caDistribution:
+  namespaces: []
+  # Name of the Secret created in each target namespace holding ca.crt.
+  targetSecretName: kafka-cluster-ca-cert
+
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
