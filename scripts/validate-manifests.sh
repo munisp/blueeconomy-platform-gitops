@@ -61,7 +61,7 @@ for chart in tigerbeetle mojaloop-overlay sedona-spark-jobs core-services region
   postgis martin geo-service apisix-routes \
   tax-stamps ml-stack data-platform waterway-safety cv-service emqx \
   otel-collector-agent otel-collector-gateway tempo loki alertmanager \
-  novu prometheus-rules keycloak opentripplanner trufi-planner; do
+  novu prometheus-rules keycloak opentripplanner trufi-planner kafka-security; do
   test -s "$repo_root/charts/$chart/Chart.yaml"
   test -s "$repo_root/charts/$chart/values.yaml"
 done
@@ -172,6 +172,7 @@ assert_default_render_fails_closed prometheus-rules 'profile must be one of: dev
 assert_default_render_fails_closed keycloak 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed opentripplanner 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed trufi-planner 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed kafka-security 'kafkaSecurity.enabled=true is required'
 
 # Positive render gates: every shared-platform chart must render fully with
 # its CI render fixture (fail-closed defaults exercised separately above).
@@ -182,7 +183,7 @@ for chart in ferry-ticketing financial-controls port-interoperability security-o
   cilium opa-policies sedona-spark-jobs martin geo-service apisix-routes \
   tax-stamps ml-stack data-platform waterway-safety cv-service emqx \
   otel-collector-agent otel-collector-gateway tempo loki alertmanager \
-  novu prometheus-rules keycloak opentripplanner trufi-planner; do
+  novu prometheus-rules keycloak opentripplanner trufi-planner kafka-security; do
   helm template render-gate "$repo_root/charts/$chart" \
     --kube-version "$helm_kube_version" \
     -f "$repo_root/ci/render-values/$chart.yaml" > /dev/null
@@ -959,6 +960,64 @@ if helm template render-gate "$repo_root/charts/backup-dr" \
 fi
 grep -Fq 'storage.endpoint is required for provider=s3-compatible' "$output"
 rm -f "$output"
+
+# WP-E APISIX route inventory gate: plugin references, declared upstream
+# services, duplicate route URIs and TLS posture are statically validated
+# on the rendered ApisixRoute manifests.
+"$repo_root/scripts/validate-apisix-routes.sh" > /dev/null
+
+# WP-E Kafka TLS/SASL gates (kafka-security): a non-SCRAM-SHA-512 SASL
+# mechanism is refused at render time.
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/kafka-security" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/kafka-security.yaml" \
+    --set 'listeners.sasl.mechanism=plain' > /dev/null 2>"$output"; then
+  echo 'kafka-security rendered a non-SCRAM-SHA-512 SASL mechanism' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'listeners.sasl.mechanism must be scram-sha-512' "$output"
+rm -f "$output"
+
+# WP-E Kafka plaintext-listener gate: a plaintext listener is refused at
+# render time (TLS is mandatory).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/kafka-security" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/kafka-security.yaml" \
+    --set 'listeners.plain.enabled=true' > /dev/null 2>"$output"; then
+  echo 'kafka-security rendered a plaintext listener' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'plaintext Kafka listeners are refused' "$output"
+rm -f "$output"
+
+# WP-E Kafka placeholder gate: placeholder secret/cluster names are refused
+# at render time (credentials posture: names only, never placeholder values).
+output="$(mktemp)"
+if helm template render-gate "$repo_root/charts/kafka-security" \
+    --kube-version "$helm_kube_version" \
+    -f "$repo_root/ci/render-values/kafka-security.yaml" \
+    --set 'cluster.name=REPLACE_WITH_CLUSTER' > /dev/null 2>"$output"; then
+  echo 'kafka-security rendered a placeholder cluster name' >&2
+  rm -f "$output"
+  exit 1
+fi
+grep -Fq 'placeholder value' "$output"
+rm -f "$output"
+
+# Positive path: the rendered Kafka CR carries the TLS + SASL/SCRAM-SHA-512
+# listeners and no plaintext listener.
+kafka_render="$(helm template render-gate "$repo_root/charts/kafka-security" \
+  --kube-version "$helm_kube_version" \
+  -f "$repo_root/ci/render-values/kafka-security.yaml")"
+grep -q 'type: scram-sha-512' <<<"$kafka_render"
+grep -q 'kind: KafkaUser' <<<"$kafka_render"
+grep -q 'kind: ExternalSecret' <<<"$kafka_render"
+! grep -q 'tls: false' <<<"$kafka_render"
+unset kafka_render
 
 # HashiCorp Vault secret-store gate: enabling the vault secret store without
 # its server URL is rejected at render time.
