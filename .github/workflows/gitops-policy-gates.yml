@@ -71,7 +71,7 @@ jobs:
           HELM_KUBE_VERSION: 1.28.0
         run: |
           set -euo pipefail
-          ./scripts/validate-apisix-routes.sh
+          bash scripts/validate-apisix-routes.sh
 
       - name: Confirm no deployment path exists in the gate
         run: |
