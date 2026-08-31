@@ -4,3 +4,14 @@ resources:
   - namespaces/platform.yaml
   - namespaces/security.yaml
   - namespaces/recovery.yaml
+  - namespaces/ports.yaml
+  - namespaces/ferries.yaml
+  - namespaces/cvff.yaml
+  - namespaces/seafarer.yaml
+  - namespaces/fisheries.yaml
+  - namespaces/isr.yaml
+  - namespaces/blueeco-tigerbeetle-prod.yaml
+  - namespaces/blueeco-mojaloop-prod.yaml
+  - namespaces/blueeco-geo-prod.yaml
+  - namespaces/observability.yaml
+  - namespaces/sandbox.yaml

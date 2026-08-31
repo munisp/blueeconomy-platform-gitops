@@ -1,0 +1,77 @@
+# OPA policy layer: platform policy packs (immutable ConfigMaps), the OPA
+# server, the APISIX opa-plugin hook contract and the producer-signature key
+# directory. Fail-closed: no public key material or image is defaulted.
+nameOverride: ""
+fullnameOverride: ""
+
+opa:
+  image:
+    repository: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  replicas: 3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# APISIX opa plugin hook. APISIX evaluates policy
+# blueeconomy/http/allow on the OPA service below for every route; the
+# hook contract ConfigMap records the approved wiring for the pinned
+# upstream APISIX release.
+apisixHook:
+  policy: blueeconomy/http/allow
+  # In-cluster OPA URL consumed by the APISIX opa plugin. Render-gated
+  # non-empty; derived from the release service name by default.
+  serviceName: ""
+  servicePort: 8181
+
+# Producer-signature key directory. Rendered as a JSON ConfigMap
+# {kid: base64url-ed25519-pubkey} and mounted read-only at
+# KEY_DIRECTORY_PATH by consumers verifying provenance.signature on the
+# canonical event envelope:
+#   - security-operations (detection engine envelope validation)
+#   - data-platform (lakehouse ingest verification)
+#
+# SOURCING: public keys are generated OUT OF BAND by the producer key
+# ceremony, published to the sovereign landing zone's secret store (any
+# ESO-supported backend, e.g. Azure Key Vault or HashiCorp Vault) as
+# non-secret public material, and land in the
+# authorised environment values via ExternalSecrets references. They are
+# intentionally NOT defaulted here and MUST NOT be fabricated; every entry
+# is render-gated as a base64url Ed25519 public key (32 bytes, 43 chars).
+keyDirectory:
+  # Approved producer key ids. Every kid requires a publicKey entry.
+  producers:
+    - financial-controls-1
+    - port-interoperability-1
+    - ferry-ticketing-1
+    - admin-service-1
+    - maritime-intelligence-1
+    - maritime-evidence-1
+    - fisheries-traceability-1
+    - waterway-safety-1
+  # kid -> base64url Ed25519 public key. Required for every producer above.
+  publicKeys: {}
+
+  # Consumer wiring reference (applied in the consumer charts' values):
+  #
+  #   security-operations (charts/security-operations/values.yaml):
+  #     keyDirectory:
+  #       enabled: true
+  #       configMapName: <release>-opa-policies-key-directory
+  #       mountPath: /etc/blueeconomy/key-directory   # KEY_DIRECTORY_PATH
+  #
+  #   data-platform: the data-platform service is not yet chart-managed in
+  #   this repository. When its chart lands it MUST mount this same
+  #   ConfigMap at KEY_DIRECTORY_PATH using the identical volume block:
+  #     volumes:
+  #       - name: producer-key-directory
+  #         configMap: {name: <release>-opa-policies-key-directory}
+  #     volumeMounts:
+  #       - {name: producer-key-directory, mountPath: /etc/blueeconomy/key-directory, readOnly: true}
+  #     env:
+  #       - {name: KEY_DIRECTORY_PATH, value: /etc/blueeconomy/key-directory}

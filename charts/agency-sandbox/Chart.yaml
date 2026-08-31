@@ -1,0 +1,29 @@
+apiVersion: v2
+name: agency-sandbox
+description: >-
+  blueeconomy-agency-sandbox: NON-PRODUCTION TradeNet-style HTTP
+  simulators of the Nigerian government counterpart agency systems that
+  the BlueEconomy singlewindow external adapters integrate with
+  (ncs-bodogwu, cbn-tms, nepc, nis, port-health, npa-esen — six Go
+  services, one image per agency). Nothing here is a production system:
+  every response carries X-Sandbox: true and the chart hard-refuses
+  profile=prod. Fail-closed: digest-pinned images, per-agency Ed25519
+  signing keys exclusively via ExternalSecrets (ephemeral in-cluster keys
+  are refused at render so conformance evidence stays deterministic),
+  health probes on the real /healthz endpoint, resources required,
+  distroless non-root securityContext. Cloud-agnostic: no provider API
+  is consumed.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - sandbox
+  - simulator
+  - conformance
+  - non-production
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "sandbox-only"
+  blueeconomy.platform/upstream-policy: "Pin verified upstream image digests; do not deploy unreviewed defaults"
+  blueeconomy.platform/environment: "sandbox"

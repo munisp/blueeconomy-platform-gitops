@@ -1,0 +1,77 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digests and
+# illustrative endpoints. Real values live in the authorised environment repo.
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    DATABASE_URL: cvff/render-fixture/database-url
+
+components:
+  intent-api:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/intent-api
+      digest: sha256:97954ca15c3cf23174e3343c1f8ce09a86bfd12ec0d05495d2b1039a714f6529
+    env:
+      INTENT_API_KEYCLOAK_ISSUER: https://keycloak.blueeconomy-platform.svc.cluster.local/realms/blueeconomy-cvff
+      INTENT_API_KEYCLOAK_JWKS_URL: https://keycloak.blueeconomy-platform.svc.cluster.local/realms/blueeconomy-cvff/protocol/openid-connect/certs
+      INTENT_API_JWT_AUDIENCE: intent-api
+      TIGERBEETLE_CLUSTER_ID_HEX: "00000000000000000000000000000001"
+      TIGERBEETLE_REPLICA_ADDRESSES: tigerbeetle-0.tigerbeetle-headless.blueeco-tigerbeetle-prod.svc.cluster.local:3000
+      TIGERBEETLE_LEDGER: "10"
+      TIGERBEETLE_CODE: "100"
+  cvff-api:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/cvff-api
+      digest: sha256:1c5b0f2e6a1e4d5e7d3e8c2b9a4f6d1c0e3b5a7d9f2e4c6a8b0d2f4e6a8c0e2b
+    env:
+      CVFF_API_KEYCLOAK_ISSUER: https://keycloak.blueeconomy-platform.svc.cluster.local/realms/blueeconomy-cvff
+      CVFF_API_KEYCLOAK_JWKS_URL: https://keycloak.blueeconomy-platform.svc.cluster.local/realms/blueeconomy-cvff/protocol/openid-connect/certs
+      CVFF_API_JWT_AUDIENCE: cvff-api
+      CVFF_API_AVSCAN_URL: https://clamav.blueeconomy-platform.svc.cluster.local/scan
+      BLUEECONOMY_STORAGE_BACKEND: adls
+  cvff-worker:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/cvff-worker
+      digest: sha256:18355da5c2616a3dc431eb02a9584df4f22ca840e9b8edbc3e3472db6aada161
+    env:
+      TIGERBEETLE_CLUSTER_ID_HEX: "00000000000000000000000000000001"
+      TIGERBEETLE_REPLICA_ADDRESSES: tigerbeetle-0.tigerbeetle-headless.blueeco-tigerbeetle-prod.svc.cluster.local:3000
+      CVFF_NGN_DEBIT_ACCOUNT_ID_HEX: "00000000000000000000000000000011"
+      CVFF_NGN_CREDIT_ACCOUNT_ID_HEX: "00000000000000000000000000000012"
+      CVFF_USD_DEBIT_ACCOUNT_ID_HEX: "00000000000000000000000000000013"
+      CVFF_USD_CREDIT_ACCOUNT_ID_HEX: "00000000000000000000000000000014"
+      CVFF_NGN_LEDGER: "10"
+      CVFF_USD_LEDGER: "11"
+      CVFF_FEE_CODE: "100"
+      CVFF_COST_CODE: "101"
+      CVFF_CUSTODIAL_FEE_BPS: "50"
+  declaration-scorer:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/declaration-scorer
+      digest: sha256:2d6c1f3e7b2f5e6a8d4f9c3b0a5e7d2c1f4b6a8d0e3f5c7b9d1e3a5c7f9b1d3f
+    env:
+      KEYCLOAK_JWKS_URL: https://keycloak.blueeconomy-platform.svc.cluster.local/realms/blueeconomy-ports-ecallup/protocol/openid-connect/certs
+      KEYCLOAK_ISSUER: https://keycloak.blueeconomy.example.gov.ng/realms/blueeconomy-ports-ecallup
+  outbox-publisher:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/cvff-outbox-publisher
+      digest: sha256:a8d2241077d59e28c419e3297fb1725f5c7ca276048f6961af5502b0e273fadc
+    env:
+      KAFKA_BROKERS: kafka.blueeconomy-platform.svc.cluster.local:9092
+      KAFKA_TOPIC: cvff.disbursement.v1
+
+networkPolicy:
+  allowedIngressNamespaces: ["blueeconomy-edge"]
+  allowedEgress:
+    - namespace: kube-system
+      ports: [53]
+      protocols: ["UDP", "TCP"]
+    - namespace: blueeconomy-platform
+      ports: [5432, 9092, 7233, 8080]
+    - namespace: blueeco-tigerbeetle-prod
+      ports: [3000]
+
+monitoring:
+  serviceMonitor:
+    enabled: true

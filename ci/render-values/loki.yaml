@@ -1,0 +1,45 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative references. Real values live in the authorised environment
+# repo.
+profile: prod
+
+image:
+  repository: grafana/loki
+  digest: sha256:2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b
+
+retentionHours: 720
+
+correlation:
+  requiredFields:
+    - trace_id
+    - span_id
+
+storage:
+  bucket: blueeconomy-logs
+  endpoint: https://objectstorage.blueeconomy.example.gov.ng
+  region: local
+  accessKeySecretKey: LOKI_S3_ACCESS_KEY
+  secretKeySecretKey: LOKI_S3_SECRET_KEY
+
+persistence:
+  size: 20Gi
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    LOKI_S3_ACCESS_KEY: observability/render-fixture/loki-s3-access-key
+    LOKI_S3_SECRET_KEY: observability/render-fixture/loki-s3-secret-key
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+networkPolicy:
+  storageCIDRs:
+    - 10.50.0.0/16

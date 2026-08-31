@@ -1,0 +1,168 @@
+# blueeconomy-ml-stack deploy surface. Contract per deploy/README.md and
+# inference/service.py:
+#   scoring-service: uvicorn inference.service:app --port 8100, env
+#     BEML_MODELS_ROOT / BEML_AB_CONFIG / BEML_LATENCY_BUDGET_MS /
+#     MLFLOW_TRACKING_URI; models mounted read-only; HPA on CPU is fine,
+#     scale-to-zero is NOT (cold start would breach the fail-closed
+#     latency contract).
+#   CronJobs: snapshot-builder (pipelines.extract), continuous-training
+#     (pipelines.continuous_training — BEML_ALLOW_SYNTHETIC_FALLBACK must
+#     be UNSET in production; render-gated), drift-report
+#     (monitoring.drift).
+# Every credential arrives exclusively through ExternalSecrets; no
+# placeholder or inline credential is permitted. Cloud-agnostic.
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile. prod refuses BEML_ALLOW_SYNTHETIC_FALLBACK and any
+# BEML_*_SYNTHETIC / SYNTHETIC_* env name at render time (synthetic data
+# must never reach production namespaces).
+profile: ""
+
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+# ExternalSecrets contract (any ESO-supported ClusterSecretStore).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+# Secret-sourced env (names must exist in externalSecrets.keys), injected
+# into every component (e.g. object-storage credentials for the lakehouse
+# client; MLflow backend store URI when the mlflow component is enabled).
+secretEnv: []
+
+scoring:
+  enabled: true
+  replicas: 2
+  port: 8100
+  # The service reports per-model availability on /health and never lies
+  # about liveness (inference/service.py).
+  probes:
+    livenessPath: /health
+    readinessPath: /health
+  env:
+    # Read-only model artifact mount (models/<name>/<semver>/model.*).
+    BEML_MODELS_ROOT: /var/lib/beml/models
+    # Version routing config; rendered as a ConfigMap from abConfig below
+    # (rollout-safe: bucketing is deterministic by entity ID).
+    BEML_AB_CONFIG: /etc/beml/ab_config.yaml
+    BEML_LATENCY_BUDGET_MS: "50"
+    # MLflow tracking server (model registry stage transitions).
+    MLFLOW_TRACKING_URI: ""
+  requiredEnv:
+    - BEML_MODELS_ROOT
+    - BEML_AB_CONFIG
+    - MLFLOW_TRACKING_URI
+  # Deterministic A/B routing config (inference/ab_config.yaml shape).
+  # Render-gated non-empty.
+  abConfig: ""
+  # Read-only model artifact store volume. The production formation syncs
+  # models/<name>/PRODUCTION artifacts into this PVC (object-store sync is
+  # landing-zone machinery); the claim must pre-exist.
+  modelsVolume:
+    persistentVolumeClaimName: ""
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+
+# Lakehouse batch jobs (bounded runs; offset-commit-after-persist makes
+# SIGKILL safe). Every entry requires: schedule (five-field cron),
+# command (module entrypoint arguments after `python -m`), resources.
+cronJobs: []
+# Example shape (environment values supply the approved entries):
+#   - name: snapshot-builder
+#     schedule: "0 1 * * *"
+#     module: pipelines.extract
+#     args: []
+#   - name: continuous-training
+#     schedule: "0 2 * * 0"
+#     module: pipelines.continuous_training
+#     args: ["--model", "fraud-tabular"]
+#   - name: drift-report
+#     schedule: "0 3 * * *"
+#     module: monitoring.drift
+#     args: []
+
+# Shared env for the batch CronJobs (lakehouse storage convention per
+# blueeconomy-data-platform: BLUEECONOMY_STORAGE_*).
+batchEnv:
+  BLUEECONOMY_STORAGE_BACKEND: ""
+  BLUEECONOMY_STORAGE_ACCOUNT: ""
+  BLUEECONOMY_STORAGE_FILESYSTEM: ""
+  MLFLOW_TRACKING_URI: ""
+requiredBatchEnv:
+  - BLUEECONOMY_STORAGE_BACKEND
+  - BLUEECONOMY_STORAGE_ACCOUNT
+  - BLUEECONOMY_STORAGE_FILESYSTEM
+  - MLFLOW_TRACKING_URI
+
+# Optional MLflow tracking server (Postgres backend store via
+# ExternalSecrets, lakehouse artifact root). Disabled by default: most
+# formations run MLflow from the data platform estate; enable only with an
+# approved digest-pinned image.
+mlflow:
+  enabled: false
+  image:
+    repository: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  port: 5000
+  env:
+    # Artifact root on the lakehouse object storage.
+    MLFLOW_ARTIFACT_ROOT: ""
+  requiredEnv:
+    - MLFLOW_ARTIFACT_ROOT
+  # Backend store URI arrives via ExternalSecrets (never inline).
+  backendStoreSecretKey: MLFLOW_BACKEND_STORE_URI
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+networkPolicy:
+  enabled: true
+  # Namespaces permitted to call the scoring API (platform rules engines).
+  allowedIngressNamespaces: []
+  # Environment-appended egress (object storage endpoint, MLflow, DNS at
+  # minimum). Render-gated non-empty.
+  allowedEgress: []
+  #   - namespace: kube-system
+  #     ports: [53]
+  #     protocols: ["UDP", "TCP"]
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

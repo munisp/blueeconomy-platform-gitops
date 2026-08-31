@@ -1,0 +1,24 @@
+# CI render-gate fixture ONLY. These values exist so that `helm template`
+# exercises the full chart during validation. They are NOT deployable: the
+# image digest is synthetic and the hostname/endpoints are illustrative.
+# Real environment values live in the authorised environment repository.
+image:
+  repository: blueeconomy.azurecr.us/blueeconomy/beneficiary-portal
+  digest: sha256:3b5f1c0b1a4c8d2f6a7e9c1d3b5f708192a4c6e8d0f2a4b6c8d0e2f4a6b8c0d2
+
+ingress:
+  className: apisix
+  host: beneficiary-portal.render-fixture.example.invalid
+  tls:
+    secretName: beneficiary-portal-tls
+
+platformConfig:
+  oidc:
+    authority: https://keycloak.blueeconomy-security.svc.cluster.local:8443/realms/blueeconomy-cvff
+    redirectUri: https://beneficiary-portal.render-fixture.example.invalid/auth/callback
+    postLogoutRedirectUri: https://beneficiary-portal.render-fixture.example.invalid/
+  cvffApi:
+    baseUrl: https://gateway.render-fixture.example.invalid/v1/cvff
+
+networkPolicy:
+  allowedIngressNamespaces: ["blueeconomy-edge"]

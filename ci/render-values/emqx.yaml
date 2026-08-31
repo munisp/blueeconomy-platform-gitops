@@ -1,0 +1,51 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative references. Real values live in the authorised environment
+# repo.
+profile: prod
+
+image:
+  repository: registry.blueeconomy.example.gov.ng/blueeconomy/emqx
+  digest: sha256:9f8e7d6c5b4a39281706f5e4d3c2b1a0987654321fedcba9876543210abcdef0
+
+replicas: 2
+
+mqttAuth:
+  url: http://geo-service.blueeco-geo-prod.svc.cluster.local:8080/v1/devices/mqtt-auth
+
+authorization:
+  noMatch: allow
+
+tls:
+  enabled: true
+  required: true
+
+dashboard:
+  enabled: true
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    EMQX_TLS_CERT: emqx/render-fixture/mqtts-cert
+    EMQX_TLS_KEY: emqx/render-fixture/mqtts-key
+    EMQX_TLS_CA: emqx/render-fixture/mqtts-ca
+    EMQX_DASHBOARD_PASSWORD: emqx/render-fixture/dashboard-password
+
+secretEnv:
+  - EMQX_DASHBOARD_PASSWORD
+
+networkPolicy:
+  mqttIngressNamespaces:
+    - blueeconomy-ferries
+    - blueeco-geo-prod
+  geoNamespace: blueeco-geo-prod
+  geoPort: 8080
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 2Gi

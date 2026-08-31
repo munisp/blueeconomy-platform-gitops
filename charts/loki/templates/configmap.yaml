@@ -1,0 +1,56 @@
+# Loki monolithic configuration: native OTLP/HTTP ingest (Loki 3.x serves
+# /otlp on the distributor), tsdb + S3-compatible object storage,
+# compactor-enforced retention render-gated to the approved 7-30d band.
+# Correlation: the collector forwards trace_id/span_id as OTLP log
+# attributes, which Loki stores as structured metadata — Tempo traces
+# pivot to logs and back (section-4 production gate 3).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "loki.fullname" . }}
+  labels:
+    {{- include "loki.labels" . | nindent 4 }}
+data:
+  loki.yaml: |
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 9096
+    common:
+      path_prefix: /var/loki
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+    schema_config:
+      configs:
+        - from: "2024-01-01"
+          store: tsdb
+          object_store: s3
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+    storage_config:
+      aws:
+        bucketnames: {{ .Values.storage.bucket | quote }}
+        endpoint: {{ .Values.storage.endpoint | quote }}
+        region: {{ .Values.storage.region | quote }}
+        access_key_id: ${env:LOKI_S3_ACCESS_KEY}
+        secret_access_key: ${env:LOKI_S3_SECRET_KEY}
+        insecure: false
+        s3forcepathstyle: true
+      tsdb_shipper:
+        active_index_directory: /var/loki/tsdb-index
+        cache_location: /var/loki/tsdb-cache
+    compactor:
+      working_directory: /var/loki/compactor
+      retention_enabled: true
+      delete_request_store: s3
+    limits_config:
+      retention_period: {{ .Values.retentionHours }}h
+      allow_structured_metadata: true
+      # Volume/ingest guardrails (telemetry never starves the node).
+      ingestion_rate_mb: 8
+      ingestion_burst_size_mb: 16
+    analytics:
+      reporting_enabled: false

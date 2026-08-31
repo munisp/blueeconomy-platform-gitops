@@ -1,0 +1,24 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative endpoints.
+keycloak:
+  baseUrl: https://keycloak.blueeconomy-security.svc.cluster.local:8443
+
+importJob:
+  repository: quay.io/keycloak-config-cli/keycloak-config-cli
+  digest: sha256:7d759c2782b4737797a5bfece4006b8aa28556d36e9082719bdd0c9f28f1e2d4
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    username: keycloak/render-fixture/admin-username
+    password: keycloak/render-fixture/admin-password
+
+# Browser public-client redirect allowlists are environment hostnames and
+# are never defaulted by the chart; the fixture stands in for the approved
+# environment values. The blueeconomy-mobile custom-scheme redirect is
+# code-fixed and already part of the chart baseline.
+publicClientRedirects:
+  beneficiary-portal:
+    - https://beneficiary-portal.render-fixture.example.invalid/auth/callback

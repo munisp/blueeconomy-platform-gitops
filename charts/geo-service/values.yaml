@@ -1,0 +1,169 @@
+# blueeconomy-geo-service deploy surface. Every credential arrives
+# exclusively through ExternalSecrets; no placeholder or inline credential
+# is permitted anywhere in this chart. Cloud-agnostic: any conformant
+# Kubernetes, any secret-store backend via the ESO ClusterSecretStore enum
+# (docs/cloud-agnosticism.md).
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile. prod refuses GEO_TEST_* / GEO_REPLAY_FILE env names at
+# render time (fail-closed doctrine: no simulated feeds in production).
+profile: ""
+
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+replicas: 2
+port: 8080
+
+# Signing configuration (gap #40, docs/signing-config.md). Exactly ONE
+# convention per service release:
+#   envelope    — ENVELOPE_SIGNING_PRIVATE_KEY + ENVELOPE_SIGNING_PRIVATE_KEY_EPOCH
+#                 (target convention; key rotation carried by the epoch).
+#   provenance  — PROVENANCE_SIGNING_KEY (LEGACY, deprecation path in
+#                 docs/signing-config.md; new services MUST use envelope).
+signing:
+  convention: ""
+  envelope:
+    privateKeySecretKey: ENVELOPE_SIGNING_PRIVATE_KEY
+    epochSecretKey: ENVELOPE_SIGNING_PRIVATE_KEY_EPOCH
+  provenance:
+    keySecretKey: PROVENANCE_SIGNING_KEY
+
+# ExternalSecrets contract. storeRef.name references the landing zone's
+# secret backend ClusterSecretStore (any ESO-supported provider). keys maps
+# in-cluster secret keys to remote refs; every secretEnv name below must
+# have an entry here.
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+# Non-secret environment. Names are exactly the binary contract
+# (internal/config/config.go): the binary reads GEO_API_ADDR,
+# GEO_KAFKA_BROKERS, GEO_PG_DSN, GEO_REDIS_ADDR, GEO_PRODUCER_PRINCIPAL_*,
+# the GEO_AUTH_MODE family and GEO_POSITION_PLANE — nothing else is
+# injected. Values must be approved environment values; names prefixed
+# GEO_TEST_ and the GEO_REPLAY_FILE replay gate are refused when
+# profile=prod.
+env:
+  # HTTP listen address of the /v1/geo API (binary: GEO_API_ADDR).
+  GEO_API_ADDR: ":8080"
+  # Envelope provenance identity assertions (Keycloak service-account
+  # subject and role; never credentials).
+  GEO_PRODUCER_PRINCIPAL_ID: "blueeconomy-geo-service"
+  GEO_PRODUCER_PRINCIPAL_ROLE: "geo-producer"
+  # Edge authn: APISIX terminates OIDC and asserts verified claims; the
+  # service trusts only the edge CIDRs and identity below.
+  GEO_AUTH_MODE: "trusted_proxy"
+  GEO_TRUSTED_PROXY_ID: "apisix-edge"
+  GEO_TRUSTED_PROXY_CIDRS: "10.0.0.0/8"
+  # Position plane doctrine: the vessel position plane is a single shared
+  # national picture scoped by classification clearance, not by tenant.
+  # "tenant" fails closed at boot (no schema support).
+  GEO_POSITION_PLANE: "shared"
+
+requiredEnv:
+  - GEO_API_ADDR
+  - GEO_PRODUCER_PRINCIPAL_ID
+  - GEO_PRODUCER_PRINCIPAL_ROLE
+  - GEO_AUTH_MODE
+  - GEO_TRUSTED_PROXY_ID
+  - GEO_TRUSTED_PROXY_CIDRS
+  - GEO_POSITION_PLANE
+
+# Secret-sourced env (names must exist in externalSecrets.keys). The
+# deployment maps the documented secret keys onto the binary env contract:
+#   GEO_DATABASE_URL  — libpq DSN for the geo role (NOSUPERUSER NOBYPASSRLS),
+#                       injected to the binary as GEO_PG_DSN
+#   GEO_INGEST_DATABASE_URL — libpq DSN for the least-privilege geo_ingest
+#                       LOGIN role (SELECT geofence_zones + INSERT
+#                       geofence_events only), injected as GEO_INGEST_PG_DSN;
+#                       required since 0008_rls_ingest_login.sql
+#   REDIS_URL         — dedup window store, injected as GEO_REDIS_ADDR
+#   signing keys per signing.convention above, injected as
+#                       ENVELOPE_SIGNING_PRIVATE_KEY / ENVELOPE_SIGNING_KEY_EPOCH.
+secretEnv: []
+
+# Kafka producer/consumer wiring (gap #7: render-gated TLS/SASL option —
+# additive, default off for dev fixtures; prod values set tls.required=true).
+kafka:
+  # Comma-separated bootstrap brokers (plain env KAFKA_BROKERS).
+  brokers: ""
+  tls:
+    enabled: false
+    # Prod gate: when required=true, tls.enabled MUST be true.
+    required: false
+    # CA bundle arrives via an ExternalSecrets-synced Secret; mounted
+    # read-only and referenced by KAFKA_TLS_CA_CERT_PATH.
+    caCertSecretRef:
+      name: ""
+      key: ca.crt
+  sasl:
+    # Empty disables SASL. Render-gated enum when set: plain | scram-sha-512.
+    mechanism: ""
+    credentialsSecretRef:
+      name: ""
+      usernameKey: username
+      passwordKey: password
+
+networkPolicy:
+  enabled: true
+  # Edge ingress only (APISIX namespace); the service performs PBAC/RLS
+  # enforcement behind edge authn.
+  apisixNamespace: ""
+  postgisNamespace: ""
+  kafkaNamespace: ""
+  redisNamespace: ""
+
+resources:
+  requests:
+    cpu: ""
+    memory: ""
+  limits:
+    cpu: ""
+    memory: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+hpa:
+  # Optional horizontal autoscaling on CPU. Disabled by default; the render
+  # gate validates bounds when enabled.
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    path: /metrics
+    labels: {}
+
+# The binary serves /healthz and /metrics only (internal/api/server.go).
+probes:
+  livenessPath: /healthz
+  readinessPath: /healthz
+
+podDisruptionBudget:
+  # Multi-replica Deployment: keep at least one pod serving during
+  # voluntary disruptions.
+  enabled: true
+  minAvailable: 1

@@ -1,0 +1,57 @@
+# Workstream F namespace (Deep Blue ISR analytics, national-security
+# controlled). `restricted` is the strictest Pod Security Standards level
+# defined by Kubernetes — no stricter built-in level exists; the additional
+# hardening for this namespace is the classification label, the
+# deny-cross-workstream-ingress policy below, admission policy in
+# policies/require-secure-workload.rego, and the classification-clearance
+# discipline enforced by the keycloak-realms and maritime-intelligence charts.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: blueeconomy-isr
+  labels:
+    kubernetes.io/metadata.name: blueeconomy-isr
+    blueeconomy.platform/workstream: isr
+    blueeconomy.platform/classification: national-security-controlled
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress-egress
+  namespace: blueeconomy-isr
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Cross-workstream segregation at the network layer: nothing from the other
+# workstream namespaces may initiate traffic into blueeconomy-isr, even if a
+# future policy elsewhere becomes permissive. Only same-namespace pods and
+# the explicitly labelled platform observability scraper may connect inbound.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-cross-workstream-ingress
+  namespace: blueeconomy-isr
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: blueeconomy-platform
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090

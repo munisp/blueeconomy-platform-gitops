@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: blueeconomy-cvff
+  labels:
+    kubernetes.io/metadata.name: blueeconomy-cvff
+    blueeconomy.platform/workstream: cvff
+    blueeconomy.platform/classification: fiduciary-segregated
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress-egress
+  namespace: blueeconomy-cvff
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Fiduciary segregation at the network layer: nothing from the other
+# workstream namespaces may initiate traffic into blueeconomy-cvff, even if a
+# future policy elsewhere becomes permissive. Only same-namespace pods and the
+# explicitly labelled platform observability scraper may connect inbound.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-cross-workstream-ingress
+  namespace: blueeconomy-cvff
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: blueeconomy-platform
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090

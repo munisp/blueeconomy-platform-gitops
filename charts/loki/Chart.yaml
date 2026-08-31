@@ -1,0 +1,27 @@
+apiVersion: v2
+name: loki
+description: >-
+  Grafana Loki (monolithic single-binary, open-source AGPL) log backend
+  for the Blue Economy Platform observability foundation (OTEL_DESIGN.md
+  section 1). Native OTLP/HTTP ingest from the collector gateway,
+  S3-compatible object storage (render-gated REQUIRED), tsdb schema,
+  compactor-enforced retention render-gated to the approved 7-30d band.
+  Trace correlation contract: every shipped log line carries trace_id and
+  span_id (render-gated contract value; emitted by the app logging layer
+  and verified by the section-4 production gate — Loki stores them as
+  indexed structured metadata for trace<->log pivoting). Fail-closed:
+  digest-pinned image, credentials via ExternalSecrets only, resources
+  required, NetworkPolicy, PodSecurity restricted.
+type: application
+version: 0.1.0
+appVersion: "3.5.3"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - loki
+  - logging
+  - observability
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "observability-foundation"
+  blueeconomy.platform/upstream: "https://github.com/grafana/loki (image grafana/loki, AGPL-3.0)"
+  blueeconomy.platform/upstream-policy: "Pin verified upstream image digests; do not deploy unreviewed defaults"

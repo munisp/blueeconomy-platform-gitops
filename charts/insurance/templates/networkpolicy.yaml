@@ -1,0 +1,66 @@
+# insurance network posture: ingress from the APISIX edge namespace only
+# (plus same-namespace traffic); egress to PostgreSQL 5432, Kafka 9092,
+# Keycloak 443 (JWKS), partner-insurer adapters 443 (internet
+# counterparties; destination cannot be constrained by namespace — the
+# adapter set itself is env-gated and https-only) and DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "insurance.fullname" . }}
+  labels:
+    {{- include "insurance.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "insurance.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.apisixNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.port }}
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "insurance.selectorLabels" . | nindent 14 }}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.postgresNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.kafkaNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: 9092
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.keycloakNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- if .Values.networkPolicy.partnerAdaptersEnabled }}
+    # Partner insurer adapters: https-only internet counterparties
+    # (INSURANCE_PARTNER_ADAPTERS_JSON render-gated to https:// base URLs).
+    - ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

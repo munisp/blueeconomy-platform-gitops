@@ -1,0 +1,54 @@
+{{- /* Fail-closed approval gates for novu. */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+{{- $repo := required "image.repository is required" .Values.image.repository -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+{{- if not (hasPrefix "http" .Values.env.API_ROOT_URL) -}}
+{{- fail "env.API_ROOT_URL is required and must be an http(s) URL (the public API base used in notification links)" -}}
+{{- end -}}
+
+{{- /* Data stores are REQUIRED (community self-host contract). */ -}}
+{{- $mongoHost := required "dataStores.mongodb.host is required (Novu persists workflows/subscribers in MongoDB)" .Values.dataStores.mongodb.host -}}
+{{- $redisHost := required "dataStores.redis.host is required (Novu queues/cache run on Redis)" .Values.dataStores.redis.host -}}
+
+{{- /* Mandatory secret surface (PRA-068/Novu live-fire feasibility): the
+       Deployment templates hard-reference these synced Secret keys
+       (MONGO_URL, REDIS_PASSWORD, JWT_SECRET, STORE_ENCRYPTION_KEY,
+       NOVU_API_KEY), so dropping any of them from secretEnv would render
+       a release that crash-loops instead of failing closed at render
+       time. Refuse the drift. */ -}}
+{{- range $mandatory := (list "NOVU_MONGO_URL" "NOVU_REDIS_PASSWORD" "JWT_SECRET" "STORE_ENCRYPTION_KEY" "NOVU_API_KEY") -}}
+{{- if not (has $mandatory (default (list) $.Values.secretEnv)) -}}
+{{- fail (printf "secretEnv must contain %s (the Novu data-store/API contract is render-gated; a prod render without the MongoDB URI or Redis credentials is refused)" $mandatory) -}}
+{{- end -}}
+{{- end -}}
+{{- /* Every secretEnv name must be backed by the ExternalSecret. */ -}}
+{{- range $secretName := (default (list) .Values.secretEnv) -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $secretName) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because Novu consumes it via secretEnv" $secretName) -}}
+{{- end -}}
+{{- end -}}
+{{- $store := required "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore)" .Values.externalSecrets.storeRef.name -}}
+
+{{- /* Component gates: resources mandatory. */ -}}
+{{- range $name, $component := .Values.components -}}
+{{- if $component.enabled -}}
+{{- if or (empty $component.resources.requests.cpu) (empty $component.resources.requests.memory) (empty $component.resources.limits.cpu) (empty $component.resources.limits.memory) -}}
+{{- fail (printf "components.%s resources.requests and resources.limits (cpu and memory) are required" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if not (index .Values.components "api").enabled -}}
+{{- fail "components.api.enabled must be true (Alertmanager's Novu receiver targets the api service)" -}}
+{{- end -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- $mongoNs := required "networkPolicy.mongodbNamespace is required" .Values.networkPolicy.mongodbNamespace -}}
+{{- $redisNs := required "networkPolicy.redisNamespace is required" .Values.networkPolicy.redisNamespace -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for novu" -}}
+{{- end -}}

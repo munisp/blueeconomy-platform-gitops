@@ -1,0 +1,120 @@
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+{{- $repository := required "image.repository is required" .Values.image.repository -}}
+{{- /* Metrics honesty gate (PRA-066): the nginx-unprivileged SPA image
+       serves /healthz only — no Prometheus endpoint. */ -}}
+{{- if .Values.serviceMonitor.enabled -}}
+{{- fail "serviceMonitor.enabled=true is refused: the ministry-portal image (nginx-unprivileged serving the static SPA) exposes /healthz only — no /metrics endpoint exists to scrape; an approved exporter sidecar must be approved before a scrape target can be wired honestly (edge RED metrics come from the APISIX prometheus plugin)" -}}
+{{- end -}}
+{{- $oidc := .Values.platformConfig.oidc -}}
+{{- $authority := required "platformConfig.oidc.authority is required (HTTPS Keycloak issuer of the approved ministry realm)" $oidc.authority -}}
+{{- if not (hasPrefix "https://" $authority) -}}
+{{- fail "platformConfig.oidc.authority must be an HTTPS URL" -}}
+{{- end -}}
+{{- /* OIDC discipline: the portal authenticates exclusively as an approved
+       public client (PKCE S256) registered by charts/keycloak-realms; the
+       clientId is an approved environment value, never defaulted. */ -}}
+{{- $clientId := required "platformConfig.oidc.clientId is required (the approved public client registered by charts/keycloak-realms)" $oidc.clientId -}}
+{{- $redirect := required "platformConfig.oidc.redirectUri is required" $oidc.redirectUri -}}
+{{- if not (hasPrefix "https://" $redirect) -}}
+{{- fail "platformConfig.oidc.redirectUri must be an HTTPS URL" -}}
+{{- end -}}
+{{- if $oidc.postLogoutRedirectUri -}}
+{{- if not (hasPrefix "https://" $oidc.postLogoutRedirectUri) -}}
+{{- fail "platformConfig.oidc.postLogoutRedirectUri must be an HTTPS URL" -}}
+{{- end -}}
+{{- end -}}
+{{- $scope := required "platformConfig.oidc.scope is required" $oidc.scope -}}
+{{- /* Administration wiring (src/runtime-config.ts): the onboarding API is
+       the administration-service behind the APISIX-approved route; HTTPS
+       only, fail-closed. */ -}}
+{{- $admin := .Values.platformConfig.administration -}}
+{{- $onboarding := required "platformConfig.administration.onboardingApiUrl is required (HTTPS administration-service onboarding route behind the gateway)" $admin.onboardingApiUrl -}}
+{{- if not (hasPrefix "https://" $onboarding) -}}
+{{- fail "platformConfig.administration.onboardingApiUrl must be an HTTPS URL" -}}
+{{- end -}}
+{{- $orgId := required "platformConfig.administration.organizationId is required (the approved Keycloak organization id)" $admin.organizationId -}}
+{{- if empty $admin.allowedRoles -}}
+{{- fail "platformConfig.administration.allowedRoles must list the approved administration roles" -}}
+{{- end -}}
+{{- /* Service directory: at least one approved service, stable lower-case
+       ids, HTTPS health endpoints and non-empty role lists — exactly the
+       portal's client-side validation. */ -}}
+{{- if empty .Values.platformConfig.services -}}
+{{- fail "platformConfig.services must list at least one approved service definition" -}}
+{{- end -}}
+{{- $seen := dict -}}
+{{- range $i, $svc := .Values.platformConfig.services -}}
+{{- if not (regexMatch "^[a-z][a-z0-9-]{2,63}$" (printf "%v" $svc.id)) -}}
+{{- fail (printf "platformConfig.services[%d].id must be a stable lower-case identifier" $i) -}}
+{{- end -}}
+{{- if hasKey $seen (printf "%v" $svc.id) -}}
+{{- fail (printf "platformConfig.services contains duplicate id %s" $svc.id) -}}
+{{- end -}}
+{{- $_ := set $seen (printf "%v" $svc.id) true -}}
+{{- if eq (printf "%v" $svc.label) "" -}}
+{{- fail (printf "platformConfig.services[%d].label is required" $i) -}}
+{{- end -}}
+{{- if not (hasPrefix "https://" (printf "%v" $svc.healthUrl)) -}}
+{{- fail (printf "platformConfig.services[%d].healthUrl must be an HTTPS URL" $i) -}}
+{{- end -}}
+{{- if empty $svc.requiredRoles -}}
+{{- fail (printf "platformConfig.services[%d].requiredRoles must be a non-empty string array" $i) -}}
+{{- end -}}
+{{- end -}}
+{{- /* Geospatial tracking-console wiring (decision D8), mirroring
+       src/runtime-config.ts validateGeospatialConfiguration: the geo API
+       is HTTPS-only; the tile template carries {z}/{x}/{y} and is either
+       HTTPS or a same-origin absolute path; Cesium and GeoLibre are
+       self-hosted same-origin paths only. */ -}}
+{{- if .Values.platformConfig.geospatial.enabled -}}
+{{- $geo := .Values.platformConfig.geospatial -}}
+{{- if not (hasPrefix "https://" (printf "%v" $geo.geoApiUrl)) -}}
+{{- fail "platformConfig.geospatial.geoApiUrl must be an HTTPS URL" -}}
+{{- end -}}
+{{- $tile := printf "%v" $geo.tileUrl -}}
+{{- if or (not (contains "{z}" $tile)) (not (contains "{x}" $tile)) (not (contains "{y}" $tile)) -}}
+{{- fail "platformConfig.geospatial.tileUrl must be a raster tile template containing {z}, {x} and {y}" -}}
+{{- end -}}
+{{- if hasPrefix "/" $tile -}}
+{{- if or (hasPrefix "//" $tile) (contains "?" $tile) (contains "#" $tile) -}}
+{{- fail "platformConfig.geospatial.tileUrl must not carry query parameters, fragments or a scheme-relative host" -}}
+{{- end -}}
+{{- else -}}
+{{- if not (hasPrefix "https://" $tile) -}}
+{{- fail "platformConfig.geospatial.tileUrl must be an HTTPS URL or a same-origin absolute path" -}}
+{{- end -}}
+{{- if or (contains "@" $tile) (contains "?" $tile) (contains "#" $tile) -}}
+{{- fail "platformConfig.geospatial.tileUrl must be an HTTPS URL without credentials, query parameters or fragments" -}}
+{{- end -}}
+{{- end -}}
+{{- $poll := int $geo.pollIntervalMs -}}
+{{- if or (lt $poll 5000) (gt $poll 300000) -}}
+{{- fail "platformConfig.geospatial.pollIntervalMs must be an integer between 5000 and 300000" -}}
+{{- end -}}
+{{- if $geo.cesiumBaseUrl -}}
+{{- if not (hasPrefix "/" (printf "%v" $geo.cesiumBaseUrl)) -}}
+{{- fail "platformConfig.geospatial.cesiumBaseUrl must be a same-origin absolute path (self-hosted Cesium assets)" -}}
+{{- end -}}
+{{- end -}}
+{{- if $geo.geolibreEnabled -}}
+{{- if not $geo.geolibreUrl -}}
+{{- fail "platformConfig.geospatial.geolibreUrl is required when geolibreEnabled is true" -}}
+{{- end -}}
+{{- end -}}
+{{- if $geo.geolibreUrl -}}
+{{- if not (hasPrefix "/" (printf "%v" $geo.geolibreUrl)) -}}
+{{- fail "platformConfig.geospatial.geolibreUrl must be a same-origin absolute path (reverse-proxied GeoLibre deployment)" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.ingress.enabled -}}
+{{- $host := required "ingress.host is required (approved public portal hostname)" .Values.ingress.host -}}
+{{- if contains "*" $host -}}
+{{- fail "ingress.host must be an exact approved hostname (wildcards are prohibited)" -}}
+{{- end -}}
+{{- $class := required "ingress.className is required (the approved APISIX ingress class)" .Values.ingress.className -}}
+{{- $tlsSecret := required "ingress.tls.secretName is required (TLS is mandatory at the portal edge)" .Values.ingress.tls.secretName -}}
+{{- end -}}

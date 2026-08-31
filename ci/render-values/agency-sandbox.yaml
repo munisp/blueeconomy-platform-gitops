@@ -1,0 +1,45 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digests and
+# illustrative references. Real values live in the authorised environment
+# repo. Sandbox posture: staging profile (prod is refused outright).
+profile: staging
+
+agencies:
+  ncs-bodogwu:
+    image:
+      repository: registry.blueeconomy.example.gov.ng/blueeconomy-sandbox/ncs-bodogwu
+      digest: sha256:5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f
+  cbn-tms:
+    image:
+      repository: registry.blueeconomy.example.gov.ng/blueeconomy-sandbox/cbn-tms
+      digest: sha256:6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a
+  nepc:
+    image:
+      repository: registry.blueeconomy.example.gov.ng/blueeconomy-sandbox/nepc
+      digest: sha256:7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b
+  nis:
+    image:
+      repository: registry.blueeconomy.example.gov.ng/blueeconomy-sandbox/nis
+      digest: sha256:8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c
+  port-health:
+    image:
+      repository: registry.blueeconomy.example.gov.ng/blueeconomy-sandbox/port-health
+      digest: sha256:9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d
+  npa-esen:
+    image:
+      repository: registry.blueeconomy.example.gov.ng/blueeconomy-sandbox/npa-esen
+      digest: sha256:0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    SANDBOX_SIGNING_PRIVATE_KEY_NCS_BODOGWU: sandbox/render-fixture/ncs-bodogwu-signing-key
+    SANDBOX_SIGNING_PRIVATE_KEY_CBN_TMS: sandbox/render-fixture/cbn-tms-signing-key
+    SANDBOX_SIGNING_PRIVATE_KEY_NEPC: sandbox/render-fixture/nepc-signing-key
+    SANDBOX_SIGNING_PRIVATE_KEY_NIS: sandbox/render-fixture/nis-signing-key
+    SANDBOX_SIGNING_PRIVATE_KEY_PORT_HEALTH: sandbox/render-fixture/port-health-signing-key
+    SANDBOX_SIGNING_PRIVATE_KEY_NPA_ESEN: sandbox/render-fixture/npa-esen-signing-key
+
+networkPolicy:
+  singlewindowNamespace: blueeconomy-platform

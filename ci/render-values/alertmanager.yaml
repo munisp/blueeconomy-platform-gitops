@@ -1,0 +1,26 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative references. Real values live in the authorised environment
+# repo.
+profile: prod
+
+image:
+  repository: prom/alertmanager
+  digest: sha256:3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c
+
+novu:
+  webhookUrl: http://render-gate-novu-api.blueeconomy-observability.svc.cluster.local:3000/v1/inbound/alertmanager
+  sendResolved: true
+
+persistence:
+  size: 2Gi
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+networkPolicy:
+  prometheusNamespace: blueeconomy-observability

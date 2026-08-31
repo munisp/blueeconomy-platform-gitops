@@ -1,0 +1,20 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative references. Real values live in the authorised environment
+# repo.
+image:
+  repository: ghcr.io/maplibre/martin
+  digest: sha256:5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f
+
+postgres:
+  dsnSecretRef:
+    name: geo-postgis-app-dsn
+    key: dsn
+
+edge:
+  routeRegistration:
+    required: true
+    apisixRouteRef: geo-martin
+
+networkPolicy:
+  apisixNamespace: blueeconomy-security
+  postgisNamespace: blueeco-geo-prod

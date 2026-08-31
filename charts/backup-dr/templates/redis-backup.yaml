@@ -1,0 +1,209 @@
+{{- if .Values.redisAOF.enabled }}
+{{- $fullName := include "backup-dr.fullname" . -}}
+# Redis AOF backup (GAP-PG-06). NOT_RUN: render-gated, never executed
+# against a live cluster; validate the tooling image contract and the AOF
+# path in the restore drill before enabling (see values.yaml redisAOF).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fullName }}-redis-backup
+  labels:
+    {{- include "backup-dr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-backup
+---
+# kubectl exec/cp into the listed Redis namespaces only (one Role per
+# target namespace is landing-zone RBAC machinery; this Role covers the
+# recovery namespace itself and the script targets the approved pods).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullName }}-redis-backup
+  labels:
+    {{- include "backup-dr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-backup
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $fullName }}-redis-backup
+  labels:
+    {{- include "backup-dr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-backup
+subjects:
+  - kind: ServiceAccount
+    name: {{ $fullName }}-redis-backup
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $fullName }}-redis-backup
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullName }}-redis-backup-script
+  labels:
+    {{- include "backup-dr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-backup
+data:
+  redis-backup.sh: |
+    #!/bin/sh
+    # Forces an AOF rewrite on the approved replica, streams the AOF out
+    # and uploads it to the immutable backup bucket. NOT_RUN: see
+    # values.yaml redisAOF for the drill precondition.
+    set -eu
+    RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+    OBJECT="redis/${CLUSTER_NAME}/${RUN_ID}/appendonly.aof.gz"
+    echo "[redis-backup] BGREWRITEAOF on ${CLUSTER_POD}.${CLUSTER_NAMESPACE}"
+    kubectl -n "${CLUSTER_NAMESPACE}" exec "${CLUSTER_POD}" -- \
+      redis-cli BGREWRITEAOF
+    # Wait for the rewrite to finish (aof_rewrite_in_progress == 0).
+    until kubectl -n "${CLUSTER_NAMESPACE}" exec "${CLUSTER_POD}" -- \
+        redis-cli INFO persistence | grep -q 'aof_rewrite_in_progress:0'; do
+      sleep 2
+    done
+    echo "[redis-backup] streaming AOF to ${STORAGE_BUCKET}/${OBJECT}"
+    kubectl -n "${CLUSTER_NAMESPACE}" exec "${CLUSTER_POD}" -- \
+      sh -c "cat ${CLUSTER_AOFDIR}/*.aof ${CLUSTER_AOFDIR}/*.manifest 2>/dev/null || cat ${CLUSTER_AOFDIR}/appendonly.aof" \
+      | gzip | mc pipe "backup/${STORAGE_BUCKET}/${OBJECT}"
+    echo "[redis-backup] run ${RUN_ID} complete"
+---
+{{- range $c := .Values.redisAOF.clusters }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ printf "%s-redis-aof-%s" $fullName $c.name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "backup-dr.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: redis-backup
+spec:
+  schedule: {{ $.Values.redisAOF.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "backup-dr.labels" $ | nindent 12 }}
+            app.kubernetes.io/component: redis-backup
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ $fullName }}-redis-backup
+          automountServiceAccountToken: true
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: redis-backup
+              image: "{{ $.Values.redisAOF.image.repository }}@{{ $.Values.redisAOF.image.digest }}"
+              imagePullPolicy: {{ $.Values.redisAOF.image.pullPolicy }}
+              command: ["/bin/sh", "/scripts/redis-backup.sh"]
+              env:
+                - name: CLUSTER_NAME
+                  value: {{ $c.name | quote }}
+                - name: CLUSTER_NAMESPACE
+                  value: {{ $c.namespace | quote }}
+                - name: CLUSTER_POD
+                  value: {{ $c.pod | quote }}
+                - name: CLUSTER_AOFDIR
+                  value: {{ $c.aofDir | quote }}
+                - name: STORAGE_BUCKET
+                  value: {{ $.Values.storage.bucket | quote }}
+                - name: MC_HOST_backup
+                  value: {{ $.Values.storage.endpoint | quote }}
+              envFrom:
+                - secretRef:
+                    name: {{ $.Values.storage.credentialsSecretRef.name }}
+                {{- if $c.credentialsSecretRef }}
+                - secretRef:
+                    name: {{ $c.credentialsSecretRef | quote }}
+                {{- end }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: "1"
+                  memory: 512Mi
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: scripts
+              configMap:
+                name: {{ $fullName }}-redis-backup-script
+                defaultMode: 0555
+            - name: tmp
+              emptyDir: {}
+---
+{{- end }}
+{{- end }}
+{{- if .Values.kafkaMirrorMaker2.enabled }}
+# KafkaMirrorMaker2 (source-locked Strimzi operator): continuous
+# MirrorMaker-class replication of the approved topic pattern from the
+# primary cluster to the DR cluster (GAP-PG-06).
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaMirrorMaker2
+metadata:
+  name: {{ include "backup-dr.fullname" . }}-kafka-mm2
+  labels:
+    {{- include "backup-dr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kafka-mirrormaker2
+spec:
+  version: "3.8.0"
+  replicas: 1
+  connectCluster: target
+  clusters:
+    - alias: source
+      bootstrapServers: {{ .Values.kafkaMirrorMaker2.sourceBootstrapServers | quote }}
+      tls:
+        trustedCertificates:
+          - secretName: {{ .Values.kafkaMirrorMaker2.tlsCaCertSecretRef.name | quote }}
+            certificate: {{ .Values.kafkaMirrorMaker2.tlsCaCertSecretRef.certificate | quote }}
+    - alias: target
+      bootstrapServers: {{ .Values.kafkaMirrorMaker2.targetBootstrapServers | quote }}
+      tls:
+        trustedCertificates:
+          - secretName: {{ .Values.kafkaMirrorMaker2.tlsCaCertSecretRef.name | quote }}
+            certificate: {{ .Values.kafkaMirrorMaker2.tlsCaCertSecretRef.certificate | quote }}
+      config:
+        config.storage.replication.factor: 1
+        offset.storage.replication.factor: 1
+        status.storage.replication.factor: 1
+  mirrors:
+    - sourceCluster: source
+      targetCluster: target
+      sourceConnector:
+        tasksMax: 2
+        config:
+          replication.factor: 1
+          offset-syncs.topic.replication.factor: 1
+          sync.topic.acls.enabled: "false"
+      heartbeatConnector:
+        config:
+          heartbeats.topic.replication.factor: 1
+      checkpointConnector:
+        config:
+          checkpoints.topic.replication.factor: 1
+      topicsPattern: {{ .Values.kafkaMirrorMaker2.topicsPattern | quote }}
+      groupsPattern: {{ .Values.kafkaMirrorMaker2.groupId | quote }}
+{{- end }}

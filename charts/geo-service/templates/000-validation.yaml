@@ -1,0 +1,130 @@
+{{- /* Fail-closed approval gates for blueeconomy-geo-service. */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+{{- $repo := required "image.repository is required" .Values.image.repository -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+
+{{- /* Signing env-var unification (gap #40, docs/signing-config.md):
+       exactly ONE convention per service release. envelope carries
+       ENVELOPE_SIGNING_PRIVATE_KEY/_EPOCH; provenance is the legacy
+       PROVENANCE_SIGNING_KEY mapping on a documented deprecation path. */ -}}
+{{- if not (has .Values.signing.convention (list "envelope" "provenance")) -}}
+{{- fail "signing.convention must be exactly one of: envelope, provenance (docs/signing-config.md; new services use envelope, provenance is legacy/deprecating)" -}}
+{{- end -}}
+{{- $signingKeys := list -}}
+{{- if eq .Values.signing.convention "envelope" -}}
+{{- $signingKeys = list .Values.signing.envelope.privateKeySecretKey .Values.signing.envelope.epochSecretKey -}}
+{{- else -}}
+{{- $signingKeys = list .Values.signing.provenance.keySecretKey -}}
+{{- end -}}
+{{- range $k := $signingKeys -}}
+{{- if not (has $k $.Values.secretEnv) -}}
+{{- fail (printf "secretEnv must include %s for signing.convention=%s (docs/signing-config.md)" $k $.Values.signing.convention) -}}
+{{- end -}}
+{{- end -}}
+{{- /* Exactly one convention: the other convention's keys must NOT be
+       present in secretEnv, so a release can never mix the two. */ -}}
+{{- $forbiddenKeys := list -}}
+{{- if eq .Values.signing.convention "envelope" -}}
+{{- $forbiddenKeys = list .Values.signing.provenance.keySecretKey -}}
+{{- else -}}
+{{- $forbiddenKeys = list .Values.signing.envelope.privateKeySecretKey .Values.signing.envelope.epochSecretKey -}}
+{{- end -}}
+{{- range $k := $forbiddenKeys -}}
+{{- if has $k $.Values.secretEnv -}}
+{{- fail (printf "secretEnv must not include %s when signing.convention=%s: exactly one signing convention per service (docs/signing-config.md)" $k $.Values.signing.convention) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Prod profile: no test/replay env anywhere (fail-closed doctrine). */ -}}
+{{- if eq .Values.profile "prod" -}}
+{{- range $k, $_ := .Values.env -}}
+{{- if or (hasPrefix "GEO_TEST_" $k) (eq $k "GEO_REPLAY_FILE") -}}
+{{- fail (printf "env name %s is forbidden when profile=prod (no simulated feeds or test configuration in production)" $k) -}}
+{{- end -}}
+{{- end -}}
+{{- range $k := .Values.secretEnv -}}
+{{- if hasPrefix "GEO_TEST_" $k -}}
+{{- fail (printf "secretEnv name %s is forbidden when profile=prod" $k) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Required plain env values are approved environment values. */ -}}
+{{- $env := default dict .Values.env -}}
+{{- range $envName := (default (list) .Values.requiredEnv) -}}
+{{- if eq (printf "%v" (get $env $envName)) "" -}}
+{{- fail (printf "env.%s must be set to an approved environment value" $envName) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Every secretEnv name must be backed by the ExternalSecret. */ -}}
+{{- range $secretName := (default (list) .Values.secretEnv) -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $secretName) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because the deployment consumes it via secretEnv" $secretName) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Binary env contract (GE-5): the deployment maps the documented
+       secret keys onto the only env names the binary resolves —
+       GEO_PG_DSN <- GEO_DATABASE_URL, GEO_REDIS_ADDR <- REDIS_URL. Both
+       secret keys must exist in the ExternalSecret or the pod boots
+       without its database/redis wiring. */ -}}
+{{- if not (hasKey $.Values.externalSecrets.keys "GEO_DATABASE_URL") -}}
+{{- fail "externalSecrets.keys.GEO_DATABASE_URL is required (mapped to the binary's GEO_PG_DSN)" -}}
+{{- end -}}
+{{- /* GE-2 repair (0008_rls_ingest_login.sql): the geofence evaluator
+       connects AS the least-privilege geo_ingest LOGIN role on its own
+       pool; the binary refuses to boot without GEO_INGEST_PG_DSN. */ -}}
+{{- if not (hasKey $.Values.externalSecrets.keys "GEO_INGEST_DATABASE_URL") -}}
+{{- fail "externalSecrets.keys.GEO_INGEST_DATABASE_URL is required (mapped to the binary's GEO_INGEST_PG_DSN; geo_ingest role DSN)" -}}
+{{- end -}}
+{{- if not (hasKey $.Values.externalSecrets.keys "REDIS_URL") -}}
+{{- fail "externalSecrets.keys.REDIS_URL is required (mapped to the binary's GEO_REDIS_ADDR)" -}}
+{{- end -}}
+{{- $store := required "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore)" .Values.externalSecrets.storeRef.name -}}
+
+{{- /* Kafka wiring (gap #7): TLS/SASL render-gated options. */ -}}
+{{- $brokers := required "kafka.brokers is required" .Values.kafka.brokers -}}
+{{- if .Values.kafka.tls.required -}}
+{{- if not .Values.kafka.tls.enabled -}}
+{{- fail "kafka.tls.enabled must be true when kafka.tls.required=true (prod posture)" -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.kafka.tls.enabled -}}
+{{- $caName := required "kafka.tls.caCertSecretRef.name is required when kafka.tls.enabled=true" .Values.kafka.tls.caCertSecretRef.name -}}
+{{- $caKey := required "kafka.tls.caCertSecretRef.key is required when kafka.tls.enabled=true" .Values.kafka.tls.caCertSecretRef.key -}}
+{{- end -}}
+{{- if .Values.kafka.sasl.mechanism -}}
+{{- if not (has .Values.kafka.sasl.mechanism (list "plain" "scram-sha-512")) -}}
+{{- fail "kafka.sasl.mechanism must be one of: plain, scram-sha-512" -}}
+{{- end -}}
+{{- $saslName := required "kafka.sasl.credentialsSecretRef.name is required when kafka.sasl.mechanism is set" .Values.kafka.sasl.credentialsSecretRef.name -}}
+{{- end -}}
+
+{{- /* Resources are mandatory: the hot path never schedules unbounded. */ -}}
+{{- if or (empty .Values.resources.requests.cpu) (empty .Values.resources.requests.memory) (empty .Values.resources.limits.cpu) (empty .Values.resources.limits.memory) -}}
+{{- fail "resources.requests and resources.limits (cpu and memory) are required" -}}
+{{- end -}}
+
+{{- if .Values.hpa.enabled -}}
+{{- if lt (int .Values.hpa.minReplicas) 1 -}}
+{{- fail "hpa.minReplicas must be at least 1 when hpa.enabled=true" -}}
+{{- end -}}
+{{- if lt (int .Values.hpa.maxReplicas) (int .Values.hpa.minReplicas) -}}
+{{- fail "hpa.maxReplicas must be >= hpa.minReplicas" -}}
+{{- end -}}
+{{- end -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- $apisixNs := required "networkPolicy.apisixNamespace is required (edge-only ingress)" .Values.networkPolicy.apisixNamespace -}}
+{{- $pgNs := required "networkPolicy.postgisNamespace is required" .Values.networkPolicy.postgisNamespace -}}
+{{- $kafkaNs := required "networkPolicy.kafkaNamespace is required" .Values.networkPolicy.kafkaNamespace -}}
+{{- $redisNs := required "networkPolicy.redisNamespace is required" .Values.networkPolicy.redisNamespace -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for geo-service" -}}
+{{- end -}}

@@ -1,0 +1,121 @@
+{{- /* Fail-closed approval gates for blueeconomy-data-platform. */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+{{- $cronRe := "^\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+$" -}}
+{{- $repo := required "image.repository is required" .Values.image.repository -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+
+{{- /* Storage backend enum; local is dev-only (gated local backend,
+       storage.py). */ -}}
+{{- if not (has .Values.storage.backend (list "s3" "adls" "local")) -}}
+{{- fail "storage.backend must be one of: s3, adls, local" -}}
+{{- end -}}
+{{- if eq .Values.profile "prod" -}}
+{{- if eq .Values.storage.backend "local" -}}
+{{- fail "storage.backend=local is forbidden when profile=prod (the local backend is a dev gate, not production storage)" -}}
+{{- end -}}
+{{- end -}}
+{{- $account := required "storage.account is required" .Values.storage.account -}}
+{{- $filesystem := required "storage.filesystem is required" .Values.storage.filesystem -}}
+
+{{- /* Every secretEnv name must be backed by the ExternalSecret. */ -}}
+{{- range $secretName := (default (list) .Values.secretEnv) -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $secretName) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because job pods consume it via secretEnv" $secretName) -}}
+{{- end -}}
+{{- end -}}
+{{- $store := required "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore)" .Values.externalSecrets.storeRef.name -}}
+
+{{- /* Key directory: consumers refuse to start without KEY_DIRECTORY_PATH
+       (signature_verification.py fail-closed loader). */ -}}
+{{- if not .Values.keyDirectory.enabled -}}
+{{- fail "keyDirectory.enabled must be true (KEY_DIRECTORY_PATH; envelope signature verification is mandatory)" -}}
+{{- end -}}
+{{- $kd := required "keyDirectory.configMapName is required when keyDirectory.enabled=true (opa-policies key-directory ConfigMap)" .Values.keyDirectory.configMapName -}}
+{{- if not (hasPrefix "/" .Values.keyDirectory.mountPath) -}}
+{{- fail "keyDirectory.mountPath must be an absolute path" -}}
+{{- end -}}
+
+{{- /* At least one job family must be configured. */ -}}
+{{- if and (empty .Values.kafkaIngest.jobs) (not .Values.retention.enabled) (not .Values.goldAssembly.enabled) -}}
+{{- fail "at least one job family must be configured (kafkaIngest.jobs, retention.enabled or goldAssembly.enabled)" -}}
+{{- end -}}
+
+{{- /* Kafka ingest job gates (CLI-required args are render-gated). */ -}}
+{{- if not (empty .Values.kafkaIngest.jobs) -}}
+{{- $brokers := required "kafka.bootstrapServers is required when kafkaIngest.jobs is non-empty" .Values.kafka.bootstrapServers -}}
+{{- end -}}
+{{- range $job := .Values.kafkaIngest.jobs -}}
+{{- if not $job.name -}}
+{{- fail "every kafkaIngest.jobs entry requires a name" -}}
+{{- end -}}
+{{- if not (regexMatch $cronRe ($job.schedule | default "")) -}}
+{{- fail (printf "kafkaIngest.jobs.%s schedule is required (five-field cron)" ($job.name | default "<missing>")) -}}
+{{- end -}}
+{{- range $field := list "topic" "groupId" "tableUri" "schema" -}}
+{{- if eq (printf "%v" (index $job $field)) "" -}}
+{{- fail (printf "kafkaIngest.jobs.%s %s is required (CLI --%s is required)" $job.name $field $field) -}}
+{{- end -}}
+{{- end -}}
+{{- if le (int ($job.maxMessages | default 0)) 0 -}}
+{{- fail (printf "kafkaIngest.jobs.%s maxMessages must be positive (bounded batch run)" $job.name) -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.kafka.tls.enabled -}}
+{{- $caName := required "kafka.tls.caCertSecretRef.name is required when kafka.tls.enabled=true" .Values.kafka.tls.caCertSecretRef.name -}}
+{{- end -}}
+
+{{- /* Retention job gates. */ -}}
+{{- if .Values.retention.enabled -}}
+{{- if not (regexMatch $cronRe (.Values.retention.schedule | default "")) -}}
+{{- fail "retention.schedule is required (five-field cron) when retention.enabled=true" -}}
+{{- end -}}
+{{- if eq (printf "%v" .Values.retention.tableUri) "" -}}
+{{- fail "retention.tableUri is required (--table-uri)" -}}
+{{- end -}}
+{{- if eq (printf "%v" .Values.retention.auditTableUri) "" -}}
+{{- fail "retention.auditTableUri is required (--audit-table-uri; retention without an audit trail is forbidden)" -}}
+{{- end -}}
+{{- if eq (printf "%v" .Values.retention.operator) "" -}}
+{{- fail "retention.operator is required (operator identity recorded in the audit trail)" -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Gold assembly gates (env-driven CLI contract). */ -}}
+{{- if .Values.goldAssembly.enabled -}}
+{{- if not (regexMatch $cronRe (.Values.goldAssembly.schedule | default "")) -}}
+{{- fail "goldAssembly.schedule is required (five-field cron) when goldAssembly.enabled=true" -}}
+{{- end -}}
+{{- if eq (printf "%v" .Values.goldAssembly.scope) "" -}}
+{{- fail "goldAssembly.scope is required (BLUEECONOMY_GOLD_SCOPE)" -}}
+{{- end -}}
+{{- if eq (printf "%v" .Values.goldAssembly.scopeRootUri) "" -}}
+{{- fail "goldAssembly.scopeRootUri is required (BLUEECONOMY_GOLD_SCOPE_ROOT_URI; segregated scope root)" -}}
+{{- end -}}
+{{- if eq (printf "%v" .Values.goldAssembly.reportPath) "" -}}
+{{- fail "goldAssembly.reportPath is required (BLUEECONOMY_GOLD_REPORT)" -}}
+{{- end -}}
+{{- if and (eq .Values.goldAssembly.scope "fisheries") (eq (printf "%v" .Values.goldAssembly.exportPath) "") -}}
+{{- fail "goldAssembly.exportPath is required for the fisheries scope (BLUEECONOMY_GOLD_EXPORT_PATH)" -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Resources are mandatory. */ -}}
+{{- if or (empty .Values.resources.requests.cpu) (empty .Values.resources.requests.memory) (empty .Values.resources.limits.cpu) (empty .Values.resources.limits.memory) -}}
+{{- fail "resources.requests and resources.limits (cpu and memory) are required" -}}
+{{- end -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- if empty .Values.networkPolicy.storageCIDRs -}}
+{{- fail "networkPolicy.storageCIDRs must list the object-storage egress CIDRs" -}}
+{{- end -}}
+{{- if and (not (empty .Values.kafkaIngest.jobs)) (eq (printf "%v" .Values.networkPolicy.kafkaNamespace) "") -}}
+{{- fail "networkPolicy.kafkaNamespace is required when kafkaIngest.jobs is non-empty" -}}
+{{- end -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for data-platform" -}}
+{{- end -}}

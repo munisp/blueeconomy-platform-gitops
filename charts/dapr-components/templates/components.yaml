@@ -1,0 +1,194 @@
+{{- $ws := .Values.workstream.name -}}
+{{- $scopes := .Values.workstream.appIds -}}
+{{- if .Values.pubsub.enabled }}
+{{- if eq .Values.pubsub.driver "kafka" }}
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: {{ $ws }}-pubsub
+  labels:
+    {{- include "dapr-components.labels" . | nindent 4 }}
+    blueeconomy.platform/component-role: pubsub
+spec:
+  type: pubsub.kafka
+  version: v1
+  metadata:
+    - name: brokers
+      value: {{ .Values.pubsub.kafka.brokers | quote }}
+    - name: consumerGroup
+      value: {{ default $ws .Values.pubsub.kafka.consumerGroup | quote }}
+    - name: authType
+      value: {{ .Values.pubsub.kafka.authType | quote }}
+    {{- if eq .Values.pubsub.kafka.authType "sasl" }}
+    - name: saslUsername
+      value: "dapr-workstream"
+    - name: saslPassword
+      secretKeyRef:
+        name: {{ .Values.pubsub.kafka.saslPasswordSecretKeyRef.name | quote }}
+        key: {{ .Values.pubsub.kafka.saslPasswordSecretKeyRef.key | quote }}
+    # Dapr saslMechanism enum: PLAINTEXT | SHA-512 (values enum:
+    # plain | scram-sha-512, render-gated in 000-validation.yaml).
+    - name: saslMechanism
+      value: {{ ternary "SHA-512" "PLAINTEXT" (eq .Values.pubsub.kafka.sasl.mechanism "scram-sha-512") | quote }}
+    {{- end }}
+    - name: disableTls
+      value: {{ ternary "true" "false" (not .Values.pubsub.kafka.tls.enabled) | quote }}
+    {{- if .Values.pubsub.kafka.tls.enabled }}
+    - name: caCert
+      secretKeyRef:
+        name: {{ .Values.pubsub.kafka.tls.caCertSecretRef.name | quote }}
+        key: {{ .Values.pubsub.kafka.tls.caCertSecretRef.key | quote }}
+    {{- end }}
+scopes:
+  {{- toYaml $scopes | nindent 2 }}
+{{- else }}
+# Fluvio pub/sub variant. Selected only when pubsub.driver=fluvio after a
+# Fluvio release is pinned in components/upstream-components.lock.yaml.
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: {{ $ws }}-pubsub
+  labels:
+    {{- include "dapr-components.labels" . | nindent 4 }}
+    blueeconomy.platform/component-role: pubsub
+spec:
+  type: pubsub.fluvio
+  version: v1
+  metadata:
+    - name: broker
+      value: {{ .Values.pubsub.fluvio.broker | quote }}
+    - name: topic
+      value: {{ .Values.pubsub.fluvio.topic | quote }}
+scopes:
+  {{- toYaml $scopes | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- if .Values.state.hot.enabled }}
+---
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: {{ $ws }}-state-hot
+  labels:
+    {{- include "dapr-components.labels" . | nindent 4 }}
+    blueeconomy.platform/component-role: state-hot
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: {{ .Values.state.hot.redisHost | quote }}
+    - name: redisPassword
+      secretKeyRef:
+        name: {{ .Values.state.hot.passwordSecretKeyRef.name | quote }}
+        key: {{ .Values.state.hot.passwordSecretKeyRef.key | quote }}
+    - name: enableTLS
+      value: "true"
+    - name: failover
+      value: "false"
+scopes:
+  {{- toYaml $scopes | nindent 2 }}
+{{- end }}
+{{- if .Values.state.durable.enabled }}
+---
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: {{ $ws }}-state-durable
+  labels:
+    {{- include "dapr-components.labels" . | nindent 4 }}
+    blueeconomy.platform/component-role: state-durable
+spec:
+  type: state.postgresql
+  version: v2
+  metadata:
+    - name: connectionString
+      secretKeyRef:
+        name: {{ .Values.state.durable.connectionStringSecretKeyRef.name | quote }}
+        key: {{ .Values.state.durable.connectionStringSecretKeyRef.key | quote }}
+    - name: actorStateStore
+      value: "false"
+scopes:
+  {{- toYaml $scopes | nindent 2 }}
+{{- end }}
+{{- if .Values.secretStores.kubernetes.enabled }}
+---
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: {{ $ws }}-secrets-kubernetes
+  labels:
+    {{- include "dapr-components.labels" . | nindent 4 }}
+    blueeconomy.platform/component-role: secret-store
+spec:
+  type: secretstores.kubernetes
+  version: v1
+  metadata:
+    - name: defaultNamespace
+      value: {{ .Release.Namespace | quote }}
+scopes:
+  {{- toYaml $scopes | nindent 2 }}
+{{- end }}
+{{- if .Values.secretStores.azureKeyVault.enabled }}
+---
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: {{ $ws }}-secrets-keyvault
+  labels:
+    {{- include "dapr-components.labels" . | nindent 4 }}
+    blueeconomy.platform/component-role: secret-store
+spec:
+  type: secretstores.azure.keyvault
+  version: v1
+  metadata:
+    - name: vaultName
+      value: {{ .Values.secretStores.azureKeyVault.vaultName | quote }}
+    # Azure landing-zone option: AzureUSGovernmentCloud maps to
+    # login.microsoftonline.us / vault.usgovcloudapi.net endpoints in the
+    # Dapr Azure SDK; AzurePublicCloud selects the commercial endpoints.
+    - name: azureEnvironment
+      value: {{ .Values.secretStores.azureKeyVault.azureEnvironment | quote }}
+scopes:
+  {{- toYaml $scopes | nindent 2 }}
+{{- end }}
+{{- if .Values.secretStores.hashicorpVault.enabled }}
+---
+# HashiCorp Vault secret-store option (self-hosted or managed). Token is
+# read from the ExternalSecrets-synced Secret; no token material in git.
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: {{ $ws }}-secrets-vault
+  labels:
+    {{- include "dapr-components.labels" . | nindent 4 }}
+    blueeconomy.platform/component-role: secret-store
+spec:
+  type: secretstores.hashicorp.vault
+  version: v1
+  metadata:
+    - name: vaultAddr
+      value: {{ .Values.secretStores.hashicorpVault.server | quote }}
+    - name: vaultToken
+      secretKeyRef:
+        name: {{ .Values.secretStores.hashicorpVault.tokenSecretRef.name | quote }}
+        key: {{ .Values.secretStores.hashicorpVault.tokenSecretRef.key | quote }}
+scopes:
+  {{- toYaml $scopes | nindent 2 }}
+{{- end }}
+{{- if .Values.secretStores.external.enabled }}
+---
+# Operator-managed ClusterSecretStore declaration (any ESO-supported
+# provider). Secrets synced through it are consumed via the
+# secretstores.kubernetes component above; this ConfigMap records the
+# selected store for audit and Argo CD diff visibility.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $ws }}-external-secret-store
+  labels:
+    {{- include "dapr-components.labels" . | nindent 4 }}
+    blueeconomy.platform/component-role: secret-store
+data:
+  clusterSecretStore: {{ .Values.secretStores.external.storeRef.name | quote }}
+{{- end }}

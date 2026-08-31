@@ -1,0 +1,139 @@
+{{- $fullName := include "insurance.fullname" . -}}
+{{- $secretName := include "insurance.secretName" . -}}
+{{- range $name, $component := .Values.components }}
+{{- if $component.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ printf "%s-%s" $fullName $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "insurance.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name | quote }}
+spec:
+  {{- if not (and (hasKey $component "hpa") $component.hpa $component.hpa.enabled) }}
+  replicas: {{ $component.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "insurance.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $name | quote }}
+  template:
+    metadata:
+      labels:
+        {{- include "insurance.selectorLabels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $name | quote }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml $.Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ $name | quote }}
+          image: "{{ $.Values.image.repository }}@{{ $.Values.image.digest }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          # One image, two fail-closed processes (pyproject
+          # [project.scripts]); the entrypoint is chosen by command.
+          command: {{ list $component.command | toYaml | nindent 10 }}
+          {{- if $component.probes }}
+          ports:
+            - name: http
+              containerPort: {{ $.Values.port }}
+              protocol: TCP
+          {{- end }}
+          env:
+            # Binary contract (src/insurance/config.py): INSURANCE_* names
+            # only. The signing key arrives as a mounted file; the DSN and
+            # partner adapter tokens come from the synced Secret.
+            - name: INSURANCE_SIGNING_KEY_PATH
+              value: {{ printf "%s/signing-key.pem" $.Values.signingKey.mountPath | quote }}
+            - name: INSURANCE_KEY_DIRECTORY_PATH
+              value: {{ $.Values.keyDirectory.mountPath | quote }}
+            {{- range $key, $value := (default dict $.Values.env) }}
+            - name: {{ $key | quote }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- range $key := (default (list) $.Values.secretEnv) }}
+            - name: {{ $key | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ $key | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml $component.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $.Values.securityContext | nindent 12 }}
+          {{- if $component.probes }}
+          startupProbe:
+            httpGet:
+              path: {{ $component.probes.livenessPath }}
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: {{ $component.probes.readinessPath }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: {{ $component.probes.livenessPath }}
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            # Ed25519 PKCS#8 signing key (boot-fatal; the binary refuses
+            # placeholder key material). Mounted read-only from the
+            # ExternalSecrets-synced Secret; never inline.
+            - name: signing-key
+              mountPath: {{ $.Values.signingKey.mountPath }}
+              readOnly: true
+            # Producer public-key directory (charts/opa-policies) for
+            # inbound envelope verification and the ISR evidence path.
+            - name: producer-key-directory
+              mountPath: {{ $.Values.keyDirectory.mountPath }}
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: signing-key
+          secret:
+            secretName: {{ $secretName | quote }}
+            items:
+              - key: {{ $.Values.signingKey.secretKey | quote }}
+                path: signing-key.pem
+        - name: producer-key-directory
+          configMap:
+            name: {{ $.Values.keyDirectory.configMapName }}
+{{- end }}
+{{- end }}
+{{- $api := index .Values.components "api" }}
+{{- if $api.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "insurance.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "insurance.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: {{ .Values.port }}
+      targetPort: http
+{{- end }}

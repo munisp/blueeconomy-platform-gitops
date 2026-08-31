@@ -1,0 +1,225 @@
+{{- $fullName := include "opentripplanner.fullname" . -}}
+{{- $secretName := include "opentripplanner.secretName" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "opentripplanner.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.hpa.enabled }}
+  replicas: {{ .Values.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "opentripplanner.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "opentripplanner.selectorLabels" . | nindent 8 }}
+      annotations:
+        blueeconomy.platform/edge-route: {{ .Values.edge.routeRegistration.apisixRouteRef | quote }}
+        blueeconomy.platform/telemetry: {{ ternary "otel-javaagent" "none (opt-in javaagent disabled)" .Values.telemetry.javaagent.enabled | quote }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        {{- if eq .Values.mode "build" }}
+        # mode=build: block until the graph-build Job has written
+        # graph.obj into the shared volume.
+        - name: wait-for-graph
+          image: "{{ .Values.downloader.image.repository }}@{{ .Values.downloader.image.digest }}"
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              echo "waiting for graph.obj from the graph-build Job"
+              until [ -s /var/opentripplanner/graph.obj ]; do sleep 5; done
+              echo "graph.obj present; starting OTP serve"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: graph
+              mountPath: /var/opentripplanner
+        {{- end }}
+        {{- if and (eq .Values.mode "serve") .Values.graph.url }}
+        # mode=serve with graph.url: fetch the approved prebuilt graph
+        # into this pod's emptyDir.
+        - name: fetch-graph
+          image: "{{ .Values.downloader.image.repository }}@{{ .Values.downloader.image.digest }}"
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              echo "fetching prebuilt graph: {{ .Values.graph.url }}"
+              curl -fsSL --retry 3 -o /var/opentripplanner/graph.obj "{{ .Values.graph.url }}"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: graph
+              mountPath: /var/opentripplanner
+        {{- end }}
+        {{- if .Values.telemetry.javaagent.enabled }}
+        # Opt-in OTel javaagent: copy the agent jar from the upstream
+        # auto-instrumentation image into a shared volume; the OTP
+        # container attaches it via JAVA_TOOL_OPTIONS. See values.yaml
+        # for the honest coverage statement (auto-instrumentation only).
+        - name: otel-javaagent
+          image: "{{ .Values.telemetry.javaagent.image.repository }}@{{ .Values.telemetry.javaagent.image.digest }}"
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/cp
+            - /javaagent.jar
+            - /otel-auto-instrumentation/javaagent.jar
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: otel-agent
+              mountPath: /otel-auto-instrumentation
+        {{- end }}
+      containers:
+        - name: opentripplanner
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Upstream container contract: CLI args go straight to OTP.
+          args: ["--load", "--serve", "/var/opentripplanner"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ if .Values.telemetry.javaagent.enabled }}{{ printf "%s -javaagent:/otel-auto-instrumentation/javaagent.jar" .Values.javaToolOptions | quote }}{{ else }}{{ .Values.javaToolOptions | quote }}{{ end }}
+            {{- if .Values.telemetry.javaagent.enabled }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.telemetry.javaagent.serviceName | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.telemetry.javaagent.otlpEndpoint | quote }}
+            - name: OTEL_TRACES_EXPORTER
+              value: otlp
+            - name: OTEL_METRICS_EXPORTER
+              value: otlp
+            - name: OTEL_LOGS_EXPORTER
+              value: none
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: {{ printf "deployment.environment=%s,blueeconomy.platform/workstream=ferries" .Values.profile | quote }}
+            {{- end }}
+            {{- if .Values.gtfsRt.auth.enabled }}
+            # Consumed by OTP2's ${OTP_GTFS_RT_TOKEN} substitution in
+            # router-config.json (updater Authorization header).
+            - name: OTP_GTFS_RT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ .Values.gtfsRt.auth.tokenSecretKey | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- if .Values.otpFeatures.actuatorApi }}
+          # /otp/actuators/health returns 200 only once the graph is
+          # loaded AND all updaters are ready (ActuatorAPI sandbox).
+          startupProbe:
+            httpGet:
+              path: /otp/actuators/health
+              port: http
+            failureThreshold: 120
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /otp/actuators/health
+              port: http
+            periodSeconds: 10
+          {{- else }}
+          # Without ActuatorAPI there is no machine health endpoint;
+          # fall back to a TCP check and record the gap honestly.
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 120
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+          {{- end }}
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+          volumeMounts:
+            - name: graph
+              mountPath: /var/opentripplanner
+            - name: config
+              mountPath: /var/opentripplanner/otp-config.json
+              subPath: otp-config.json
+              readOnly: true
+            - name: config
+              mountPath: /var/opentripplanner/router-config.json
+              subPath: router-config.json
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.telemetry.javaagent.enabled }}
+            - name: otel-agent
+              mountPath: /otel-auto-instrumentation
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: graph
+          {{- include "opentripplanner.graphVolume" . | nindent 10 }}
+        - name: config
+          configMap:
+            name: {{ $fullName }}
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.telemetry.javaagent.enabled }}
+        - name: otel-agent
+          emptyDir: {}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "opentripplanner.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "opentripplanner.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

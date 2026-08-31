@@ -1,0 +1,125 @@
+# Temporal workflow orchestration for the platform. The pinned upstream
+# (components/upstream-components.lock.yaml: temporal 1.6.0 / app 1.31.2) is
+# rendered by this chart as a single-node-per-role deployment suitable for
+# the authorised non-production landing zone; production sizing/sharding is
+# an environment-repository decision.
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  # temporalio/server
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+adminTools:
+  # temporalio/admin-tools, used by the namespace-bootstrap Job.
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+server:
+  replicas: 1
+  frontendPort: 7233
+  metricsPort: 9090
+  services: ["frontend", "history", "matching", "worker"]
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+persistence:
+  # PostgreSQL (CloudNativePG) persistence. The full DSN is secret material
+  # and arrives only through the ExternalSecrets-synced secret below.
+  driver: postgres12
+  host: ""
+  port: 5432
+  database: temporal
+  visibilityDatabase: temporal_visibility
+  # Secret keys (inside the ExternalSecrets-synced secret named by
+  # persistence.credentialsSecretName) holding the DB user and password.
+  credentialsSecretName: ""
+  userKey: ""
+  passwordKey: ""
+
+# Workflow namespaces registered by the bootstrap Job. Fail-closed: each
+# namespace must be explicitly listed with an approved retention.
+namespaces:
+  - name: cvff
+    retentionDays: 30
+    description: "CVFF four-party disbursement workflows (fiduciary-segregated)"
+  - name: ecallup
+    retentionDays: 30
+    description: "eCallUp 2.0 truck booking workflows"
+  - name: ferry
+    retentionDays: 30
+    description: "Ferry ticket safety telematics workflows"
+  - name: seafarer
+    retentionDays: 30
+    description: "Seafarer CoC credential lifecycle workflows"
+  - name: fisheries
+    retentionDays: 30
+    description: "Fisheries chain-of-custody workflows"
+  - name: isr
+    retentionDays: 30
+    description: "ISR response workflows (national-security controlled)"
+
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+networkPolicy:
+  enabled: true
+  # Workstream namespaces whose workers may reach the Temporal frontend.
+  # cvff is included; the cvff namespace's own policies restrict its egress.
+  allowedWorkerNamespaces:
+    - blueeconomy-cvff
+    - blueeconomy-ferries
+    - blueeconomy-ports
+    - blueeconomy-seafarer
+    - blueeconomy-fisheries
+    - blueeconomy-isr
+
+monitoring:
+  podMonitor:
+    enabled: true
+    labels:
+      blueeconomy.platform/workstream: platform
+
+podDisruptionBudget:
+  # Singleton server (server.replicas=1): maxUnavailable 0 keeps voluntary
+  # disruption an approved operator action.
+  enabled: true
+  maxUnavailable: 0
+
+serviceMonitor:
+  # Temporal frontend Prometheus scrape (OTEL_DESIGN.md section 3
+  # middleware matrix).
+  enabled: true
+  labels:
+    blueeconomy.platform/workstream: platform

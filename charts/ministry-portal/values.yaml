@@ -1,0 +1,146 @@
+# Ministry portal (static SPA served by the unprivileged nginx image built
+# from blueeconomy-ministry-portal/Dockerfile). Non-production-safe
+# baseline only; production requires a separately reviewed environment
+# values file. Fail-closed: no image reference, hostname, OIDC endpoint or
+# API endpoint is defaulted. No secret material exists anywhere in this
+# workload — the portal authenticates as a PUBLIC client (PKCE), and the
+# runtime configuration served at /platform-config.json is public
+# discovery metadata only.
+nameOverride: ""
+fullnameOverride: ""
+workstream: platform
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+image:
+  repository: ""
+  # Pin to an immutable digest after SBOM, vulnerability and compatibility approval.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+replicas: 2
+# The unprivileged nginx image listens on 8080 (deploy/nginx.conf).
+port: 8080
+
+service:
+  type: ClusterIP
+
+ingress:
+  enabled: true
+  # APISIX edge is the permitted ingress controller for the platform.
+  className: ""
+  annotations: {}
+  # Approved public hostname for the portal. Never defaulted; must match
+  # the OIDC redirect-URI allowlist registered on the public client.
+  host: ""
+  tls:
+    # cert-manager/ExternalSecrets-managed TLS secret for the host.
+    secretName: ""
+
+# Runtime configuration rendered into the platform-config.json ConfigMap
+# and served to the browser (schema: src/runtime-config.ts in
+# blueeconomy-ministry-portal). Public, non-secret discovery metadata.
+platformConfig:
+  applicationName: Blue Economy Ministry Portal
+  oidc:
+    # HTTPS Keycloak issuer URL of the approved ministry realm. The public
+    # client and its redirect-URI allowlist are registered by
+    # charts/keycloak-realms (publicClients stanza, PKCE S256).
+    authority: ""
+    clientId: ""
+    redirectUri: ""
+    postLogoutRedirectUri: ""
+    scope: openid profile
+  administration:
+    # HTTPS URL of the administration-service onboarding API behind the
+    # APISIX-approved route (charts/administration-service).
+    onboardingApiUrl: ""
+    # Keycloak organization id the onboarding requests target.
+    organizationId: ""
+    # Approved administration roles (mirrored by the backend's
+    # ONBOARDING_ALLOWED_ROLES).
+    allowedRoles: []
+  # Approved service directory: at least one entry, every healthUrl HTTPS.
+  services: []
+  # Optional geospatial tracking-console wiring (decision D8). When
+  # disabled the tracking routes render an explicit "not configured"
+  # state; when enabled every endpoint is render-gated exactly like the
+  # portal's own client-side validation.
+  geospatial:
+    enabled: false
+    # HTTPS base URL of the geo-service /v1/geo API behind the gateway.
+    geoApiUrl: ""
+    # Raster tile template containing {z}, {x} and {y}: an HTTPS URL or a
+    # same-origin absolute path (sovereign tile servers reverse-proxied
+    # onto the portal origin).
+    tileUrl: ""
+    tileAttribution: ""
+    pollIntervalMs: 15000
+    # Self-hosted Cesium assets: same-origin absolute path only (D5).
+    cesiumBaseUrl: ""
+    # GeoLibre pilot: same-origin reverse-proxied analysis app only (the
+    # strict CSP frame-src 'self' must hold).
+    geolibreEnabled: false
+    geolibreUrl: ""
+
+probes:
+  livenessPath: /healthz
+  readinessPath: /healthz
+
+serviceMonitor:
+  # PRA-066 audited: NO ServiceMonitor is wired for this portal — the
+  # nginx-unprivileged image serves the static SPA and /healthz only; no
+  # Prometheus endpoint exists (deploy/nginx.conf). enabled=true is
+  # refused at render time — never a phantom scrape target. Edge-level RED
+  # metrics come from the APISIX prometheus plugin (apisix-routes
+  # edgeObservability.prometheus).
+  enabled: false
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 128Mi
+
+# nginxinc/nginx-unprivileged runs as uid 101.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 101
+  runAsGroup: 101
+  fsGroup: 101
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+networkPolicy:
+  enabled: true
+  # Namespaces whose ingress controllers may reach the portal (e.g. APISIX edge).
+  allowedIngressNamespaces: []
+  # Ordered egress allowances outside this namespace. Everything else is denied.
+  allowedEgress:
+    - namespace: kube-system
+      ports: [53]
+      protocols: ["UDP", "TCP"]
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+hpa:
+  # CPU-based horizontal autoscaling (stateless service; GAP-PG-07).
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70

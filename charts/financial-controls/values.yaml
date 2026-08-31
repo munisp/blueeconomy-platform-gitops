@@ -1,0 +1,321 @@
+# Financial controls / CVFF four-party rail (Workstream C).
+# Deployed ONLY into blueeconomy-cvff (fiduciary segregation). Every
+# credential is delivered exclusively through ExternalSecrets; no placeholder
+# or inline credential is permitted anywhere in this chart.
+nameOverride: ""
+fullnameOverride: ""
+workstream: cvff
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# ExternalSecrets contract. storeRef.name references the sovereign landing
+# zone's secret backend ClusterSecretStore (any ESO-supported provider:
+# Azure Key Vault, HashiCorp Vault, or another operator-managed store;
+# selection is deployment policy, not platform law).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+dapr:
+  enabled: true
+  appProtocol: http
+  metricsPort: 9090
+
+# Temporal connection for cvff-worker. The CVFF service reads
+# TEMPORAL_HOST_PORT (not TEMPORAL_ADDRESS); the chart wires that key.
+temporal:
+  address: "temporal-frontend.blueeconomy-platform.svc.cluster.local:7233"
+  namespace: cvff
+
+components:
+  intent-api:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    port: 8080
+    service:
+      enabled: true
+      type: ClusterIP
+    daprAppId: intent-api
+    probes:
+      livenessPath: /healthz
+      readinessPath: /healthz
+    env:
+      INTENT_API_LISTEN_ADDR: ":8080"
+      # Gold-standard authn+PBAC gate (FC-1): every money route requires a
+      # verified Keycloak token and the financial.intents policy grant.
+      INTENT_API_KEYCLOAK_ISSUER: ""
+      INTENT_API_KEYCLOAK_JWKS_URL: ""
+      INTENT_API_JWT_AUDIENCE: ""
+      INTENT_API_POLICY_DIR: /etc/blueeconomy/policies
+      # Officer AMBIGUOUS resolution compensates against the real ledger
+      # (FC-2); the coordinates are required.
+      TIGERBEETLE_CLUSTER_ID_HEX: ""
+      TIGERBEETLE_REPLICA_ADDRESSES: ""
+      TIGERBEETLE_LEDGER: ""
+      TIGERBEETLE_CODE: ""
+    requiredEnv:
+      - INTENT_API_LISTEN_ADDR
+      - INTENT_API_KEYCLOAK_ISSUER
+      - INTENT_API_KEYCLOAK_JWKS_URL
+      - INTENT_API_JWT_AUDIENCE
+      - INTENT_API_POLICY_DIR
+      - TIGERBEETLE_CLUSTER_ID_HEX
+      - TIGERBEETLE_REPLICA_ADDRESSES
+      - TIGERBEETLE_LEDGER
+      - TIGERBEETLE_CODE
+    secretEnv:
+      - DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  # cvff-api is the ONLY server of /v1/cvff/applications* consumed by
+  # blueeconomy-beneficiary-portal (FC-4). The image bakes the PBAC policy
+  # pack at /etc/blueeconomy/policies (CVFF_API_POLICY_DIR).
+  cvff-api:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    port: 8081
+    service:
+      enabled: true
+      type: ClusterIP
+    daprAppId: cvff-api
+    probes:
+      livenessPath: /healthz
+      readinessPath: /healthz
+    temporalEnv:
+      enabled: true
+      addressKey: TEMPORAL_HOST_PORT
+    env:
+      CVFF_API_LISTEN_ADDR: ":8081"
+      TEMPORAL_TASK_QUEUE: cvff-disbursement
+      CVFF_API_KEYCLOAK_ISSUER: ""
+      CVFF_API_KEYCLOAK_JWKS_URL: ""
+      CVFF_API_JWT_AUDIENCE: ""
+      CVFF_API_AVSCAN_URL: ""
+      CVFF_API_MAX_DOCUMENT_BYTES: "10485760"
+      CVFF_API_MAX_DOCUMENTS_PER_APPLICATION: "20"
+      CVFF_API_DOCUMENT_CONTENT_TYPES: "application/pdf,image/jpeg,image/png"
+      CVFF_API_POLICY_DIR: /etc/blueeconomy/policies
+      # Object-storage backend coordinates (adls | adls-gen2 | s3); backend
+      # credentials arrive via secretEnv in the environment values file.
+      BLUEECONOMY_STORAGE_BACKEND: ""
+    requiredEnv:
+      - CVFF_API_LISTEN_ADDR
+      - TEMPORAL_TASK_QUEUE
+      - CVFF_API_KEYCLOAK_ISSUER
+      - CVFF_API_KEYCLOAK_JWKS_URL
+      - CVFF_API_JWT_AUDIENCE
+      - CVFF_API_AVSCAN_URL
+      - CVFF_API_MAX_DOCUMENT_BYTES
+      - CVFF_API_MAX_DOCUMENTS_PER_APPLICATION
+      - CVFF_API_DOCUMENT_CONTENT_TYPES
+      - CVFF_API_POLICY_DIR
+      - BLUEECONOMY_STORAGE_BACKEND
+    secretEnv:
+      - DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  cvff-worker:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    daprAppId: cvff-worker
+    temporalEnv:
+      enabled: true
+      addressKey: TEMPORAL_HOST_PORT
+    env:
+      TEMPORAL_TASK_QUEUE: cvff-disbursement
+      TIGERBEETLE_CLUSTER_ID_HEX: ""
+      TIGERBEETLE_REPLICA_ADDRESSES: ""
+      CVFF_NGN_DEBIT_ACCOUNT_ID_HEX: ""
+      CVFF_NGN_CREDIT_ACCOUNT_ID_HEX: ""
+      CVFF_USD_DEBIT_ACCOUNT_ID_HEX: ""
+      CVFF_USD_CREDIT_ACCOUNT_ID_HEX: ""
+      CVFF_NGN_LEDGER: ""
+      CVFF_USD_LEDGER: ""
+      CVFF_FEE_CODE: ""
+      CVFF_COST_CODE: ""
+      CVFF_CUSTODIAL_FEE_BPS: ""
+      # FC-3: unconfirmed FX rates expire after this TTL (Go duration);
+      # required, fail-closed. Expired rates are UNAVAILABLE, never default.
+      FX_PENDING_CONFIRMATION_TTL: 24h
+    requiredEnv:
+      - TEMPORAL_TASK_QUEUE
+      - TIGERBEETLE_CLUSTER_ID_HEX
+      - TIGERBEETLE_REPLICA_ADDRESSES
+      - CVFF_NGN_DEBIT_ACCOUNT_ID_HEX
+      - CVFF_NGN_CREDIT_ACCOUNT_ID_HEX
+      - CVFF_USD_DEBIT_ACCOUNT_ID_HEX
+      - CVFF_USD_CREDIT_ACCOUNT_ID_HEX
+      - CVFF_NGN_LEDGER
+      - CVFF_USD_LEDGER
+      - CVFF_FEE_CODE
+      - CVFF_COST_CODE
+      - CVFF_CUSTODIAL_FEE_BPS
+      - FX_PENDING_CONFIRMATION_TTL
+    secretEnv:
+      - DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  # declaration-scorer serves POST /v1/risk-scores, the provider behind
+  # port-interoperability's DECLARATIONS_SCORER_URL (FC-5). Deterministic
+  # rules-based scoring from the versioned config baked into the image.
+  declaration-scorer:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    port: 8082
+    # W-RES gRPC RiskScoreService port (rendered as the grpc Service/
+    # container port; must match DECLARATION_SCORER_GRPC_LISTEN_ADDR).
+    grpcPort: 9082
+    service:
+      enabled: true
+      type: ClusterIP
+    daprAppId: declaration-scorer
+    probes:
+      livenessPath: /healthz
+      readinessPath: /healthz
+    env:
+      DECLARATION_SCORER_LISTEN_ADDR: ":8082"
+      DECLARATION_SCORER_RULES_PATH: /etc/declaration-scorer/rules.json
+      # Keycloak RS256 verification triple (cmd/declaration-scorer: the
+      # production profile refuses to boot without all three, and any
+      # partial set is a boot error everywhere). EXPECTED_AUDIENCE must
+      # stay declaration-scorer — the keycloak-realms chart provisions the
+      # matching oidc-audience-mapper on the ports-realm
+      # port-interoperability-api client (W-RES gRPC contract); drift is
+      # refused at render time.
+      KEYCLOAK_JWKS_URL: ""
+      KEYCLOAK_ISSUER: ""
+      KEYCLOAK_EXPECTED_AUDIENCE: "declaration-scorer"
+      # W-RES gRPC listener (the RiskScoreService contract from
+      # blueeconomy-contracts, served alongside HTTP when set). Empty
+      # disables the gRPC server; the port-interoperability GRPCScorer
+      # requires it.
+      DECLARATION_SCORER_GRPC_LISTEN_ADDR: ":9082"
+    requiredEnv:
+      - DECLARATION_SCORER_LISTEN_ADDR
+      - DECLARATION_SCORER_RULES_PATH
+      - KEYCLOAK_JWKS_URL
+      - KEYCLOAK_ISSUER
+      - KEYCLOAK_EXPECTED_AUDIENCE
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 250m
+        memory: 128Mi
+
+  outbox-publisher:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    daprAppId: cvff-outbox-publisher
+    env:
+      KAFKA_BROKERS: ""
+      # cvff.disbursement.v1 envelope topic; classification FIDUCIARY_SEGREGATED.
+      KAFKA_TOPIC: ""
+      OUTBOX_POLL_INTERVAL_SECONDS: "5"
+      OUTBOX_BATCH_SIZE: "100"
+    requiredEnv:
+      - KAFKA_BROKERS
+      - KAFKA_TOPIC
+      - OUTBOX_POLL_INTERVAL_SECONDS
+      - OUTBOX_BATCH_SIZE
+    secretEnv:
+      - DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+networkPolicy:
+  enabled: true
+  # CVFF fiduciary segregation: no other workstream namespace may connect in.
+  # Only the approved edge namespace may reach intent-api.
+  allowedIngressNamespaces: []
+  allowedEgress:
+    - namespace: kube-system
+      ports: [53]
+      protocols: ["UDP", "TCP"]
+    # blueeconomy-platform (Temporal/Kafka/Keycloak) and the TigerBeetle
+    # namespace are appended by the environment values file. No ferries/ports
+    # egress rule is ever permitted for this workstream.
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    path: /metrics
+    interval: 30s
+    labels:
+      blueeconomy.platform/workstream: cvff
+      blueeconomy.platform/classification: fiduciary-segregated
+  podMonitor:
+    enabled: true
+    labels:
+      blueeconomy.platform/workstream: cvff
+      blueeconomy.platform/classification: fiduciary-segregated
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1

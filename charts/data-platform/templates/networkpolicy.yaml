@@ -1,0 +1,42 @@
+# data-platform network posture: no ingress (batch jobs only); egress to
+# the Kafka namespace (ingest + DLQ), the object-storage CIDRs (443) and
+# DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "data-platform.fullname" . }}
+  labels:
+    {{- include "data-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "data-platform.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress: []
+  egress:
+    {{- if .Values.networkPolicy.kafkaNamespace }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.kafkaNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: 9092
+    {{- end }}
+    {{- range .Values.networkPolicy.storageCIDRs }}
+    - to:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

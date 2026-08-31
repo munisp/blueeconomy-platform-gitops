@@ -1,0 +1,114 @@
+# OTel Collector gateway (central Deployment). OTEL_DESIGN.md section 1:
+# tenant attribution, sampling policies, redaction; exporters -> tempo /
+# loki / prometheus / (alertmanager via Prometheus rules on collector
+# self-telemetry). Cloud-agnostic; secrets via ExternalSecrets only.
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile (dev | staging | prod). Also rendered as the
+# deployment.environment resource attribute on all telemetry.
+profile: ""
+
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+replicas: 2
+
+# Backend endpoints (in-cluster service DNS; render-gated).
+tempo:
+  # OTLP gRPC ingest, e.g.
+  # tempo.blueeconomy-observability.svc.cluster.local:4317
+  endpoint: ""
+loki:
+  # Native OTLP/HTTP ingest (Loki 3.x), e.g.
+  # http://loki.blueeconomy-observability.svc.cluster.local:3100/otlp
+  otlpHttpEndpoint: ""
+
+# Tenant attribution (OTEL_DESIGN.md section 2): tenant.id + agency
+# (NPA/NIMASA/NIWA/FMMBE/CBN) are set as span/log attributes at the edge
+# (APISIX route attributes, JWT claim -> baggage -> SDK attribute) and by
+# app SDKs. The gateway does NOT fabricate or drop: a transform policy
+# tags telemetry missing tenant.id with tenant.attributed=false so the
+# §4 production gate can measure attribution coverage, and CVFF-namespace
+# telemetry is labelled FIDUCIARY_SEGREGATED (upstream lock deployment
+# gate) for segregated routing downstream.
+tenantAttribution:
+  enabled: true
+
+# Tail-sampling policies (gateway only; the agents do not sample).
+sampling:
+  # Baseline probabilistic keep rate for telemetry not matched by the
+  # always-keep policies below. 0 < value <= 1.
+  probabilisticRate: 0.1
+  # Spans slower than this are always kept.
+  slowSpanThresholdMs: 2000
+  # Span-name substrings identifying the money path (ledger/settlement/
+  # payment/disbursement) — always kept at 100%.
+  moneyPathSpanSubstrings:
+    - ledger
+    - settlement
+    - payment
+    - disbursement
+    - transfer
+  # Wait for all spans of a trace before the sampling decision.
+  decisionWait: 10s
+
+# Sensitive-attribute redaction (render-gated non-empty). Applied to
+# span/log/metric attributes BEFORE export; keys are deleted, never
+# hashed-and-kept (no reversible pseudonyms for secrets).
+redaction:
+  attributeKeys: []
+  # Approved baseline (environment values must supply at least these):
+  #   http.request.header.authorization
+  #   http.request.header.cookie
+  #   process.command_args
+  #   kafka.message.key
+  #   db.statement.parameters
+
+memoryLimiter:
+  checkInterval: 5s
+  limitMiB: 512
+  spikeLimitMiB: 128
+batch:
+  timeout: 5s
+  sendBatchSize: 1024
+
+resources:
+  requests:
+    cpu: ""
+    memory: ""
+  limits:
+    cpu: ""
+    memory: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  # Only the collector agents push to the gateway (same namespace);
+  # backends (tempo/loki) are same-namespace too. No additional ingress.
+  # Object-storage egress for tempo/loki is handled by THEIR charts, not
+  # here.
+
+serviceMonitor:
+  enabled: true
+  labels:
+    blueeconomy.platform/workstream: observability

@@ -1,0 +1,13 @@
+# Browser runtime configuration (public discovery metadata). Mounted into
+# the nginx document root and served at /platform-config.json; the portal
+# refuses to start if any value fails its client-side validation, so this
+# document is fail-closed end to end.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "beneficiary-portal.fullname" . }}-platform-config
+  labels:
+    {{- include "beneficiary-portal.labels" . | nindent 4 }}
+data:
+  platform-config.json: |
+    {{- include "beneficiary-portal.platformConfigJson" . | nindent 4 }}

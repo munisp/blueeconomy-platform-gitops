@@ -1,0 +1,185 @@
+{{- $fullName := include "geo-service.fullname" . -}}
+{{- $secretName := include "geo-service.secretName" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "geo-service.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.hpa.enabled }}
+  replicas: {{ .Values.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "geo-service.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "geo-service.selectorLabels" . | nindent 8 }}
+        blueeconomy.platform/geo-postgis-client: "true"
+      annotations:
+        blueeconomy.platform/signing-convention: {{ .Values.signing.convention | quote }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: geo-service
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          env:
+            # Binary contract (internal/config/config.go, internal/sign):
+            # APP_ENV, GEO_KAFKA_BROKERS, GEO_PG_DSN, GEO_REDIS_ADDR and
+            # ENVELOPE_SIGNING_PRIVATE_KEY / ENVELOPE_SIGNING_KEY_EPOCH are
+            # the only names the binary resolves; the documented secret
+            # keys (GEO_DATABASE_URL, REDIS_URL, the signing-convention
+            # keys) are mapped onto them below.
+            - name: APP_ENV
+              value: {{ .Values.profile | quote }}
+            - name: GEO_KAFKA_BROKERS
+              value: {{ .Values.kafka.brokers | quote }}
+            - name: GEO_PG_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: GEO_DATABASE_URL
+            # Dedicated least-privilege ingest role connection (0008_rls_
+            # ingest_login.sql): the geofence evaluator connects AS
+            # geo_ingest on its own pool — the app role holds no geo_ingest
+            # membership because permissive RLS policies OR across
+            # memberships. Required by the binary (fail-closed).
+            - name: GEO_INGEST_PG_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: GEO_INGEST_DATABASE_URL
+            - name: GEO_REDIS_ADDR
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: REDIS_URL
+            {{- if eq .Values.signing.convention "envelope" }}
+            - name: ENVELOPE_SIGNING_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ .Values.signing.envelope.privateKeySecretKey | quote }}
+            - name: ENVELOPE_SIGNING_KEY_EPOCH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ .Values.signing.envelope.epochSecretKey | quote }}
+            {{- else }}
+            - name: ENVELOPE_SIGNING_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ .Values.signing.provenance.keySecretKey | quote }}
+            {{- end }}
+            {{- if .Values.kafka.tls.enabled }}
+            - name: KAFKA_TLS_ENABLED
+              value: "true"
+            - name: KAFKA_TLS_CA_CERT_PATH
+              value: /etc/geo/kafka-tls/{{ .Values.kafka.tls.caCertSecretRef.key }}
+            {{- else }}
+            - name: KAFKA_TLS_ENABLED
+              value: "false"
+            {{- end }}
+            {{- if .Values.kafka.sasl.mechanism }}
+            - name: KAFKA_SASL_MECHANISM
+              value: {{ .Values.kafka.sasl.mechanism | quote }}
+            - name: KAFKA_SASL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.kafka.sasl.credentialsSecretRef.name }}
+                  key: {{ .Values.kafka.sasl.credentialsSecretRef.usernameKey }}
+            - name: KAFKA_SASL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.kafka.sasl.credentialsSecretRef.name }}
+                  key: {{ .Values.kafka.sasl.credentialsSecretRef.passwordKey }}
+            {{- end }}
+            {{- range $key, $value := (default dict .Values.env) }}
+            - name: {{ $key | quote }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- /* Secret keys already mapped onto the binary env contract
+                   above are not re-injected under their raw names (the
+                   binary never reads them). */ -}}
+            {{- $mappedKeys := list "GEO_DATABASE_URL" "GEO_INGEST_DATABASE_URL" "REDIS_URL"
+                .Values.signing.envelope.privateKeySecretKey
+                .Values.signing.envelope.epochSecretKey
+                .Values.signing.provenance.keySecretKey -}}
+            {{- range $key := (default (list) .Values.secretEnv) }}
+            {{- if not (has $key $mappedKeys) }}
+            - name: {{ $key | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: {{ $key | quote }}
+            {{- end }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.livenessPath }}
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readinessPath }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.livenessPath }}
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.kafka.tls.enabled }}
+            - name: kafka-tls
+              mountPath: /etc/geo/kafka-tls
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.kafka.tls.enabled }}
+        - name: kafka-tls
+          secret:
+            secretName: {{ .Values.kafka.tls.caCertSecretRef.name }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "geo-service.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "geo-service.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.port }}
+      targetPort: http

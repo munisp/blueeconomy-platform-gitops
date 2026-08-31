@@ -1,0 +1,125 @@
+# blueeconomy EMQX broker deploy surface (PRA-088). Every credential
+# arrives exclusively through ExternalSecrets; no placeholder or inline
+# credential is permitted anywhere in this chart. Cloud-agnostic: any
+# conformant Kubernetes, any secret-store backend via the ESO
+# ClusterSecretStore enum (docs/cloud-agnosticism.md).
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile. prod requires the TLS listener
+# (tls.enabled=true) and refuses plain-1883-only deployments.
+profile: ""
+
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+replicas: 2
+
+# Device-plane authentication (PRA-088 core): the EMQX HTTP authn webhook
+# against the geo-service device plane. The broker POSTs
+# {clientid, username, password} to mqttAuth.url; geo-service verifies the
+# device's signed proof against the device registry (device status ACTIVE,
+# key epoch CURRENT or PREVIOUS-in-grace) and answers allow/deny. The
+# webhook response never grants is_superuser. This value is REQUIRED —
+# without it the broker would boot with an empty authentication chain
+# (implicit allow-all), which this chart refuses to render.
+mqttAuth:
+  # Full URL of geo-service's EMQX webhook, e.g.
+  # http://geo-service.blueeco-geo-prod.svc.cluster.local:8080/v1/devices/mqtt-auth
+  url: ""
+  requestTimeout: 5s
+  connectTimeout: 5s
+  poolSize: 32
+
+# Authorization (topic ACL) stance. Authentication proves device identity;
+# per-topic ACL sources (device-scoped devices/<id>/... topics) are future
+# work. noMatch is deliberately an explicit render-gated choice so a
+# release must state its posture:
+#   allow — authenticated devices may pub/sub any topic (current stance;
+#           acceptable while the broker serves only device-plane traffic
+#           inside its NetworkPolicy perimeter)
+#   deny  — requires an authorization source to grant topics; renders the
+#           broker publish-dead until one is configured (future work)
+authorization:
+  noMatch: ""
+
+listeners:
+  mqttPort: 1883
+  mqttsPort: 8883
+
+# MQTTS listener (8883). Credentials land in the ExternalSecret target
+# secret as the keys named by certSecretKey/keySecretKey/caSecretKey and
+# are mounted read-only as files. profile=prod REQUIRES tls.enabled=true.
+tls:
+  enabled: false
+  required: false
+  certSecretKey: EMQX_TLS_CERT
+  keySecretKey: EMQX_TLS_KEY
+  caSecretKey: EMQX_TLS_CA
+
+# EMQX dashboard/REST listener (18083). Disabled by default; enabling
+# requires the admin password via ExternalSecrets
+# (externalSecrets.keys.EMQX_DASHBOARD_PASSWORD + secretEnv entry).
+dashboard:
+  enabled: false
+
+# ExternalSecrets contract. storeRef.name references the landing zone's
+# secret backend ClusterSecretStore (any ESO-supported provider).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+# Secret-sourced env (names must exist in externalSecrets.keys).
+secretEnv: []
+
+# Non-secret environment injected verbatim (EMQX_* configuration names
+# only; never credentials).
+env: {}
+
+networkPolicy:
+  enabled: true
+  # Namespaces whose pods may open MQTT connections (LoRaWAN gateway
+  # bridge, device simulators, consumers).
+  mqttIngressNamespaces: []
+  # geo-service namespace: the broker calls its mqtt-auth webhook there.
+  geoNamespace: ""
+  # geo-service HTTP port for the webhook call.
+  geoPort: 8080
+
+resources:
+  requests:
+    cpu: ""
+    memory: ""
+  limits:
+    cpu: ""
+    memory: ""
+
+podSecurityContext:
+  # The upstream emqx image runs as uid 1000 (user emqx).
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    labels: {}

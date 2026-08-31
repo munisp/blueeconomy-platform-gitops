@@ -1,0 +1,12 @@
+apiVersion: v2
+name: financial-controls
+description: >-
+  CVFF four-party disbursement rail (intent-api, cvff-worker, outbox-publisher).
+  Deployed exclusively into the blueeconomy-cvff namespace; all events are
+  classified FIDUCIARY_SEGREGATED and Dapr components are scoped to cvff
+  app-ids only. Fail-closed: renders only with approved environment values,
+  digest-pinned images and ExternalSecrets-backed configuration.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.28.0-0"

@@ -1,0 +1,62 @@
+{{- $fullName := include "ml-stack.fullname" . -}}
+{{- range $job := .Values.cronJobs }}
+---
+# Lakehouse batch job {{ $job.name }} (bounded run; prod posture has
+# BEML_ALLOW_SYNTHETIC_FALLBACK unset — render-gated in 000-validation).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ printf "%s-%s" $fullName $job.name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "ml-stack.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $job.name | quote }}
+spec:
+  schedule: {{ $job.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "ml-stack.selectorLabels" $ | nindent 12 }}
+            app.kubernetes.io/component: {{ $job.name | quote }}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            {{- toYaml $.Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: {{ $job.name | quote }}
+              image: "{{ $.Values.image.repository }}@{{ $.Values.image.digest }}"
+              imagePullPolicy: {{ $.Values.image.pullPolicy }}
+              command: {{ (list "python" "-m" $job.module) | toYaml | nindent 14 }}
+              {{- with $job.args }}
+              args:
+                {{- toYaml . | nindent 14 }}
+              {{- end }}
+              env:
+                {{- range $key, $value := (default dict $.Values.batchEnv) }}
+                - name: {{ $key | quote }}
+                  value: {{ $value | quote }}
+                {{- end }}
+                {{- with $job.env }}
+                {{- range $key, $value := . }}
+                - name: {{ $key | quote }}
+                  value: {{ $value | quote }}
+                {{- end }}
+                {{- end }}
+                {{- include "ml-stack.containerEnv" $ | nindent 16 }}
+              resources:
+                {{- toYaml $job.resources | nindent 16 }}
+              securityContext:
+                {{- toYaml $.Values.securityContext | nindent 16 }}
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
+{{- end }}

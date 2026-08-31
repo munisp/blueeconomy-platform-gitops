@@ -1,0 +1,87 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digests and
+# illustrative references. Real values live in the authorised environment
+# repo.
+profile: prod
+mode: build
+
+image:
+  repository: opentripplanner/opentripplanner
+  digest: sha256:2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b
+
+replicas: 1
+
+downloader:
+  image:
+    repository: curlimages/curl
+    digest: sha256:3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c
+
+gtfs:
+  # geo-service static GTFS feed factory (in-cluster).
+  staticUrl: http://render-gate-geo-service.blueeco-geo-prod.svc.cluster.local:8080/feeds/gtfs.zip
+  osmPbfUrl: ""
+
+persistence:
+  size: 10Gi
+  accessModes:
+    - ReadWriteOnce
+
+gtfsRt:
+  feedId: blueeconomy
+  frequencySec: 30
+  vehiclePositionsUrl: http://render-gate-geo-service.blueeco-geo-prod.svc.cluster.local:8080/feeds/gtfs-rt/vehiclepositions.pb
+  tripUpdatesUrl: http://render-gate-geo-service.blueeco-geo-prod.svc.cluster.local:8080/feeds/gtfs-rt/tripupdates.pb
+  alertsUrl: http://render-gate-geo-service.blueeco-geo-prod.svc.cluster.local:8080/feeds/gtfs-rt/alerts.pb
+  auth:
+    enabled: true
+    headerName: Authorization
+    tokenSecretKey: OTP_GTFS_RT_TOKEN
+
+otpFeatures:
+  actuatorApi: true
+  legacyGraphQLApi: true
+
+javaToolOptions: -Xmx4g
+
+# Opt-in javaagent demonstrated end-to-end (endpoint + digest-pinned
+# agent image present, so the gate passes).
+telemetry:
+  javaagent:
+    enabled: true
+    otlpEndpoint: http://render-gate-otel-collector-gateway.blueeconomy-observability.svc.cluster.local:4317
+    serviceName: opentripplanner
+    image:
+      repository: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java
+      digest: sha256:4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 4Gi
+  limits:
+    cpu: "4"
+    memory: 8Gi
+
+buildResources:
+  requests:
+    cpu: "1"
+    memory: 8Gi
+  limits:
+    cpu: "4"
+    memory: 16Gi
+
+networkPolicy:
+  apisixNamespace: blueeconomy-security
+  geoServiceNamespace: blueeco-geo-prod
+  geoServicePort: 8080
+
+edge:
+  routeRegistration:
+    required: true
+    apisixRouteRef: ferries-opentripplanner
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    OTP_GTFS_RT_TOKEN: ferries/render-fixture/otp-gtfs-rt-token

@@ -106,7 +106,40 @@ networkPolicy:
 
 observability:
   logFormat: json
-  otelEnabled: true
+  # NOTE: the former `otelEnabled: true` key was declared but never
+  # consumed by any template (dead config, removed honestly in W-OPS1).
+  # The opt-in Spark-side OTel pattern below replaces it (default OFF).
+  otel:
+    javaagent:
+      # Opt-in OTel Java agent on the Spark driver/executor JVMs
+      # (W-OTEL follow-up; Sedona-on-Spark is batch-only at
+      # jobs/vessel_trajectory_silver.py). The job image must carry the
+      # agent jar at agentPath. HONEST COVERAGE: the javaagent
+      # auto-instruments supported JVM libraries (HTTP/gRPC/JDBC clients)
+      # and emits JVM runtime metrics; it does NOT trace Spark's own
+      # scheduler/stages (no Spark instrumentation module exists) and it
+      # does NOT trace the PySpark Python worker or the Sedona geometry
+      # UDFs — job-level spans remain the Python-side spans wrapping the
+      # job submission (W-OTEL data-platform wave).
+      enabled: false
+      agentPath: /opt/otel/opentelemetry-javaagent.jar
+      # OTLP/gRPC endpoint of the collector. Render-gated: enabling the
+      # agent without an endpoint is refused (telemetry must never
+      # silently vanish — OTP2 javaagent precedent).
+      otlpEndpoint: ""
+      # Collector namespace for the NetworkPolicy egress rule (render-gated
+      # when enabled).
+      collectorNamespace: ""
+  prometheus:
+    # Spark Prometheus servlet sink: the Spark metrics system (JMX
+    # source: driver/executor gauges, DAGScheduler, BlockManager, JVM)
+    # exposed on the Spark UI ports for Prometheus scrape. This is the
+    # Spark-side metrics pattern; Sedona geometry metrics exist only if
+    # the job code registers them.
+    enabled: false
+    # Namespace Prometheus scrapes from (NetworkPolicy ingress; render-
+    # gated when enabled).
+    scrapeNamespace: ""
   kubecostLabels:
     blueeconomy.platform/domain: S2-S5-S6
     blueeconomy.platform/cost-center: geospatial-analytics

@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: blueeconomy-ferries
+  labels:
+    kubernetes.io/metadata.name: blueeconomy-ferries
+    blueeconomy.platform/workstream: ferries
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress-egress
+  namespace: blueeconomy-ferries
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress

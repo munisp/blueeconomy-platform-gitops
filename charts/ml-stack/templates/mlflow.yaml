@@ -1,0 +1,108 @@
+{{- $fullName := include "ml-stack.fullname" . -}}
+{{- if .Values.mlflow.enabled }}
+# Optional MLflow tracking server: Postgres backend store via
+# ExternalSecrets (never inline), lakehouse artifact root.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ printf "%s-mlflow" $fullName | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "ml-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mlflow
+spec:
+  replicas: {{ .Values.mlflow.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "ml-stack.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mlflow
+  template:
+    metadata:
+      labels:
+        {{- include "ml-stack.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: mlflow
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: mlflow
+          image: "{{ .Values.mlflow.image.repository }}@{{ .Values.mlflow.image.digest }}"
+          imagePullPolicy: {{ .Values.mlflow.image.pullPolicy }}
+          args:
+            - mlflow
+            - server
+            - --host
+            - "0.0.0.0"
+            - --port
+            - {{ .Values.mlflow.port | quote }}
+            - --backend-store-uri
+            - $(MLFLOW_BACKEND_STORE_URI)
+            - --artifacts-destination
+            - {{ .Values.mlflow.env.MLFLOW_ARTIFACT_ROOT | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.mlflow.port }}
+              protocol: TCP
+          env:
+            - name: MLFLOW_BACKEND_STORE_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ml-stack.secretName" . | quote }}
+                  key: {{ .Values.mlflow.backendStoreSecretKey | quote }}
+            {{- range $key, $value := (default dict .Values.mlflow.env) }}
+            - name: {{ $key | quote }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- include "ml-stack.containerEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.mlflow.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-mlflow" $fullName | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "ml-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mlflow
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "ml-stack.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: mlflow
+  ports:
+    - name: http
+      port: {{ .Values.mlflow.port }}
+      targetPort: http
+{{- end }}

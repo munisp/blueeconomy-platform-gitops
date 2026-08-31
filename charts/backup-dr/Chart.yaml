@@ -1,0 +1,23 @@
+apiVersion: v2
+name: backup-dr
+description: >-
+  Disaster-recovery machinery closing the charts/regional-dr contract:
+  Velero scheduled cluster backups (pinned upstream release contract plus
+  reconciled Schedule and BackupStorageLocation CRs), WAL-G continuous
+  Postgres archiving to immutable S3-compatible/ADLS storage, and a
+  CronJob-based restore-test harness. Fail-closed: backup schedule, storage
+  endpoint and immutabilityDays are required, and immutabilityDays must
+  match the regional-dr recovery contract.
+type: application
+version: 0.1.0
+appVersion: "1.14.1"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - velero
+  - wal-g
+  - backup
+  - disaster-recovery
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "recovery-machinery"
+  blueeconomy.platform/upstream-policy: "Pin verified upstream chart/image digests; do not deploy unreviewed defaults"

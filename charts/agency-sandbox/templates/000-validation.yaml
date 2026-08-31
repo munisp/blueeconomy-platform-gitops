@@ -1,0 +1,55 @@
+{{- /* Fail-closed approval gates for blueeconomy-agency-sandbox. */ -}}
+
+{{- /* SANDBOX POSTURE: these are NON-PRODUCTION simulators of government
+       counterpart systems. They must never deploy to a production
+       profile or production namespace. */ -}}
+{{- if not (has .Values.profile (list "dev" "staging")) -}}
+{{- fail "profile must be one of: dev, staging (agency-sandbox is a NON-PRODUCTION simulator set; profile=prod is refused outright)" -}}
+{{- end -}}
+
+{{- $store := required "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore)" .Values.externalSecrets.storeRef.name -}}
+
+{{- /* Per-agency gates: digest-pinned image, deterministic signing key
+       via ExternalSecrets (upstream's ephemeral-key fallback is refused
+       here), decimal epoch, resources mandatory. */ -}}
+{{- range $name, $agency := .Values.agencies -}}
+{{- if $agency.enabled -}}
+{{- $repo := required (printf "agencies.%s.image.repository is required" $name) $agency.image.repository -}}
+{{- $digest := required (printf "agencies.%s.image.digest is required" $name) $agency.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail (printf "agencies.%s.image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" $name) -}}
+{{- end -}}
+{{- $key := required (printf "agencies.%s.agencySecretKey is required (ExternalSecrets key holding the agency Ed25519 sandbox signing key; the ephemeral-key fallback is refused so conformance evidence stays deterministic)" $name) $agency.agencySecretKey -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $key) -}}
+{{- fail (printf "externalSecrets.keys.%s is required (agencies.%s injects it as SANDBOX_SIGNING_PRIVATE_KEY)" $key $name) -}}
+{{- end -}}
+{{- if not (regexMatch "^[0-9]+$" (printf "%v" $agency.epoch)) -}}
+{{- fail (printf "agencies.%s.epoch must be decimal digits (SANDBOX_SIGNING_KEY_EPOCH; the binary refuses any other shape)" $name) -}}
+{{- end -}}
+{{- if or (empty $agency.resources.requests.cpu) (empty $agency.resources.requests.memory) (empty $agency.resources.limits.cpu) (empty $agency.resources.limits.memory) -}}
+{{- fail (printf "agencies.%s resources.requests and resources.limits (cpu and memory) are required" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Optional shared ingress bearer token must be secret-sourced. */ -}}
+{{- if .Values.tokenSecretKey -}}
+{{- if not (hasKey .Values.externalSecrets.keys .Values.tokenSecretKey) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because tokenSecretKey injects it as SANDBOX_TOKEN" .Values.tokenSecretKey) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* SANDBOX_TRUST_KEYS, when set, must be a JSON object of kid -> base64
+       public key (the binary fails boot on malformed JSON). */ -}}
+{{- $trustKeys := printf "%v" (get (default dict .Values.env) "SANDBOX_TRUST_KEYS") -}}
+{{- if and (ne $trustKeys "") (ne $trustKeys "<no value>") -}}
+{{- if not (kindIs "map" (fromJson $trustKeys)) -}}
+{{- fail "env.SANDBOX_TRUST_KEYS must be a JSON object ({kid: base64 public key})" -}}
+{{- end -}}
+{{- end -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- $swNs := required "networkPolicy.singlewindowNamespace is required (the platform adapter namespace is the only legitimate caller)" .Values.networkPolicy.singlewindowNamespace -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for agency-sandbox" -}}
+{{- end -}}

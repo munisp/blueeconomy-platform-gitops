@@ -1,0 +1,40 @@
+{{- range $name, $component := .Values.components }}
+{{- if $component.enabled }}
+{{- $digest := required (printf "%s.image.digest is required" $name) $component.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail (printf "%s.image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" $name) -}}
+{{- end -}}
+{{- $repository := required (printf "%s.image.repository is required" $name) $component.image.repository -}}
+{{- $env := default dict $component.env -}}
+{{- range $envName := (default (list) $component.requiredEnv) -}}
+{{- if eq (printf "%v" (get $env $envName)) "" -}}
+{{- fail (printf "%s.%s must be set to an approved environment value" $name $envName) -}}
+{{- end -}}
+{{- end -}}
+{{- range $secretName := (default (list) $component.secretEnv) -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $secretName) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because %s consumes it via secretEnv" $secretName $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+{{- end }}
+{{- $store := required "externalSecrets.storeRef.name is required" .Values.externalSecrets.storeRef.name -}}
+
+{{- /* Declaration-scorer audience contract (W-RES gRPC wave): the scorer
+       verifies KEYCLOAK_EXPECTED_AUDIENCE and the keycloak-realms chart
+       provisions the matching oidc-audience-mapper for exactly
+       'declaration-scorer' on the ports-realm port-interoperability-api
+       client. Drift between the two is refused at render time. */ -}}
+{{- $scorer := index .Values.components "declaration-scorer" -}}
+{{- if $scorer.enabled -}}
+{{- $aud := get (default dict $scorer.env) "KEYCLOAK_EXPECTED_AUDIENCE" -}}
+{{- if ne (printf "%v" $aud) "declaration-scorer" -}}
+{{- fail "declaration-scorer.env.KEYCLOAK_EXPECTED_AUDIENCE must be declaration-scorer (the audience mapper provisioned by the keycloak-realms chart on the port-interoperability-api client)" -}}
+{{- end -}}
+{{- if $scorer.grpcPort -}}
+{{- $grpcAddr := get (default dict $scorer.env) "DECLARATION_SCORER_GRPC_LISTEN_ADDR" -}}
+{{- if ne (printf "%v" $grpcAddr) (printf ":%v" $scorer.grpcPort) -}}
+{{- fail "declaration-scorer.env.DECLARATION_SCORER_GRPC_LISTEN_ADDR must match declaration-scorer.grpcPort (the rendered grpc Service/container port)" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

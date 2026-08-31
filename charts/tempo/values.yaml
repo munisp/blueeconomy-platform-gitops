@@ -1,0 +1,84 @@
+# Grafana Tempo trace backend. Object storage is REQUIRED (local-disk
+# tempo is not a production trace store); credentials via ExternalSecrets
+# only. Cloud-agnostic S3-compatible API.
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile (dev | staging | prod).
+profile: ""
+
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+# Trace retention, render-gated to the approved 7-30 day band
+# (OTEL_DESIGN.md section 1: 7-30d retention).
+retentionHours: 720
+
+# S3-compatible block backend (REQUIRED contract).
+storage:
+  bucket: ""
+  # HTTPS endpoint of the S3-compatible store (no scheme-less endpoints).
+  endpoint: ""
+  region: ""
+  # ExternalSecrets keys carrying the object-storage credentials,
+  # env-injected (never inline).
+  accessKeySecretKey: TEMPO_S3_ACCESS_KEY
+  secretKeySecretKey: TEMPO_S3_SECRET_KEY
+
+# Local WAL / block-cache volume (PVC; write-ahead log durability for the
+# ingest path).
+persistence:
+  storageClassName: ""
+  size: ""
+  accessModes:
+    - ReadWriteOnce
+
+# ExternalSecrets contract (any ESO-supported ClusterSecretStore).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+resources:
+  requests:
+    cpu: ""
+    memory: ""
+  limits:
+    cpu: ""
+    memory: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+podDisruptionBudget:
+  enabled: true
+  # Singleton monolith: voluntary disruption requires an approved operator
+  # action.
+  maxUnavailable: 0
+
+networkPolicy:
+  enabled: true
+  # Object-storage egress CIDRs (HTTPS 443); render-gated non-empty.
+  storageCIDRs: []
+
+serviceMonitor:
+  enabled: true
+  labels:
+    blueeconomy.platform/workstream: observability

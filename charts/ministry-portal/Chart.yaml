@@ -1,0 +1,16 @@
+apiVersion: v2
+name: ministry-portal
+description: >-
+  Blue Economy ministry portal (blueeconomy-ministry-portal: nginx static
+  bundle on 8080 with /healthz, configured by a deployment-provided
+  /platform-config.json per src/runtime-config.ts). Entry point for the
+  ministry's approved platform services: onboarding/approvals against the
+  administration-service, service directory and the render-gated
+  geospatial tracking console. Authentication is OIDC
+  authorization-code + PKCE against an approved realm public client.
+  Fail-closed: renders only with approved environment values, a
+  digest-pinned image and the approved ingress/TLS configuration.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.28.0-0"

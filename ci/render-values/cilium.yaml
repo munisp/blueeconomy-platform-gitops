@@ -1,0 +1,99 @@
+# CI render-gate fixture ONLY. NOT deployable: illustrative versions and
+# endpoints. Real values live in the authorised environment repo.
+upstream:
+  chartName: cilium
+  chartVersion: 1.16.5
+  repository: https://helm.cilium.io
+
+kernel:
+  minVersion: "5.4"
+  targetVersion: "6.1"
+
+networkPolicies:
+  postgres:
+    namespace: blueeconomy-platform
+    port: 5432
+  kafka:
+    namespace: blueeconomy-platform
+    port: 9092
+  temporal:
+    namespace: blueeconomy-platform
+    port: 7233
+  tigerbeetle:
+    namespace: blueeco-tigerbeetle-prod
+    port: 3000
+  workstreams:
+    - name: ports
+      namespace: blueeconomy-ports
+      appIds:
+        - port-interoperability-api
+        - ussd-gateway
+        - booking-worker
+        - ports-outbox-publisher
+    - name: ferries
+      namespace: blueeconomy-ferries
+      appIds:
+        - ferry-api
+        - ferry-worker
+        - ferry-outbox-publisher
+    - name: cvff
+      namespace: blueeconomy-cvff
+      tigerbeetleAccess: true
+      appIds:
+        - intent-api
+        - cvff-worker
+        - cvff-outbox-publisher
+    - name: seafarer
+      namespace: blueeconomy-seafarer
+      appIds:
+        - credential-verification-api
+        - seafarer-credential-worker
+    - name: fisheries
+      namespace: blueeconomy-fisheries
+      appIds:
+        - trace-api
+        - trace-worker
+        - fisheries-outbox-publisher
+    - name: isr
+      namespace: blueeconomy-isr
+      appIds:
+        - maritime-intelligence-api
+        - isr-worker
+        - isr-outbox-publisher
+  # Geo stack eBPF policies (blueeco-geo-prod).
+  geo:
+    enabled: true
+    namespace: blueeco-geo-prod
+    edgeNamespace: blueeconomy-security
+    kafkaNamespace: blueeconomy-platform
+    redisNamespace: blueeconomy-platform
+
+ingressPath:
+  edgeNamespace: blueeconomy-security
+  apisixNamespace: blueeconomy-security
+  apisixPort: 9080
+  l7ServicePort: 8080
+
+tetragonPolicies:
+  - name: tigerbeetle-process-exec
+    namespace: blueeco-tigerbeetle-prod
+    podSelector:
+      app.kubernetes.io/name: tigerbeetle
+    type: process-exec
+    allowedBinaries:
+      - /tigerbeetle
+  - name: financial-controls-file-integrity
+    namespace: blueeconomy-cvff
+    podSelector:
+      app.kubernetes.io/name: cvff-worker
+    type: file-integrity
+    watchedPaths:
+      - /var/lib/postgresql
+  - name: keycloak-process-exec
+    namespace: blueeconomy-security
+    podSelector:
+      app.kubernetes.io/name: keycloak
+    type: process-exec
+    allowedBinaries:
+      - /opt/java/openjdk/bin/java
+      - /opt/keycloak/bin/kc.sh

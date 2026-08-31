@@ -1,0 +1,27 @@
+apiVersion: v2
+name: emqx
+description: >-
+  blueeconomy EMQX MQTT broker: the device-plane IoT ingress for
+  geo-service telemetry (LoRaWAN gateways, GT06 trackers, POS/validator
+  units; Citizen Services Advisory §9 / PRA-088). Authentication is
+  delegated fail-closed to the geo-service device plane via the EMQX HTTP
+  authn webhook (/v1/devices/mqtt-auth): clientid is the registered device
+  id, password is the device's Ed25519 signed proof, superuser is never
+  granted and anonymous access is denied by the non-empty authentication
+  chain. Conventions follow charts/geo-service: digest-pinned image,
+  profile enum fail-gate, required-env gates, ExternalSecrets-only
+  credentials, restricted PodSecurity, NetworkPolicy, resources required.
+  Cloud-agnostic: no provider API is consumed.
+type: application
+version: 0.1.0
+appVersion: "5.8"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - mqtt
+  - emqx
+  - iot
+  - device-plane
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "device-plane-ingress"
+  blueeconomy.platform/upstream-policy: "Pin verified upstream image digests; do not deploy unreviewed defaults"

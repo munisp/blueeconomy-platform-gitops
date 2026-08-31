@@ -1,0 +1,127 @@
+# APISIX route registrations (gap #49). The edge topology is
+# client -> Caddy -> OpenAppSec -> APISIX -> Dapr -> services; these
+# ApisixRoute CRs are the APISIX hop for services that previously terminated
+# on plain Ingress. Render-gated to the apisix flag.
+nameOverride: ""
+fullnameOverride: ""
+
+apisix:
+  # Routes render by default against the pinned upstream APISIX release
+  # (components/upstream-components.lock.yaml: apache-apisix); the
+  # fail-closed gates are the required landing-zone values below (gateway
+  # namespace, OPA service, per-route approved hostnames).
+  enabled: true
+  # APISIX gateway listener namespace (Caddy proxies here).
+  namespace: blueeconomy-security
+  # OPA hook contract, consistent with charts/opa-policies apisixHook:
+  # every route evaluates policy blueeconomy/http/allow on the OPA service.
+  opa:
+    policy: blueeconomy/http/allow
+    # In-cluster OPA service name (the opa-policies release). Render-gated.
+    serviceName: ""
+    servicePort: 8181
+
+# Route inventory, ported from the platform's authoritative APISIX route
+# file (blueeconomy/deploy/security/apisix.yaml) so the render gates apply
+# (GAP-SEC-03). Every entry:
+#   name:     route name (also the ApisixRoute CR name suffix)
+#   host:     approved edge hostname (environment-supplied; render-gated)
+#   paths:    absolute path prefixes (/* suffix style)
+#   methods:  approved HTTP methods
+#   service:  backend Kubernetes Service (namespace/name/port)
+#   scopes:   Keycloak OIDC scopes required on the route (bearer-only)
+#   rateLimit: optional identity-aware limit-req override {rate, burst, key}
+routes:
+  # S1 port interoperability API (upstream s1-port-interoperability).
+  - name: platform-s1
+    host: ""
+    paths:
+      - /v1/port/*
+    methods: [GET, POST, PUT]
+    service:
+      namespace: blueeconomy-ports
+      name: port-interoperability-port-interoperability-api
+      port: 8080
+    scopes:
+      - s1
+    rateLimit:
+      rate: 20
+      burst: 40
+      key: "$consumer_name$remote_addr"
+  # Partner national-single-window submissions (upstream s1, bearer-only).
+  - name: partner-nsw
+    host: ""
+    paths:
+      - /v1/nsw/*
+    methods: [POST]
+    service:
+      namespace: blueeconomy-ports
+      name: port-interoperability-port-interoperability-api
+      port: 8080
+    scopes:
+      - partner.nsw
+    rateLimit:
+      rate: 10
+      burst: 20
+      key: remote_addr
+  # S2 maritime-intelligence feed sources (upstream s2-maritime-intelligence).
+  - name: platform-s2
+    host: ""
+    paths:
+      - /v1/feed-sources/*
+    methods: [GET, POST]
+    service:
+      namespace: blueeconomy-isr
+      name: maritime-intelligence-maritime-intelligence-api
+      port: 8080
+    scopes:
+      - s2
+    rateLimit:
+      rate: 15
+      burst: 30
+      key: "$consumer_name$remote_addr"
+
+# Edge-native observability (OTEL_DESIGN.md section 3).
+edgeObservability:
+  opentelemetry:
+    # opentelemetry plugin on every route: edge ROOT spans, traceparent
+    # injected downstream. The collector endpoint lives in the APISIX
+    # instance's plugin_attr (upstream release values) — this chart
+    # render-gates only the sampling contract.
+    enabled: true
+    # Default per-route trace-id-ratio fraction (routes may override via
+    # otlp.sampleFraction); render-gated to (0, 1].
+    sampleFraction: 1.0
+  prometheus:
+    # prometheus plugin on every route (per-route RED metrics).
+    enabled: true
+    serviceMonitor:
+      # Gateway-level scrape of the APISIX prometheus export
+      # (/apisix/prometheus/metrics) on the pinned upstream APISIX Service
+      # (PRA-066). Render-gated: enabling the monitor while the per-route
+      # prometheus plugin above is disabled is refused — never wire a
+      # scrape target the gateway does not serve (OTP2 honesty precedent).
+      enabled: false
+      # APISIX gateway Service exposing the prometheus export port
+      # (render-gated when enabled).
+      serviceName: ""
+      port: 9091
+      path: /apisix/prometheus/metrics
+      labels:
+        blueeconomy.platform/workstream: platform
+
+# OpenAppSec WAF agent (embedded in the APISIX pod per the caddy chart
+# contract): Prometheus scrape wiring. NOTE (vendor limitation, recorded
+# honestly): the agent emits NO traces; its security events ship to Loki
+# via the collector (filelog/syslog on the agent's event volume/socket —
+# additive collector config, recorded here so the gap is explicit).
+openappsec:
+  serviceMonitor:
+    enabled: false
+    # APISIX Service exposing the agent metrics port (render-gated when
+    # enabled).
+    serviceName: ""
+    port: 8111
+    path: /metrics
+    labels:
+      blueeconomy.platform/workstream: security

@@ -1,0 +1,126 @@
+# Backup/DR machinery. This chart fulfills the charts/regional-dr recovery
+# contract: backups that can actually be immutable, restored and drilled.
+# Cloud-agnostic and sovereign-deployable: S3-compatible storage is addressed
+# through a generic endpoint (on-prem object stores, sovereign clouds, or
+# commercial clouds — no AWS-only APIs); Azure Blob/ADLS through the azure
+# provider, which remains a fully-supported landing-zone option, never a
+# requirement (see docs/cloud-agnosticism.md).
+# Fail-closed: schedule, storage endpoint and immutabilityDays are required.
+nameOverride: ""
+fullnameOverride: ""
+
+# Pinned upstream Velero chart pin. The Velero server itself deploys from
+# this source-locked release (release-contract ConfigMap below); this chart
+# reconciles the Schedule/BackupStorageLocation CRs against it.
+upstream:
+  chartName: ""
+  chartVersion: ""
+  repository: ""
+
+backup:
+  # Immutability window (days) applied at the storage layer (S3 Object Lock
+  # / Azure Blob immutable policy). MUST equal the regional-dr contract
+  # value; the render gate enforces the match against
+  # consistency.regionalDRImmutabilityDays below.
+  immutabilityDays: 0
+  # Cross-check value: the approved regionalDR.backup.immutabilityDays from
+  # the environment values for charts/regional-dr. Render-gated equal to
+  # backup.immutabilityDays so the machinery can never drift from the
+  # contract.
+  consistency:
+    regionalDRImmutabilityDays: 0
+
+storage:
+  # s3-compatible: any S3 API endpoint (on-prem object stores, sovereign or
+  # commercial clouds; object-lock-capable for immutability). azure: Azure
+  # Blob/ADLS (a supported landing-zone option, incl. Azure Government).
+  provider: s3-compatible
+  bucket: ""
+  prefix: blueeconomy
+  # Generic endpoint for s3-compatible providers (https URL). Required when
+  # provider=s3-compatible.
+  endpoint: ""
+  # Region presented to S3 clients (WAL-G AWS_REGION, Velero region).
+  # Required when provider=s3-compatible; use the endpoint's region label
+  # (many on-prem stores accept any non-empty label, e.g. "local").
+  region: ""
+  # Azure Blob settings (required when provider=azure).
+  azure:
+    storageAccount: ""
+    resourceGroup: ""
+  # Credentials arrive only via ExternalSecrets from the landing zone's
+  # secret store; this is the name of the synced Secret the Velero/WAL-G
+  # workloads reference.
+  credentialsSecretRef:
+    name: ""
+
+velero:
+  # Scheduled cluster backups. Every entry: name, cron schedule (render-
+  # gated), includedNamespaces, ttlDays.
+  schedules: []
+
+walG:
+  # Continuous Postgres archiving: WAL-G archive-side configuration plus a
+  # per-cluster base-backup CronJob. The Postgres clusters themselves set
+  # archive_command to wal-g wal-push against the rendered ConfigMap env.
+  enabled: true
+  image:
+    repository: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  # Cron for wal-g backup-push (full base backup) per cluster.
+  baseBackupSchedule: ""
+  # Postgres clusters to archive. name/namespace/service all required.
+  clusters: []
+
+restoreTest:
+  # CronJob-based restore-test harness: restores the latest Velero backup
+  # into an ephemeral namespace, runs validation queries, reports, tears
+  # down. Feeds the regional-dr restoreDrillMaxAgeHours evidence.
+  enabled: true
+  schedule: ""
+  # Ephemeral namespace prefix for restore tests.
+  namespacePrefix: restore-test
+
+# Redis AOF backup (GAP-PG-06): per-cluster scheduled Job that forces an
+# AOF rewrite (BGREWRITEAOF), copies the resulting appendonly directory
+# out of the replica pod and uploads it to the immutable backup bucket.
+# NOT_RUN: implemented and render-gated, never executed against a live
+# cluster; the tooling image contract (kubectl + an S3-compatible client)
+# and the exact AOF path for the approved Redis release must be validated
+# in the restore drill before enabling.
+redisAOF:
+  enabled: false
+  schedule: ""
+  # Pinned tooling image providing kubectl and an S3-compatible client.
+  image:
+    repository: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  # Redis clusters to back up. Every entry: name, namespace, pod
+  # (StatefulSet pod name), aofDir (appendonly directory inside the pod),
+  # credentialsSecretRef (REDIS_PASSWORD env for redis-cli; empty when the
+  # deployment runs without requirepass — recorded explicitly).
+  clusters: []
+
+# Kafka topic backup (GAP-PG-06): MirrorMaker-class continuous replication
+# via the source-locked Strimzi operator (components/upstream-components
+# .lock.yaml: strimzi-kafka-operator). Renders a KafkaMirrorMaker2 CR
+# replicating the approved topic pattern to the DR cluster; topic data
+# therefore survives loss of the primary cluster without object-storage
+# restore latency.
+kafkaMirrorMaker2:
+  enabled: false
+  # Source (primary) and target (DR) Kafka bootstrap servers.
+  sourceBootstrapServers: ""
+  targetBootstrapServers: ""
+  # Topics replicated (Java regex against the source cluster catalog).
+  topicsPattern: ""
+  # Consumer group for the MM2 source connector.
+  groupId: blueeconomy-backup-mm2
+  # TLS is mandatory on both ends (platform Kafka posture); the CA
+  # bundle arrives via an ExternalSecrets-synced Secret.
+  tls: true
+  tlsCaCertSecretRef:
+    name: ""
+    certificate: ca.crt

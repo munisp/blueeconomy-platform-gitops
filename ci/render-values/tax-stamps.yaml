@@ -1,0 +1,44 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative references. Real values live in the authorised environment
+# repo.
+profile: prod
+
+image:
+  repository: registry.blueeconomy.example.gov.ng/blueeconomy/tax-stamps
+  digest: sha256:2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c
+
+env:
+  TAXSTAMPS_ISSUER_DID: did:web:taxstamps.blueeconomy.example.gov.ng
+  TAXSTAMPS_KAFKA_BOOTSTRAP_SERVERS: kafka.blueeconomy-platform.svc.cluster.local:9092
+  TAXSTAMPS_OIDC_JWKS_URL: https://keycloak.blueeconomy-security.svc.cluster.local/realms/blueeconomy/protocol/openid-connect/certs
+  TAXSTAMPS_OIDC_ISSUER: https://keycloak.blueeconomy-security.svc.cluster.local/realms/blueeconomy
+  TAXSTAMPS_OIDC_AUDIENCE: tax-stamps-api
+  TAXSTAMPS_PAYMENT_RAIL: cvff-tigerbeetle
+  TAXSTAMPS_FINANCIAL_CONTROLS_ENDPOINT: https://financial-controls.blueeconomy-cvff.svc.cluster.local
+  TAXSTAMPS_STATUS_LIST_BASE_URL: https://stamps.blueeconomy.example.gov.ng/status
+
+secretEnv:
+  - TAXSTAMPS_DATABASE_URL
+  - TAXSTAMPS_REDIS_URL
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    TAXSTAMPS_DATABASE_URL: taxstamps/render-fixture/postgres-dsn
+    TAXSTAMPS_REDIS_URL: taxstamps/render-fixture/redis-url
+    TAXSTAMPS_SIGNING_KEY: taxstamps/render-fixture/signing-key-pem
+
+keyDirectory:
+  enabled: true
+  configMapName: render-gate-opa-policies-key-directory
+  mountPath: /etc/blueeconomy/key-directory
+
+networkPolicy:
+  apisixNamespace: blueeconomy-security
+  postgresNamespace: blueeconomy-platform
+  kafkaNamespace: blueeconomy-platform
+  redisNamespace: blueeconomy-platform
+  keycloakNamespace: blueeconomy-security
+  financialControlsNamespace: blueeconomy-cvff

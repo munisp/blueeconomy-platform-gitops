@@ -1,0 +1,166 @@
+# blueeconomy-agency-sandbox deploy surface. NON-PRODUCTION SIMULATORS
+# ONLY — the chart hard-refuses profile=prod and labels every resource
+# environment: sandbox. Environment contract aligned to the service
+# source (internal/sandbox/sandbox.go): the binaries resolve ADDR,
+# SANDBOX_SIGNING_PRIVATE_KEY, SANDBOX_SIGNING_KEY_EPOCH,
+# SANDBOX_TRUST_KEYS, SANDBOX_TOKEN and SANDBOX_STORE — nothing else.
+# Every service serves GET /healthz, GET /.well-known/jwks.json,
+# GET /sandbox/receipts and POST envelope-v1.0 agency endpoints.
+#
+# Signing keys are env-only. Upstream permits an ephemeral key with a
+# loud warning when SANDBOX_SIGNING_PRIVATE_KEY is unset; this chart
+# refuses that path at render time so in-cluster conformance evidence is
+# deterministic and no ephemeral key ever serves the platform adapters.
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile. SANDBOX POSTURE: only dev and staging are legal;
+# profile=prod fails the render outright.
+profile: ""
+
+port: 8080
+
+# The six agency simulators (cmd/<agency>; docker/<agency>.Dockerfile —
+# one image per agency, each digest-pinned). agencySecretKey names the
+# ExternalSecrets entry holding that agency's Ed25519 sandbox signing key
+# (base64/hex seed or expanded key), injected as
+# SANDBOX_SIGNING_PRIVATE_KEY. epoch is the decimal
+# SANDBOX_SIGNING_KEY_EPOCH (boot-fatal without it when the key is set).
+agencies:
+  ncs-bodogwu:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+    agencySecretKey: SANDBOX_SIGNING_PRIVATE_KEY_NCS_BODOGWU
+    epoch: "1"
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+  cbn-tms:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+    agencySecretKey: SANDBOX_SIGNING_PRIVATE_KEY_CBN_TMS
+    epoch: "1"
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+  nepc:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+    agencySecretKey: SANDBOX_SIGNING_PRIVATE_KEY_NEPC
+    epoch: "1"
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+  nis:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+    agencySecretKey: SANDBOX_SIGNING_PRIVATE_KEY_NIS
+    epoch: "1"
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+  port-health:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+    agencySecretKey: SANDBOX_SIGNING_PRIVATE_KEY_PORT_HEALTH
+    epoch: "1"
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+  npa-esen:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+    agencySecretKey: SANDBOX_SIGNING_PRIVATE_KEY_NPA_ESEN
+    epoch: "1"
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+# The simulators serve /healthz (pure liveness; sandbox.go Handler).
+probes:
+  livenessPath: /healthz
+  readinessPath: /healthz
+
+# ExternalSecrets contract (any ESO-supported ClusterSecretStore). Every
+# enabled agency's agencySecretKey must be present here.
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+# Optional shared bearer token (SANDBOX_TOKEN) required on ingress calls.
+# When set, the name must exist in externalSecrets.keys; leave empty for
+# the documented structure-only sandbox posture.
+tokenSecretKey: ""
+
+# Non-secret environment shared by every agency (names are exactly the
+# binary contract). SANDBOX_TRUST_KEYS is a JSON {kid: base64 public key}
+# map of platform egress verification keys; empty renders the documented
+# structure-only verification posture.
+env:
+  SANDBOX_TRUST_KEYS: ""
+
+networkPolicy:
+  enabled: true
+  # Namespace running the singlewindow platform adapters — the ONLY
+  # legitimate caller of the sandbox endpoints.
+  singlewindowNamespace: ""
+
+# distroless/static-debian12:nonroot (uid/gid 65532).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]

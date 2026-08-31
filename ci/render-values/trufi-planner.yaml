@@ -1,0 +1,41 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative references. Real values live in the authorised environment
+# repo.
+profile: prod
+
+image:
+  # Environment-built otp-react-redux bundle server (MIT upstream).
+  repository: registry.blueeconomy.example.gov.ng/citizen/trufi-planner
+  digest: sha256:5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e
+
+replicas: 2
+port: 8080
+
+otp:
+  # Public OTP2 API base via the APISIX edge (the sibling
+  # opentripplanner release registered as ferries-opentripplanner).
+  apiBaseUrl: https://planner.blueeconomy.example.gov.ng/otp
+
+edge:
+  routeRegistration:
+    required: true
+    apisixRouteRef: ferries-trufi-planner
+  # Registered in the otel-collector-agent release rumAllowedOrigins.
+  publicOrigin: https://planner.blueeconomy.example.gov.ng
+
+rum:
+  enabled: true
+  endpoint: https://planner.blueeconomy.example.gov.ng/otel-http
+  serviceName: trufi-planner
+  sampleRatio: 0.5
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+networkPolicy:
+  apisixNamespace: blueeconomy-security

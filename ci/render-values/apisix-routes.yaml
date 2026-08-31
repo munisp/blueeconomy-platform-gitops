@@ -1,0 +1,76 @@
+# CI render-gate fixture ONLY. NOT deployable: illustrative hostnames.
+# Real values live in the authorised environment repo. Exercises the
+# authoritative route inventory ported from
+# blueeconomy/deploy/security/apisix.yaml (GAP-SEC-03).
+apisix:
+  enabled: true
+  namespace: blueeconomy-security
+  opa:
+    policy: blueeconomy/http/allow
+    serviceName: opa-policies-opa
+    servicePort: 8181
+
+# PRA-066: exercise the gateway prometheus-export ServiceMonitor positive
+# path (the per-route prometheus plugin defaults to enabled).
+edgeObservability:
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      serviceName: apisix-gateway
+
+# WP-E static route validation (scripts/validate-apisix-routes.sh): the
+# approved edge-reachable services registry ("namespace/name"). Every route
+# upstream must resolve against this list; the gate exits non-zero on an
+# unresolved backend.
+routeValidation:
+  knownServices:
+    - blueeconomy-ports/port-interoperability-port-interoperability-api
+    - blueeconomy-isr/maritime-intelligence-maritime-intelligence-api
+
+routes:
+  - name: platform-s1
+    host: api.blueeconomy.example.gov.ng
+    paths:
+      - /v1/port/*
+    methods: [GET, POST, PUT]
+    service:
+      namespace: blueeconomy-ports
+      name: port-interoperability-port-interoperability-api
+      port: 8080
+    scopes:
+      - s1
+    rateLimit:
+      rate: 20
+      burst: 40
+      key: "$consumer_name$remote_addr"
+  - name: partner-nsw
+    host: api.blueeconomy.example.gov.ng
+    paths:
+      - /v1/nsw/*
+    methods: [POST]
+    service:
+      namespace: blueeconomy-ports
+      name: port-interoperability-port-interoperability-api
+      port: 8080
+    scopes:
+      - partner.nsw
+    rateLimit:
+      rate: 10
+      burst: 20
+      key: remote_addr
+  - name: platform-s2
+    host: api.blueeconomy.example.gov.ng
+    paths:
+      - /v1/feed-sources/*
+    methods: [GET, POST]
+    service:
+      namespace: blueeconomy-isr
+      name: maritime-intelligence-maritime-intelligence-api
+      port: 8080
+    scopes:
+      - s2
+    rateLimit:
+      rate: 15
+      burst: 30
+      key: "$consumer_name$remote_addr"

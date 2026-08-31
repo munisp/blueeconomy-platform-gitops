@@ -1,0 +1,75 @@
+{{- /* Fail-closed approval gates for trufi-planner. */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+{{- $repo := required "image.repository is required (environment-built otp-react-redux bundle server; MIT upstream: opentripplanner/otp-react-redux)" .Values.image.repository -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+
+{{- /* OTP2 backend wiring. */ -}}
+{{- $apiBase := required "otp.apiBaseUrl is required (the public OTP2 API base via the APISIX edge; the SPA calls OTP2 from the browser)" .Values.otp.apiBaseUrl -}}
+{{- if eq .Values.profile "prod" -}}
+{{- if not (hasPrefix "https://" $apiBase) -}}
+{{- fail "otp.apiBaseUrl must be an HTTPS URL when profile=prod" -}}
+{{- end -}}
+{{- else -}}
+{{- if not (or (hasPrefix "https://" $apiBase) (hasPrefix "http://" $apiBase)) -}}
+{{- fail "otp.apiBaseUrl must be an http(s) URL" -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Edge route registration is mandatory. */ -}}
+{{- if not .Values.edge.routeRegistration.required -}}
+{{- fail "edge.routeRegistration.required must remain true (the planner SPA has no server-side auth; the edge enforces access policy)" -}}
+{{- end -}}
+{{- $routeRef := required "edge.routeRegistration.apisixRouteRef is required (the ApisixRoute CR from charts/apisix-routes registering this planner release on the edge)" .Values.edge.routeRegistration.apisixRouteRef -}}
+
+{{- /* Public origin: the RUM CORS contract anchor. Wildcard is refused
+       in every profile (mirror of the collector-side prod wildcard
+       refusal); prod requires HTTPS. */ -}}
+{{- $origin := required "edge.publicOrigin is required (scheme + host of the planner SPA; must be registered in the otel-collector-agent release rumAllowedOrigins)" .Values.edge.publicOrigin -}}
+{{- if eq $origin "*" -}}
+{{- fail "edge.publicOrigin must never be the wildcard origin (any site could write telemetry); explicit origins only" -}}
+{{- end -}}
+{{- if eq .Values.profile "prod" -}}
+{{- if not (hasPrefix "https://" $origin) -}}
+{{- fail "edge.publicOrigin must be an HTTPS origin when profile=prod" -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Browser RUM contract: never break render when disabled; refuse a
+       half-configured or plaintext-prod RUM when enabled. */ -}}
+{{- if .Values.rum.enabled -}}
+{{- $endpoint := required "rum.endpoint is required when rum.enabled=true (public OTLP/HTTP endpoint proxied to the collector agent :4318)" .Values.rum.endpoint -}}
+{{- if eq .Values.profile "prod" -}}
+{{- if not (hasPrefix "https://" $endpoint) -}}
+{{- fail "rum.endpoint must be an HTTPS URL when profile=prod (browser RUM exports cross the public edge)" -}}
+{{- end -}}
+{{- end -}}
+{{- $ratio := float64 .Values.rum.sampleRatio -}}
+{{- if or (le $ratio 0.0) (gt $ratio 1.0) -}}
+{{- fail "rum.sampleRatio must be in the (0, 1] band" -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Resources are mandatory. */ -}}
+{{- if or (empty .Values.resources.requests.cpu) (empty .Values.resources.requests.memory) (empty .Values.resources.limits.cpu) (empty .Values.resources.limits.memory) -}}
+{{- fail "resources.requests and resources.limits (cpu and memory) are required" -}}
+{{- end -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- $apisixNs := required "networkPolicy.apisixNamespace is required (the only approved ingress source)" .Values.networkPolicy.apisixNamespace -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for trufi-planner" -}}
+{{- end -}}
+
+{{- if .Values.hpa.enabled -}}
+{{- if lt (int .Values.hpa.minReplicas) 1 -}}
+{{- fail "hpa.minReplicas must be at least 1" -}}
+{{- end -}}
+{{- if lt (int .Values.hpa.maxReplicas) (int .Values.hpa.minReplicas) -}}
+{{- fail "hpa.maxReplicas must be >= hpa.minReplicas" -}}
+{{- end -}}
+{{- end -}}

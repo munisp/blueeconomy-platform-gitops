@@ -1,0 +1,22 @@
+apiVersion: v2
+name: administration-service
+description: >-
+  Central administration / ministry onboarding backend
+  (blueeconomy-administration-service, cmd/admin-service): the
+  /v1/onboarding, /v1/enrollment and /v1/privacy API behind the
+  ministry-portal. Fail-closed: renders only with approved environment
+  values, a digest-pinned image, the mounted PBAC policy pack and all
+  credentials (Postgres DSN, Keycloak admin client secret, provenance
+  signing key) delivered via ExternalSecrets.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - administration
+  - onboarding
+  - ministry-portal
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "administration-onboarding"
+  blueeconomy.platform/upstream-policy: "Pin verified upstream image digests; do not deploy unreviewed defaults"

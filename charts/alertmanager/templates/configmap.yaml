@@ -1,0 +1,37 @@
+# Alertmanager configuration: single fan-in — EVERY route resolves to the
+# Novu receiver (OTEL_DESIGN.md section 1: Alertmanager -> Novu for all
+# alerts). No email/Slack dead-ends; Novu owns notification delivery
+# (email/SMS/Telegram-class/push; ops alerts now, citizen alerts later).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "alertmanager.fullname" . }}
+  labels:
+    {{- include "alertmanager.labels" . | nindent 4 }}
+data:
+  alertmanager.yaml: |
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: novu
+      group_by:
+        {{- range .Values.routing.groupBy }}
+        - {{ . | quote }}
+        {{- end }}
+      group_wait: {{ .Values.routing.groupWait }}
+      group_interval: {{ .Values.routing.groupInterval }}
+      repeat_interval: {{ .Values.routing.repeatInterval }}
+      # ALL alerts route to Novu; no divergent subtrees.
+      routes: []
+    receivers:
+      - name: novu
+        webhook_configs:
+          - url: {{ .Values.novu.webhookUrl | quote }}
+            send_resolved: {{ .Values.novu.sendResolved }}
+    # Inhibit critical-followed-by-warning noise on the same alertname.
+    inhibit_rules:
+      - source_match:
+          severity: critical
+        target_match:
+          severity: warning
+        equal: ["alertname", "service", "namespace"]

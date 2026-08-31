@@ -1,0 +1,40 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative references. Real values live in the authorised environment
+# repo.
+profile: prod
+
+image:
+  repository: registry.blueeconomy.example.gov.ng/blueeconomy/cv-service
+  digest: sha256:7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a
+
+env:
+  CV_CAMERAS: '[{"id":"cam-apapa-1","rtsp":"rtsp://camera-vlan.local:554/stream1","role":"vessel","fps":3}]'
+  CV_SINK: kafka
+  KAFKA_BOOTSTRAP_SERVERS: kafka.blueeconomy-platform.svc.cluster.local:9092
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    CV_SIGNING_KEY: cvservice/render-fixture/signing-key
+
+keyDirectory:
+  enabled: true
+  configMapName: render-gate-opa-policies-key-directory
+  mountPath: /etc/blueeconomy/key-directory
+
+networkPolicy:
+  allowedIngressNamespaces:
+    - blueeconomy-platform
+  kafkaNamespace: blueeconomy-platform
+  cameraCIDRs:
+    - 10.40.0.0/16
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 2Gi

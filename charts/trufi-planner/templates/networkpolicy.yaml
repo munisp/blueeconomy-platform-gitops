@@ -1,0 +1,35 @@
+{{- $fullName := include "trufi-planner.fullname" . -}}
+# Planner SPA network posture: ingress ONLY from the APISIX gateway
+# namespace (the edge enforces access policy; the static-bundle server
+# has none). Egress is DNS-only: the SPA serves a static bundle, and all
+# OTP2/RUM calls are made by the citizen's BROWSER through the public
+# edge, never from this pod.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "trufi-planner.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "trufi-planner.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.apisixNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ int .Values.port }}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

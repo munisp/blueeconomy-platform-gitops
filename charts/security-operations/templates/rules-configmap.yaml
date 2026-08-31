@@ -1,0 +1,18 @@
+{{- $engine := index .Values.components "detection-engine" -}}
+{{- if $engine.enabled }}
+# Governance-approved detection rule document consumed by the detection
+# engine via --rules (cmd/detection-engine/main.go: flag-required, the
+# binary exits without it). Content lifecycle follows
+# wazuh/detection-engineering-lifecycle.md (hypothesis, review, test,
+# rollback); the environment values carry the approved document.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-detection-rules" (include "security-operations.fullname" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "security-operations.labels" . | nindent 4 }}
+    app.kubernetes.io/component: detection-engine
+data:
+  detection-rules.yaml: |
+    {{- $engine.rules.document | nindent 4 }}
+{{- end }}

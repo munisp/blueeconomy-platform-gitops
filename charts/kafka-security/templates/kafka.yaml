@@ -1,0 +1,53 @@
+{{- $clusterName := .Values.cluster.name -}}
+# Kafka CR against the source-locked strimzi-kafka-operator
+# (components/upstream-components.lock.yaml). TLS everywhere, SASL
+# SCRAM-SHA-512 over TLS for service clients, simple authorization with
+# least-privilege ACLs from the users list. Render-validated CR shape;
+# first live-cluster verification is tracked in docs/geo-deployment.md.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: {{ $clusterName }}
+  labels:
+    {{- include "kafka-security.labels" . | nindent 4 }}
+    blueeconomy.platform/component: event-bus
+spec:
+  kafka:
+    version: {{ .Values.cluster.kafkaVersion | quote }}
+    replicas: {{ .Values.cluster.replicas }}
+    listeners:
+      - name: tls
+        port: {{ .Values.listeners.tls.port }}
+        type: internal
+        tls: true
+      - name: sasl
+        port: {{ .Values.listeners.sasl.port }}
+        type: internal
+        tls: true
+        authentication:
+          type: scram-sha-512
+    authorization:
+      type: {{ .Values.authorization.type }}
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+      min.insync.replicas: 2
+      default.replication.factor: 3
+      auto.create.topics.enable: false
+    storage:
+      type: persistent-claim
+      class: {{ .Values.cluster.storage.class | quote }}
+      size: {{ .Values.cluster.storage.size | quote }}
+      deleteClaim: {{ .Values.cluster.storage.deleteClaim }}
+  zookeeper:
+    replicas: 3
+    storage:
+      type: persistent-claim
+      class: {{ .Values.cluster.storage.class | quote }}
+      size: 25Gi
+      deleteClaim: {{ .Values.cluster.storage.deleteClaim }}
+  entityOperator:
+    # The user operator reconciles the KafkaUser CRs below (SCRAM
+    # credentials are generated into Secrets named after each user).
+    userOperator: {}

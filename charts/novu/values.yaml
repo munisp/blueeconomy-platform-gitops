@@ -1,0 +1,140 @@
+# Novu self-hosted notification platform. Deploy contract follows the
+# Novu community self-host reference (api/worker/ws/web services, one
+# image with per-service command; MongoDB + Redis data stores).
+# NOT_RUN: never executed against a live cluster — validate the exact
+# env contract against the approved Novu version's self-host docs before
+# enablement. Every credential arrives exclusively through
+# ExternalSecrets; no placeholder or inline credential is permitted.
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile (dev | staging | prod).
+profile: ""
+
+# One upstream image, per-service command (community self-host layout).
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+components:
+  api:
+    enabled: true
+    command: ["node", "apps/api/dist/main.js"]
+    port: 3000
+    service: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+  worker:
+    enabled: true
+    command: ["node", "apps/worker/dist/main.js"]
+    replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+  ws:
+    enabled: true
+    command: ["node", "apps/ws/dist/main.js"]
+    port: 3002
+    service: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  web:
+    enabled: true
+    command: ["node", "apps/web/dist/main.js"]
+    port: 4200
+    service: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# Non-secret shared environment (community self-host contract).
+env:
+  NODE_ENV: production
+  # Public base URL of the api service (used in notification links and
+  # the dashboard); render-gated.
+  API_ROOT_URL: ""
+  DISABLE_USER_REGISTRATION: "true"
+
+# Data stores (external; render-gated REQUIRED). Credentials arrive via
+# the ExternalSecrets-synced Secret (envFrom/secretKeyRef, never inline).
+dataStores:
+  mongodb:
+    # mongodb:// connection URI comes from the synced Secret
+    # (secretEnv key NOVU_MONGO_URL); only host/port hints live here for
+    # the NetworkPolicy contract.
+    host: ""
+    port: 27017
+  redis:
+    host: ""
+    port: 6379
+
+# Secret-sourced env (names must exist in externalSecrets.keys):
+#   NOVU_MONGO_URL          — mongodb:// URI incl. credentials
+#   NOVU_REDIS_PASSWORD     — Redis AUTH password
+#   JWT_SECRET              — API token signing secret
+#   STORE_ENCRYPTION_KEY    — credential-store encryption key
+#   NOVU_API_KEY            — platform API key (bridges/inbound triggers)
+secretEnv:
+  - NOVU_MONGO_URL
+  - NOVU_REDIS_PASSWORD
+  - JWT_SECRET
+  - STORE_ENCRYPTION_KEY
+  - NOVU_API_KEY
+
+# ExternalSecrets contract (any ESO-supported ClusterSecretStore).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+networkPolicy:
+  enabled: true
+  # Alertmanager ingress is same-namespace; dashboard/API access from the
+  # approved ops namespaces.
+  allowedIngressNamespaces: []
+  # Data-store egress namespaces (MongoDB, Redis).
+  mongodbNamespace: ""
+  redisNamespace: ""
+
+serviceMonitor:
+  enabled: true
+  labels:
+    blueeconomy.platform/workstream: observability

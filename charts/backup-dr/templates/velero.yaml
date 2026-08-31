@@ -1,0 +1,67 @@
+# Release contract for the pinned upstream Velero chart. The platform
+# tooling renders the upstream chart with exactly these values.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "backup-dr.fullname" . }}-velero-release-contract
+  labels:
+    {{- include "backup-dr.labels" . | nindent 4 }}
+data:
+  upstream-chart.json: |
+    {{- dict
+        "chartName" .Values.upstream.chartName
+        "chartVersion" .Values.upstream.chartVersion
+        "repository" .Values.upstream.repository
+    | toPrettyJson | nindent 4 }}
+---
+# Backup storage location. Immutability is enforced at the storage layer
+# (S3 Object Lock / Azure Blob immutable policy, retention =
+# backup.immutabilityDays) and recorded here for audit; the render gate
+# guarantees it matches the regional-dr recovery contract.
+apiVersion: velero.io/v1
+kind: BackupStorageLocation
+metadata:
+  name: {{ include "backup-dr.fullname" . }}-primary
+  labels:
+    {{- include "backup-dr.labels" . | nindent 4 }}
+  annotations:
+    blueeconomy.platform/immutability-days: {{ .Values.backup.immutabilityDays | quote }}
+spec:
+  provider: {{ ternary "azure" "aws" (eq .Values.storage.provider "azure") }}
+  objectStorage:
+    bucket: {{ .Values.storage.bucket }}
+    prefix: {{ .Values.storage.prefix }}
+  credential:
+    name: {{ .Values.storage.credentialsSecretRef.name }}
+    key: cloud
+  config:
+    {{- if eq .Values.storage.provider "s3-compatible" }}
+    # Generic S3-compatible endpoint (cloud-agnostic; no AWS-only API).
+    s3Url: {{ .Values.storage.endpoint | quote }}
+    region: {{ .Values.storage.region | quote }}
+    {{- else }}
+    # Azure Blob/ADLS (supported landing-zone option, incl. Azure
+    # Government storage accounts).
+    storageAccount: {{ .Values.storage.azure.storageAccount | quote }}
+    resourceGroup: {{ .Values.storage.azure.resourceGroup | quote }}
+    {{- end }}
+    immutabilityDays: {{ .Values.backup.immutabilityDays | quote }}
+{{- range $s := .Values.velero.schedules }}
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: {{ $s.name }}
+  labels:
+    {{- include "backup-dr.labels" $ | nindent 4 }}
+spec:
+  schedule: {{ $s.schedule | quote }}
+  template:
+    includedNamespaces:
+      {{- range $s.includedNamespaces }}
+      - {{ . | quote }}
+      {{- end }}
+    storageLocation: {{ include "backup-dr.fullname" $ }}-primary
+    ttl: {{ printf "%vh0m0s" (mul (int $s.ttlDays) 24) | quote }}
+    snapshotMoveData: false
+{{- end }}

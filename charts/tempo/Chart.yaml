@@ -1,0 +1,24 @@
+apiVersion: v2
+name: tempo
+description: >-
+  Grafana Tempo (monolithic, open-source AGPL) trace backend for the Blue
+  Economy Platform observability foundation (OTEL_DESIGN.md section 1).
+  OTLP ingest from the collector gateway, S3-compatible object-storage
+  block backend (render-gated REQUIRED), local WAL PVC, render-gated
+  retention between 7 and 30 days (compactor block_retention). Fail-closed:
+  digest-pinned image, object-storage credentials via ExternalSecrets
+  only, resources required, NetworkPolicy, PodSecurity restricted.
+  Cloud-agnostic: any S3-compatible store (on-prem, sovereign, commercial).
+type: application
+version: 0.1.0
+appVersion: "2.8.2"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - tempo
+  - tracing
+  - observability
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "observability-foundation"
+  blueeconomy.platform/upstream: "https://github.com/grafana/tempo (image grafana/tempo, AGPL-3.0)"
+  blueeconomy.platform/upstream-policy: "Pin verified upstream image digests; do not deploy unreviewed defaults"

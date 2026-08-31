@@ -1,0 +1,15 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+# Singleton edge pod: maxUnavailable 0 — voluntary disruption requires an
+# approved operator action (camera coverage never drops silently).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cv-service.fullname" . }}
+  labels:
+    {{- include "cv-service.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "cv-service.selectorLabels" . | nindent 6 }}
+{{- end }}

@@ -1,0 +1,19 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and random
+# throwaway public keys that exist solely to exercise the render gates. Real
+# keys come from the producer key ceremony via Azure Key Vault environment
+# values.
+opa:
+  image:
+    repository: openpolicyagent/opa
+    digest: sha256:8c1f4b2a9d6e5f0a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef01
+
+keyDirectory:
+  publicKeys:
+    financial-controls-1: 7pmAwGnRKQrUqwBZCpuNReAJjQ9ie6W4DaNGt0jVHzM
+    port-interoperability-1: 7RPJOAMAWoFLF8IrF1wDSB7xunpwoIzaj0UURRF7OoE
+    ferry-ticketing-1: CsMNGTbvWjLCY8B6I5ephSyX8SRYGNRyUBGgtQcK5tw
+    admin-service-1: m-04L7UXJZAJDlS656j6ZP-hCBa5wXyAebuKo-b-5ks
+    maritime-intelligence-1: D-eRjHd0gO8QYlusBXUiqCCmX20HTigxJ9CFw6dOVTc
+    maritime-evidence-1: 9HCdn45-73hv1We-SUhUPoFVilK8LTjwulIlwu2l8mM
+    fisheries-traceability-1: 4bvxad_pe7s1ZbkOWoawAY0w_A12iBXGGFDhR-6VVG0
+    waterway-safety-1: i715cGz4O4hqalDDAg-qF3_5SIo-_3xwsBK6ZtFA7kk

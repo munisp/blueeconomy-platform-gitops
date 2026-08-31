@@ -1,0 +1,110 @@
+{{- /* Fail-closed approval gates for blueeconomy-ml-stack. */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+{{- $cronRe := "^\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+$" -}}
+{{- $repo := required "image.repository is required" .Values.image.repository -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+
+{{- /* Prod profile: synthetic fallback is a dev convenience only and must
+       never reach production namespaces (deploy/README.md doctrine). */ -}}
+{{- if eq .Values.profile "prod" -}}
+{{- range $k, $_ := .Values.scoring.env -}}
+{{- if or (hasPrefix "BEML_ALLOW_SYNTHETIC" $k) (hasPrefix "SYNTHETIC_" $k) -}}
+{{- fail (printf "scoring.env name %s is forbidden when profile=prod (synthetic fallback is dev-only)" $k) -}}
+{{- end -}}
+{{- end -}}
+{{- range $k, $_ := .Values.batchEnv -}}
+{{- if or (hasPrefix "BEML_ALLOW_SYNTHETIC" $k) (hasPrefix "SYNTHETIC_" $k) -}}
+{{- fail (printf "batchEnv name %s is forbidden when profile=prod (synthetic fallback is dev-only)" $k) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Required env values are approved environment values. */ -}}
+{{- $senv := default dict .Values.scoring.env -}}
+{{- range $envName := (default (list) .Values.scoring.requiredEnv) -}}
+{{- if eq (printf "%v" (get $senv $envName)) "" -}}
+{{- fail (printf "scoring.env.%s must be set to an approved environment value" $envName) -}}
+{{- end -}}
+{{- end -}}
+{{- $benv := default dict .Values.batchEnv -}}
+{{- if not (empty .Values.cronJobs) -}}
+{{- range $envName := (default (list) .Values.requiredBatchEnv) -}}
+{{- if eq (printf "%v" (get $benv $envName)) "" -}}
+{{- fail (printf "batchEnv.%s must be set to an approved environment value (cronJobs are configured)" $envName) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Every secretEnv name must be backed by the ExternalSecret. */ -}}
+{{- range $secretName := (default (list) .Values.secretEnv) -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $secretName) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because components consume it via secretEnv" $secretName) -}}
+{{- end -}}
+{{- end -}}
+{{- $store := required "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore)" .Values.externalSecrets.storeRef.name -}}
+
+{{- /* Scoring-service gates: A/B routing config and the read-only model
+       artifact store are mandatory (the service is fail-closed on
+       missing models — SCORING_UNAVAILABLE must never be the steady
+       state). */ -}}
+{{- if .Values.scoring.enabled -}}
+{{- if empty .Values.scoring.abConfig -}}
+{{- fail "scoring.abConfig is required (deterministic A/B version routing config, inference/ab_config.yaml shape)" -}}
+{{- end -}}
+{{- $pvc := required "scoring.modelsVolume.persistentVolumeClaimName is required (read-only versioned model artifact store)" .Values.scoring.modelsVolume.persistentVolumeClaimName -}}
+{{- if .Values.scoring.hpa.enabled -}}
+{{- if lt (int .Values.scoring.hpa.minReplicas) 1 -}}
+{{- fail "scoring.hpa.minReplicas must be at least 1 (scale-to-zero breaches the fail-closed latency contract)" -}}
+{{- end -}}
+{{- if lt (int .Values.scoring.hpa.maxReplicas) (int .Values.scoring.hpa.minReplicas) -}}
+{{- fail "scoring.hpa.maxReplicas must be >= scoring.hpa.minReplicas" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* CronJob gates. */ -}}
+{{- range $job := .Values.cronJobs -}}
+{{- if not $job.name -}}
+{{- fail "every cronJobs entry requires a name" -}}
+{{- end -}}
+{{- if not (regexMatch $cronRe ($job.schedule | default "")) -}}
+{{- fail (printf "cronJobs.%s schedule is required (five-field cron)" ($job.name | default "<missing>")) -}}
+{{- end -}}
+{{- if not $job.module -}}
+{{- fail (printf "cronJobs.%s module is required (python -m entrypoint, e.g. pipelines.extract)" $job.name) -}}
+{{- end -}}
+{{- if not $job.resources -}}
+{{- fail (printf "cronJobs.%s resources are required" $job.name) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* MLflow gates when enabled. */ -}}
+{{- if .Values.mlflow.enabled -}}
+{{- $mrepo := required "mlflow.image.repository is required when mlflow.enabled=true" .Values.mlflow.image.repository -}}
+{{- $mdigest := required "mlflow.image.digest is required when mlflow.enabled=true" .Values.mlflow.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $mdigest) -}}
+{{- fail "mlflow.image.digest must be an immutable lower-case sha256 digest" -}}
+{{- end -}}
+{{- $menv := default dict .Values.mlflow.env -}}
+{{- range $envName := (default (list) .Values.mlflow.requiredEnv) -}}
+{{- if eq (printf "%v" (get $menv $envName)) "" -}}
+{{- fail (printf "mlflow.env.%s must be set to an approved environment value" $envName) -}}
+{{- end -}}
+{{- end -}}
+{{- if not (hasKey .Values.externalSecrets.keys .Values.mlflow.backendStoreSecretKey) -}}
+{{- fail (printf "externalSecrets.keys.%s is required when mlflow.enabled=true (Postgres backend store URI; never inline)" .Values.mlflow.backendStoreSecretKey) -}}
+{{- end -}}
+{{- end -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- if empty .Values.networkPolicy.allowedEgress -}}
+{{- fail "networkPolicy.allowedEgress must list at least the object-storage/DNS egress for the batch jobs" -}}
+{{- end -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for ml-stack" -}}
+{{- end -}}

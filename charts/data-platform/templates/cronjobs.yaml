@@ -1,0 +1,235 @@
+{{- $fullName := include "data-platform.fullname" . -}}
+{{- range $job := .Values.kafkaIngest.jobs }}
+---
+# Kafka -> Delta ingestion for {{ $job.topic }} (bounded batch;
+# offset-commit-after-persist makes SIGKILL safe).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ printf "%s-ingest-%s" $fullName $job.name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "data-platform.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ printf "ingest-%s" $job.name | quote }}
+spec:
+  schedule: {{ $job.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "data-platform.selectorLabels" $ | nindent 12 }}
+            app.kubernetes.io/component: {{ printf "ingest-%s" $job.name | quote }}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            {{- toYaml $.Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: ingest
+              image: "{{ $.Values.image.repository }}@{{ $.Values.image.digest }}"
+              imagePullPolicy: {{ $.Values.image.pullPolicy }}
+              command: ["blueeconomy-ingest-kafka"]
+              args:
+                - --bootstrap-servers
+                - {{ $.Values.kafka.bootstrapServers | quote }}
+                - --topic
+                - {{ $job.topic | quote }}
+                - --group-id
+                - {{ $job.groupId | quote }}
+                - --max-messages
+                - {{ $job.maxMessages | quote }}
+                - --idle-timeout-seconds
+                - {{ ($job.idleTimeoutSeconds | default 30) | quote }}
+                - --table-uri
+                - {{ $job.tableUri | quote }}
+                - --schema
+                - {{ $job.schema | quote }}
+                - --report
+                - {{ printf "/var/lib/data-platform/reports/%s.json" $job.name | quote }}
+                {{- if $.Values.kafka.tls.enabled }}
+                - --ssl-ca-location
+                - {{ printf "%s/%s" $.Values.kafka.tls.caCertSecretRef.mountPath $.Values.kafka.tls.caCertSecretRef.key | quote }}
+                {{- end }}
+                {{- with $job.extraArgs }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+              env:
+                {{- include "data-platform.jobEnv" $ | nindent 16 }}
+              resources:
+                {{- toYaml ($job.resources | default $.Values.resources) | nindent 16 }}
+              securityContext:
+                {{- toYaml $.Values.securityContext | nindent 16 }}
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: reports
+                  mountPath: /var/lib/data-platform/reports
+                - name: producer-key-directory
+                  mountPath: {{ $.Values.keyDirectory.mountPath }}
+                  readOnly: true
+                {{- if $.Values.kafka.tls.enabled }}
+                - name: kafka-tls
+                  mountPath: {{ $.Values.kafka.tls.caCertSecretRef.mountPath }}
+                  readOnly: true
+                {{- end }}
+          volumes:
+            - name: tmp
+              emptyDir: {}
+            - name: reports
+              emptyDir: {}
+            - name: producer-key-directory
+              configMap:
+                name: {{ $.Values.keyDirectory.configMapName }}
+            {{- if $.Values.kafka.tls.enabled }}
+            - name: kafka-tls
+              secret:
+                secretName: {{ $.Values.kafka.tls.caCertSecretRef.name }}
+            {{- end }}
+{{- end }}
+{{- if .Values.retention.enabled }}
+---
+# Retention enforcement (hot->cold->delete) with append-only audit table.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ printf "%s-retention" $fullName | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "data-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: retention
+spec:
+  schedule: {{ .Values.retention.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "data-platform.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: retention
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: retention
+              image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["blueeconomy-retention-enforce"]
+              args:
+                - --table-uri
+                - {{ .Values.retention.tableUri | quote }}
+                - --audit-table-uri
+                - {{ .Values.retention.auditTableUri | quote }}
+                {{- if .Values.retention.archiveUri }}
+                - --archive-uri
+                - {{ .Values.retention.archiveUri | quote }}
+                {{- end }}
+                - --hot-days
+                - {{ .Values.retention.hotDays | quote }}
+                - --cold-years
+                - {{ .Values.retention.coldYears | quote }}
+                - --operator
+                - {{ .Values.retention.operator | quote }}
+                - --report
+                - /var/lib/data-platform/reports/retention.json
+              env:
+                {{- include "data-platform.jobEnv" . | nindent 16 }}
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: reports
+                  mountPath: /var/lib/data-platform/reports
+                - name: producer-key-directory
+                  mountPath: {{ .Values.keyDirectory.mountPath }}
+                  readOnly: true
+          volumes:
+            - name: tmp
+              emptyDir: {}
+            - name: reports
+              emptyDir: {}
+            - name: producer-key-directory
+              configMap:
+                name: {{ .Values.keyDirectory.configMapName }}
+{{- end }}
+{{- if .Values.goldAssembly.enabled }}
+---
+# Gold assembly (segregated scope silver-to-gold; env-driven contract).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ printf "%s-gold-assembly" $fullName | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "data-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gold-assembly
+spec:
+  schedule: {{ .Values.goldAssembly.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "data-platform.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: gold-assembly
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: gold-assembly
+              image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["blueeconomy-gold-assembly"]
+              env:
+                - name: BLUEECONOMY_GOLD_SCOPE
+                  value: {{ .Values.goldAssembly.scope | quote }}
+                - name: BLUEECONOMY_GOLD_SCOPE_ROOT_URI
+                  value: {{ .Values.goldAssembly.scopeRootUri | quote }}
+                - name: BLUEECONOMY_GOLD_REPORT
+                  value: {{ .Values.goldAssembly.reportPath | quote }}
+                {{- if .Values.goldAssembly.exportPath }}
+                - name: BLUEECONOMY_GOLD_EXPORT_PATH
+                  value: {{ .Values.goldAssembly.exportPath | quote }}
+                {{- end }}
+                {{- if .Values.goldAssembly.clearance }}
+                - name: BLUEECONOMY_GOLD_CLEARANCE
+                  value: {{ .Values.goldAssembly.clearance | quote }}
+                {{- end }}
+                {{- include "data-platform.jobEnv" . | nindent 16 }}
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: reports
+                  mountPath: /var/lib/data-platform/reports
+                - name: producer-key-directory
+                  mountPath: {{ .Values.keyDirectory.mountPath }}
+                  readOnly: true
+          volumes:
+            - name: tmp
+              emptyDir: {}
+            - name: reports
+              emptyDir: {}
+            - name: producer-key-directory
+              configMap:
+                name: {{ .Values.keyDirectory.configMapName }}
+{{- end }}

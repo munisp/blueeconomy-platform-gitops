@@ -1,0 +1,241 @@
+# Keycloak workstream realms. Realm definitions are rendered into ConfigMaps
+# and applied by a keycloak-config-cli Job (Argo CD PostSync hook).
+# Fail-closed: no admin credentials, image tags or hostnames are defaulted.
+nameOverride: ""
+fullnameOverride: ""
+
+keycloak:
+  # In-cluster base URL of the operator-managed Keycloak instance.
+  # Provider-neutral: no cloud endpoint involved here; this is the
+  # cluster-local service DNS name on any Kubernetes landing zone.
+  baseUrl: ""
+
+importJob:
+  # keycloak-config-cli image (pinned by digest only).
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+  backoffLimit: 6
+
+# Admin credentials for the import Job are synced from the external store
+# into adminCredentials.secretName via the ExternalSecret rendered below.
+adminCredentials:
+  secretName: keycloak-admin-credentials
+  userKey: username
+  passwordKey: password
+
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  # Keys synced into adminCredentials.secretName (username/password).
+  keys: {}
+
+# Token policy applied to every realm. accessTokenLifespan is enforced
+# fail-closed at render time: values above 300 seconds are rejected.
+tokenPolicy:
+  accessTokenLifespan: 300
+  ssoSessionIdleTimeout: 900
+  ssoSessionMaxLifespan: 3600
+  accessCodeLifespan: 60
+
+# Each realm entry:
+#   name: Keycloak realm name
+#   workstreamNamespace: namespace receiving the client-secret ExternalSecrets
+#   roles: realm roles per the approved workstream role catalogue
+#   clients: confidential service clients. secretRemoteKey points at the
+#     Azure Key Vault object holding the client secret; the realm JSON uses
+#     the keycloak-config-cli "*********" leave-unchanged sentinel, so no
+#     secret material ever appears in this repository or in the ConfigMap.
+#     audienceMappers (optional): service audiences this client's tokens
+#     must carry — each entry renders an oidc-audience-mapper protocol
+#     mapper (included.custom.audience -> access token aud claim) for a
+#     downstream service that verifies KEYCLOAK_EXPECTED_AUDIENCE. Entries
+#     are lower-case slugs, enforced fail-closed at render time.
+#   clearanceScope (ISR realm only): when enabled, the realm declares a
+#     "clearance" user attribute restricted to the approved classification
+#     labels and a "clearance" client scope (default on every realm client)
+#     mapping that attribute to the access-token "clearance" claim consumed
+#     by the maritime-intelligence service. Only labels are declared here;
+#     no classified data ever appears in this repository.
+#   publicClients: browser/mobile public clients (authorization-code flow
+#     with PKCE S256 enforced, no client secret, no service account, no
+#     direct-access or implicit grants). Redirect URIs are an exact-match
+#     allowlist read from the top-level publicClientRedirects map below:
+#     HTTPS URIs only, plus the code-fixed "blueeconomy://" custom scheme
+#     registered by the mobile app (blueeconomy-mobile/app.config.ts). The
+#     national-security ISR realm may never declare public clients
+#     (enforced fail-closed by the chart's validation gate).
+# Public-client redirect-URI allowlists, keyed by clientId. Mobile URIs use
+# the code-fixed custom scheme and are therefore part of the approved
+# platform baseline; browser URIs (e.g. the beneficiary portal) are
+# environment hostnames and are intentionally NOT defaulted — the
+# environment repository must supply the approved allowlist, and rendering
+# fails closed until it does.
+publicClientRedirects:
+  blueeconomy-mobile:
+    - blueeconomy://
+  beneficiary-portal: []
+realms:
+  - name: blueeconomy-ports-ecallup
+    workstreamNamespace: blueeconomy-ports
+    roles:
+      - trucker
+      - operator
+      - npa-officer
+      - auditor
+      - fmmbe-oversight
+      - icrc-observer
+    clients:
+      # port-interoperability-api calls the declaration-scorer gRPC
+      # RiskScoreService with client_credentials tokens (W-RES wave,
+      # blueeconomy-port-interoperability GRPCScorer). The scorer verifies
+      # KEYCLOAK_EXPECTED_AUDIENCE=declaration-scorer, so this client MUST
+      # carry the audience mapper below — without it every scorer call is
+      # UNAUTHENTICATED and declarations park in SCORING_UNAVAILABLE.
+      - clientId: port-interoperability-api
+        audienceMappers:
+          - declaration-scorer
+      - clientId: ussd-gateway
+      - clientId: booking-worker
+    # Mobile field-ops app: trucker persona (eCallUp slot booking).
+    publicClients:
+      - clientId: blueeconomy-mobile
+  - name: blueeconomy-ferries
+    workstreamNamespace: blueeconomy-ferries
+    roles:
+      - passenger
+      - operator
+      - agent-cashier
+      - niwa-officer
+      - state-officer
+      - nimasa-observer
+      - auditor
+      - fmmbe-oversight
+    clients:
+      - clientId: ferry-api
+      - clientId: ferry-worker
+      - clientId: ferry-outbox-publisher
+    # Mobile field-ops app: ferry passenger and gate/inspector personas.
+    publicClients:
+      - clientId: blueeconomy-mobile
+  - name: blueeconomy-cvff
+    workstreamNamespace: blueeconomy-cvff
+    roles:
+      - nimasa-approver
+      - pli-primary
+      - pli-secondary
+      - pli-tertiary
+      - receiving-bank-officer
+      - beneficiary
+      # CVFF beneficiary API (self-service application status/documents).
+      - cvff-beneficiary
+      - cbn-observer
+      - independent-auditor
+      - fmmbe-oversight
+      - icrc-observer
+    clients:
+      - clientId: intent-api
+      - clientId: cvff-worker
+      - clientId: cvff-outbox-publisher
+    # beneficiary-portal: CVFF beneficiary self-service web portal
+    # (blueeconomy-beneficiary-portal; OIDC authorization-code + PKCE public
+    # client, oidc-client-ts). Its redirect-URI allowlist is an approved
+    # environment hostname supplied via publicClientRedirects.
+    # blueeconomy-mobile: beneficiary persona (CVFF application status).
+    publicClients:
+      - clientId: beneficiary-portal
+      - clientId: blueeconomy-mobile
+  # Workstream D: seafarer CoC credentialing (credential-verification).
+  - name: blueeconomy-seafarer
+    workstreamNamespace: blueeconomy-seafarer
+    roles:
+      - seafarer-trainee
+      - seafarer
+      - employer
+      - psc-inspector
+      - nimasa-approver
+      - mlep-operator
+      - auditor
+      - fmmbe-oversight
+    clients:
+      - clientId: credential-verification-api
+      - clientId: seafarer-credential-worker
+    # Mobile field-ops app: seafarer persona (CoC wallet).
+    publicClients:
+      - clientId: blueeconomy-mobile
+  # Workstream E: fisheries and cold-chain traceability.
+  - name: blueeconomy-fisheries
+    workstreamNamespace: blueeconomy-fisheries
+    roles:
+      - fisher
+      - vessel-captain
+      - processor
+      - exporter
+      - importer-ro
+      - fmma-inspector
+      - niwa-officer
+      - auditor
+      - fmmbe-oversight
+      - icrc-observer
+      # Shore-side cold-chain gateway ingestion: enforced by trace-api on
+      # POST /v1/consignments/{id}/telemetry
+      # (blueeconomy-fisheries-traceability RoleColdChainGateway).
+      - coldchain-gateway
+    clients:
+      - clientId: trace-api
+      - clientId: trace-worker
+      - clientId: fisheries-outbox-publisher
+      # Confidential client for the vessel/shore telemetry gateways calling
+      # the cold-chain ingestion endpoint. Secret delivered only via the
+      # ExternalSecret (fisheries/clients/coldchain-gateway-secret).
+      - clientId: coldchain-gateway
+    # Mobile field-ops app: fisher persona (catch entry/sync).
+    publicClients:
+      - clientId: blueeconomy-mobile
+  # Workstream F: Deep Blue ISR analytics (national-security controlled).
+  # The clearance user attribute and client scope are mandatory for this
+  # realm and enforced fail-closed by the chart's validation gate.
+  - name: blueeconomy-isr
+    workstreamNamespace: blueeconomy-isr
+    roles:
+      - nimasa-officer
+      - defence-hq-observer
+      - nn-officer
+      - onsa-observer
+      - marine-police
+      - fleet-operator
+      - insurer-aggregator-ro
+      - auditor
+      - fmmbe-oversight
+      - icrc-observer
+    clearanceScope:
+      enabled: true
+      # Approved classification labels only (attribute option list).
+      levels:
+        - UNCLASSIFIED
+        - RESTRICTED
+        - CONFIDENTIAL
+        - SECRET
+    clients:
+      - clientId: maritime-intelligence-api
+      - clientId: isr-worker
+      - clientId: isr-outbox-publisher
+
+networkPolicy:
+  enabled: true
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]

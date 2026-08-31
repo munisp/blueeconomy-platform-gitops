@@ -1,0 +1,80 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digests and
+# illustrative endpoints. Real values live in the authorised environment repo.
+upstream:
+  chartName: velero
+  chartVersion: 8.1.0
+  repository: https://vmware-tanzu.github.io/helm-charts
+
+backup:
+  immutabilityDays: 30
+  consistency:
+    regionalDRImmutabilityDays: 30
+
+storage:
+  provider: s3-compatible
+  bucket: blueeconomy-backups
+  prefix: blueeconomy
+  endpoint: https://objectstore.blueeconomy.example.gov.ng
+  region: local
+  credentialsSecretRef:
+    name: backup-storage-credentials
+
+velero:
+  schedules:
+    - name: daily-platform-backup
+      schedule: "0 2 * * *"
+      ttlDays: 45
+      includedNamespaces:
+        - blueeconomy-ports
+        - blueeconomy-ferries
+        - blueeconomy-cvff
+        - blueeconomy-seafarer
+        - blueeconomy-fisheries
+        - blueeconomy-isr
+        - blueeconomy-security
+        - blueeconomy-platform
+        - blueeco-tigerbeetle-prod
+        - blueeco-mojaloop-prod
+        - blueeco-geo-prod
+
+walG:
+  image:
+    repository: registry.blueeconomy.example.gov.ng/blueeconomy/wal-g
+    digest: sha256:1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef018c1f4b2a9d6e5f0a
+  baseBackupSchedule: "30 1 * * *"
+  clusters:
+    - name: cvff-postgres
+      namespace: blueeconomy-platform
+      service: postgres-rw.blueeconomy-platform.svc.cluster.local
+    - name: keycloak-postgres
+      namespace: blueeconomy-security
+      service: keycloak-postgres-rw.blueeconomy-security.svc.cluster.local
+    - name: geo-postgis
+      namespace: blueeco-geo-prod
+      service: postgis-rw.blueeco-geo-prod.svc.cluster.local
+
+restoreTest:
+  schedule: "0 4 * * 0"
+
+# Redis AOF backup (GAP-PG-06; NOT_RUN tooling contract per values.yaml).
+redisAOF:
+  enabled: true
+  schedule: "15 2 * * *"
+  image:
+    repository: registry.blueeconomy.example.gov.ng/blueeconomy/backup-tools
+    digest: sha256:9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c
+  clusters:
+    - name: platform-redis
+      namespace: blueeconomy-platform
+      pod: redis-0
+      aofDir: /data/appendonlydir
+
+# Kafka MirrorMaker-class topic replication to the DR cluster (GAP-PG-06).
+kafkaMirrorMaker2:
+  enabled: true
+  sourceBootstrapServers: kafka.blueeconomy-platform.svc.cluster.local:9092
+  targetBootstrapServers: kafka-dr.blueeconomy-recovery.svc.cluster.local:9092
+  topicsPattern: ".*\\.v1"
+  tlsCaCertSecretRef:
+    name: kafka-cluster-ca-cert
+    certificate: ca.crt

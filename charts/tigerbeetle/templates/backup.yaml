@@ -1,0 +1,289 @@
+{{- if .Values.backup.enabled }}
+{{- $fullName := include "tigerbeetle.fullname" . -}}
+# TigerBeetle ledger backup (GAP-PG-05). Crash-consistent storage snapshot
+# of one redundant replica's data file, uploaded to immutable object
+# storage. NOT_RUN: render-gated but never executed against a live
+# cluster; enable after an approved restore drill (see values.yaml
+# backup section and docs/dr-restore.md).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fullName }}-backup
+  labels:
+    {{- include "tigerbeetle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+---
+# Least-privilege: snapshot/PVC/uploader-pod lifecycle inside this
+# namespace only; no secret read (credentials arrive via envFrom).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fullName }}-backup
+  labels:
+    {{- include "tigerbeetle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+rules:
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $fullName }}-backup
+  labels:
+    {{- include "tigerbeetle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+subjects:
+  - kind: ServiceAccount
+    name: {{ $fullName }}-backup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $fullName }}-backup
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullName }}-backup-script
+  labels:
+    {{- include "tigerbeetle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+data:
+  backup.sh: |
+    #!/bin/sh
+    # TigerBeetle ledger backup orchestration. See values.yaml backup
+    # section for the design and the NOT_RUN restore-drill precondition.
+    set -eu
+    PVC="data-${FULLNAME}-${REPLICA_ORDINAL}"
+    RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+    SNAP="${PVC}-backup-${RUN_ID}"
+    SCRATCH="${PVC}-backup-scratch-${RUN_ID}"
+    UPLOADER="${FULLNAME}-backup-upload-${RUN_ID}"
+    OBJECT="${STORAGE_PREFIX}/${RUN_ID}/data.tigerbeetle.gz"
+    MANIFEST="${STORAGE_PREFIX}/${RUN_ID}/manifest.sha256"
+
+    cleanup() {
+      kubectl delete pod "${UPLOADER}" --ignore-not-found --wait=false
+      kubectl delete pvc "${SCRATCH}" --ignore-not-found --wait=false
+      kubectl delete volumesnapshot "${SNAP}" --ignore-not-found --wait=false
+    }
+    trap cleanup EXIT
+
+    echo "[backup] snapshotting ${PVC} via class ${SNAPSHOT_CLASS}"
+    kubectl apply -f - <<YAML
+    apiVersion: snapshot.storage.k8s.io/v1
+    kind: VolumeSnapshot
+    metadata:
+      name: ${SNAP}
+    spec:
+      volumeSnapshotClassName: ${SNAPSHOT_CLASS}
+      source:
+        persistentVolumeClaimName: ${PVC}
+    YAML
+    kubectl wait --for=jsonpath='{.status.readyToUse}'=true "volumesnapshot/${SNAP}" --timeout=10m
+
+    echo "[backup] restoring snapshot into scratch PVC ${SCRATCH}"
+    kubectl apply -f - <<YAML
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: ${SCRATCH}
+    spec:
+      dataSource:
+        apiGroup: snapshot.storage.k8s.io
+        kind: VolumeSnapshot
+        name: ${SNAP}
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: ${SCRATCH_SIZE}
+    YAML
+
+    echo "[backup] uploading ${DATAFILE_PATH} to ${STORAGE_ENDPOINT}/${STORAGE_BUCKET}/${OBJECT}"
+    kubectl apply -f - <<YAML
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: ${UPLOADER}
+      labels:
+        app.kubernetes.io/name: tigerbeetle
+        app.kubernetes.io/component: backup
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: upload
+          image: "${STORAGE_IMAGE}"
+          env:
+            - name: MC_HOST_backup
+              value: "${STORAGE_ENDPOINT}"
+          envFrom:
+            - secretRef:
+                name: ${CREDENTIALS_SECRET}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /mnt/data
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              cd /mnt/data
+              DATAFILE="$(basename "${DATAFILE_PATH}")"
+              sha256sum "${DATAFILE_PATH}" > /tmp/manifest.sha256
+              stat -c 'size_bytes=%s' "${DATAFILE_PATH}" >> /tmp/manifest.sha256
+              echo "cluster=${FULLNAME} replica=${REPLICA_ORDINAL} run=${RUN_ID}" >> /tmp/manifest.sha256
+              gzip -c "${DATAFILE_PATH}" | mc pipe "backup/${STORAGE_BUCKET}/${OBJECT}"
+              mc cp /tmp/manifest.sha256 "backup/${STORAGE_BUCKET}/${MANIFEST}"
+              echo "[backup] upload complete"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ${SCRATCH}
+            readOnly: true
+        - name: tmp
+          emptyDir: {}
+    YAML
+    kubectl wait --for=condition=Ready=False "pod/${UPLOADER}" --timeout=30s || true
+    kubectl wait --for=jsonpath='{.status.phase}'=Succeeded "pod/${UPLOADER}" --timeout=30m
+    kubectl logs "${UPLOADER}" --tail=20
+    echo "[backup] run ${RUN_ID} complete"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $fullName }}-backup
+  labels:
+    {{- include "tigerbeetle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "tigerbeetle.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ $fullName }}-backup
+          automountServiceAccountToken: true
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: orchestrate
+              image: "{{ .Values.backup.kubectlImage.repository }}@{{ .Values.backup.kubectlImage.digest }}"
+              imagePullPolicy: {{ .Values.backup.kubectlImage.pullPolicy }}
+              command: ["/bin/sh", "/scripts/backup.sh"]
+              env:
+                - name: FULLNAME
+                  value: {{ $fullName | quote }}
+                - name: REPLICA_ORDINAL
+                  value: {{ .Values.backup.replicaOrdinal | quote }}
+                - name: SNAPSHOT_CLASS
+                  value: {{ .Values.backup.snapshotClassName | quote }}
+                - name: DATAFILE_PATH
+                  value: {{ .Values.tigerbeetle.dataPath | quote }}
+                - name: SCRATCH_SIZE
+                  value: {{ .Values.persistence.size | default "10Gi" | quote }}
+                - name: STORAGE_IMAGE
+                  value: "{{ .Values.backup.storageImage.repository }}@{{ .Values.backup.storageImage.digest }}"
+                - name: STORAGE_ENDPOINT
+                  value: {{ .Values.backup.storage.endpoint | quote }}
+                - name: STORAGE_BUCKET
+                  value: {{ .Values.backup.storage.bucket | quote }}
+                - name: STORAGE_PREFIX
+                  value: {{ .Values.backup.storage.prefix | quote }}
+                - name: CREDENTIALS_SECRET
+                  value: {{ .Values.backup.storage.credentialsSecretRef.name | quote }}
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: scripts
+              configMap:
+                name: {{ $fullName }}-backup-script
+                defaultMode: 0555
+            - name: tmp
+              emptyDir: {}
+---
+# Backup Job pod egress: Kubernetes API, object-storage endpoint and DNS
+# only. The tigerbeetle replica pods themselves stay on the restricted
+# policy above.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullName }}-backup
+  labels:
+    {{- include "tigerbeetle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: backup
+  policyTypes: ["Egress"]
+  egress:
+    {{- range .Values.backup.network.apiServerCIDRs }}
+    - to:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    {{- end }}
+    {{- range .Values.backup.network.storageCIDRs }}
+    - to:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+{{- end }}

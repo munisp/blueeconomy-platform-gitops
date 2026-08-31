@@ -1,0 +1,51 @@
+{{- $fullName := include "security-operations.fullname" . -}}
+{{- range $name, $component := .Values.components }}
+{{- if $component.enabled }}
+{{- if eq ($component.kind | default "Deployment") "CronJob" }}
+---
+# {{ $name }} is a bounded generator run (cmd/opencti-bridge exits after
+# generating reviewed detection content); a Deployment would crash-loop on
+# success, so it deploys as a scheduled CronJob.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ printf "%s-%s" $fullName $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "security-operations.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name | quote }}
+spec:
+  schedule: {{ $component.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        {{- include "security-operations.podTemplate" (dict "root" $ "name" $name "component" $component) | nindent 8 }}
+{{- else }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ printf "%s-%s" $fullName $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "security-operations.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name | quote }}
+spec:
+  replicas: {{ $component.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "security-operations.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $name | quote }}
+  template:
+    {{- include "security-operations.podTemplate" (dict "root" $ "name" $name "component" $component) | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}

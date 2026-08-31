@@ -1,0 +1,13 @@
+{{- range $realm := .Values.realms }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm-{{ $realm.name }}
+  labels:
+    {{- include "keycloak-realms.labels" $ | nindent 4 }}
+    blueeconomy.platform/realm: {{ $realm.name | quote }}
+data:
+  {{ $realm.name }}.json: |
+    {{- include "keycloak-realms.realmJson" (dict "realm" $realm "policy" $.Values.tokenPolicy "redirects" $.Values.publicClientRedirects) | nindent 4 }}
+{{- end }}

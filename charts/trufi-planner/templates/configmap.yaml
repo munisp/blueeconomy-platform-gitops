@@ -1,0 +1,24 @@
+{{- $fullName := include "trufi-planner.fullname" . -}}
+# Runtime SPA config (otp-react-redux JS_CONFIG override convention):
+# the environment image loads this config.js to bind the OTP2 API base
+# and the browser RUM settings. No secrets — browser-visible values only.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "trufi-planner.labels" . | nindent 4 }}
+data:
+  config.js: |
+    window.TRUFI_CONFIG = {
+      otpApiBaseUrl: {{ .Values.otp.apiBaseUrl | quote }},
+      publicOrigin: {{ .Values.edge.publicOrigin | quote }},
+      rum: {
+        enabled: {{ .Values.rum.enabled }},
+        {{- if .Values.rum.enabled }}
+        endpoint: {{ .Values.rum.endpoint | quote }},
+        serviceName: {{ .Values.rum.serviceName | quote }},
+        sampleRatio: {{ .Values.rum.sampleRatio }},
+        {{- end }}
+      },
+    };

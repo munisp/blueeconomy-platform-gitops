@@ -8,6 +8,8 @@ on:
       - 'components/**'
       - 'policies/**'
       - 'scripts/**'
+      - 'gitops/**'
+      - 'ci/**'
       - '.github/workflows/gitops-policy-gates.yml'
   push:
     branches:
@@ -18,6 +20,8 @@ on:
       - 'components/**'
       - 'policies/**'
       - 'scripts/**'
+      - 'gitops/**'
+      - 'ci/**'
       - '.github/workflows/gitops-policy-gates.yml'
 
 permissions:
@@ -43,6 +47,7 @@ jobs:
           helm version --short
           command -v grep
           command -v sha256sum
+          python3 -c 'import yaml'
 
       - name: Reject secret-like material and whitespace errors
         run: |
@@ -60,6 +65,13 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/validate-manifests.sh
+
+      - name: Validate APISIX route inventory (plugins, upstreams, URIs, TLS)
+        env:
+          HELM_KUBE_VERSION: 1.28.0
+        run: |
+          set -euo pipefail
+          bash scripts/validate-apisix-routes.sh
 
       - name: Confirm no deployment path exists in the gate
         run: |

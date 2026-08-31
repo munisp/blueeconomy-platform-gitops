@@ -1,0 +1,57 @@
+# CI render-gate fixture ONLY. NOT deployable: illustrative names.
+# Real values live in the authorised environment repo. Exercises the WP-E
+# Kafka TLS/SASL template set (TLS + SASL/SCRAM-SHA-512 listeners,
+# KafkaUser ACLs, CA distribution via the external-secrets pattern).
+kafkaSecurity:
+  enabled: true
+
+cluster:
+  name: blueeconomy-events
+  kafkaVersion: "3.8.0"
+  replicas: 3
+  storage:
+    class: encrypted-ssd
+    size: 100Gi
+    deleteClaim: false
+
+listeners:
+  tls:
+    port: 9093
+  sasl:
+    port: 9094
+    mechanism: scram-sha-512
+
+authorization:
+  type: simple
+
+users:
+  - name: cvff-outbox-publisher
+    acls:
+      - resource:
+          type: topic
+          name: "cvff."
+          patternType: prefix
+        operations: [Write, Describe]
+  - name: maritime-intelligence-consumer
+    acls:
+      - resource:
+          type: topic
+          name: "maritime."
+          patternType: prefix
+        operations: [Read, Describe]
+      - resource:
+          type: group
+          name: "maritime-intelligence-"
+          patternType: prefix
+        operations: [Read]
+
+caDistribution:
+  namespaces:
+    - blueeconomy-cvff
+    - blueeconomy-isr
+  targetSecretName: kafka-cluster-ca-cert
+
+externalSecrets:
+  storeRef:
+    name: render-fixture-store
+    kind: ClusterSecretStore

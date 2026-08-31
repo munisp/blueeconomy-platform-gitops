@@ -1,0 +1,81 @@
+# Alertmanager: single fan-in, ALL routes -> Novu (OTEL_DESIGN.md
+# section 1). The Novu receiver endpoint is render-gated: an Alertmanager
+# without a working receiver is an alert black hole.
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile (dev | staging | prod).
+profile: ""
+
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+# Novu receiver (self-hosted open-source notification platform).
+novu:
+  # Inbound webhook URL of the Novu API service (the alert workflow's
+  # inbound trigger), e.g.
+  # http://novu-api.blueeconomy-observability.svc.cluster.local:3000/...
+  # Render-gated REQUIRED.
+  webhookUrl: ""
+  # Send resolved notifications so Novu workflows can close the loop.
+  sendResolved: true
+
+routing:
+  # Grouping and timing for the single fan-in tree.
+  groupBy:
+    - alertname
+    - service
+    - severity
+  groupWait: 30s
+  groupInterval: 5m
+  repeatInterval: 4h
+
+# Silences / notification-log volume (PVC).
+persistence:
+  storageClassName: ""
+  size: ""
+  accessModes:
+    - ReadWriteOnce
+
+resources:
+  requests:
+    cpu: ""
+    memory: ""
+  limits:
+    cpu: ""
+    memory: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+podDisruptionBudget:
+  enabled: true
+  # Singleton: voluntary disruption requires an approved operator action
+  # (alert fan-in never drops silently).
+  maxUnavailable: 0
+
+networkPolicy:
+  enabled: true
+  # Namespace the pinned Prometheus release runs in (alert push ingress);
+  # render-gated.
+  prometheusNamespace: ""
+
+serviceMonitor:
+  enabled: true
+  labels:
+    blueeconomy.platform/workstream: observability

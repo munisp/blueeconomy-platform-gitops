@@ -1,0 +1,79 @@
+{{- /* Fail-closed approval gates for otel-collector-agent. */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+
+{{- /* Browser RUM CORS contract (W-OTEL-RUM): prod must list the explicit
+       portal origins and must never render the '*' wildcard. */ -}}
+{{- if eq .Values.profile "prod" -}}
+{{- if empty .Values.rumAllowedOrigins -}}
+{{- fail "rumAllowedOrigins must list the explicit portal origins when profile=prod (browser RUM exports are CORS-preflighted; an empty list leaves them blocked)" -}}
+{{- end -}}
+{{- end -}}
+{{- range $origin := .Values.rumAllowedOrigins -}}
+{{- if and (eq $origin "*") (eq $.Values.profile "prod") -}}
+{{- fail "rumAllowedOrigins must not contain the wildcard origin '*' when profile=prod (any site could write telemetry); explicit portal origins only" -}}
+{{- end -}}
+{{- end -}}
+{{- $repo := required "image.repository is required (contrib distribution: kafkametrics/postgresql/redis receivers live in contrib only)" .Values.image.repository -}}
+{{- if not (hasSuffix "contrib" $repo) -}}
+{{- fail "image.repository must be the contrib distribution (otel/opentelemetry-collector-contrib or an approved mirror); the infra receivers are contrib-only" -}}
+{{- end -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+{{- $gw := required "gatewayEndpoint is required (agent -> collector gateway OTLP gRPC, e.g. otel-collector-gateway.blueeconomy-observability.svc.cluster.local:4317)" .Values.gatewayEndpoint -}}
+
+{{- /* Pipeline guardrails are mandatory (node-level OOM / export storm). */ -}}
+{{- if or (le (int .Values.memoryLimiter.limitMiB) 0) (le (int .Values.memoryLimiter.spikeLimitMiB) 0) -}}
+{{- fail "memoryLimiter.limitMiB and memoryLimiter.spikeLimitMiB must be positive" -}}
+{{- end -}}
+{{- if ge (int .Values.memoryLimiter.spikeLimitMiB) (int .Values.memoryLimiter.limitMiB) -}}
+{{- fail "memoryLimiter.spikeLimitMiB must be smaller than memoryLimiter.limitMiB" -}}
+{{- end -}}
+{{- if le (int .Values.batch.sendBatchSize) 0 -}}
+{{- fail "batch.sendBatchSize must be positive" -}}
+{{- end -}}
+
+{{- /* Infra receiver contracts (middleware coverage matrix). */ -}}
+{{- if .Values.receivers.kafka.enabled -}}
+{{- $brokers := required "receivers.kafka.brokers is required when receivers.kafka.enabled=true (kafkametricsreceiver bootstrap brokers)" .Values.receivers.kafka.brokers -}}
+{{- end -}}
+{{- if .Values.receivers.postgresql.enabled -}}
+{{- if empty .Values.receivers.postgresql.databases -}}
+{{- fail "receivers.postgresql.databases must list at least one database when receivers.postgresql.enabled=true" -}}
+{{- end -}}
+{{- range $db := .Values.receivers.postgresql.databases -}}
+{{- if or (not $db.name) (not $db.endpoint) (not $db.database) (not $db.username) (not $db.passwordSecretKey) -}}
+{{- fail "every receivers.postgresql.databases entry requires name, endpoint, database, username and passwordSecretKey" -}}
+{{- end -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $db.passwordSecretKey) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because the postgresql receiver for %s consumes it" $db.passwordSecretKey $db.name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.receivers.redis.enabled -}}
+{{- if empty .Values.receivers.redis.endpoints -}}
+{{- fail "receivers.redis.endpoints must list at least one Redis endpoint when receivers.redis.enabled=true" -}}
+{{- end -}}
+{{- if .Values.receivers.redis.passwordSecretKey -}}
+{{- if not (hasKey $.Values.externalSecrets.keys .Values.receivers.redis.passwordSecretKey) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because the redis receiver consumes it" .Values.receivers.redis.passwordSecretKey) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $store := required "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore)" .Values.externalSecrets.storeRef.name -}}
+
+{{- /* Resources are mandatory (DaemonSet on every node). */ -}}
+{{- if or (empty .Values.resources.requests.cpu) (empty .Values.resources.requests.memory) (empty .Values.resources.limits.cpu) (empty .Values.resources.limits.memory) -}}
+{{- fail "resources.requests and resources.limits (cpu and memory) are required" -}}
+{{- end -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- if empty .Values.networkPolicy.allowedIngressNamespaces -}}
+{{- fail "networkPolicy.allowedIngressNamespaces must list the workload namespaces permitted to push OTLP" -}}
+{{- end -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for otel-collector-agent" -}}
+{{- end -}}

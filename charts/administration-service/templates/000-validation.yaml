@@ -1,0 +1,134 @@
+{{- /* Fail-closed approval gates for blueeconomy-administration-service
+       (binary env contract: internal/admin/config.go). */ -}}
+{{- /* Metrics honesty gate (PRA-066): the admin-service binary serves no
+       /metrics endpoint, so a ServiceMonitor would be a phantom scrape
+       target. */ -}}
+{{- if .Values.serviceMonitor.enabled -}}
+{{- fail "serviceMonitor.enabled=true is refused: the admin-service binary serves GET /healthz plus the /v1 routes only (internal/admin) — no /metrics endpoint exists to scrape; an approved metrics endpoint must land in the binary before a scrape target can be wired honestly (edge RED metrics come from the APISIX prometheus plugin)" -}}
+{{- end -}}
+{{- $repo := required "image.repository is required" .Values.image.repository -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+
+{{- /* Required plain env values are approved environment values. */ -}}
+{{- $env := default dict .Values.env -}}
+{{- range $envName := (default (list) .Values.requiredEnv) -}}
+{{- if eq (printf "%v" (get $env $envName)) "" -}}
+{{- fail (printf "env.%s must be set to an approved environment value" $envName) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* The listen address must bind the container/service port so the
+       Service, probes and NetworkPolicy all reach the process. */ -}}
+{{- $listen := get $env "ADMIN_SERVICE_LISTEN_ADDRESS" -}}
+{{- if not (regexMatch "^[0-9A-Za-z.-]*:[0-9]+$" $listen) -}}
+{{- fail "env.ADMIN_SERVICE_LISTEN_ADDRESS must be a host:port or :port listen address" -}}
+{{- end -}}
+{{- if not (hasSuffix (printf ":%d" (int .Values.port)) $listen) -}}
+{{- fail (printf "env.ADMIN_SERVICE_LISTEN_ADDRESS must bind the chart port %d" (int .Values.port)) -}}
+{{- end -}}
+
+{{- /* Auth mode contract (config.go): jwt requires the OIDC verifier
+       coordinates; trusted_proxy requires the edge identity and CIDRs. */ -}}
+{{- $authMode := get $env "ADMIN_AUTH_MODE" -}}
+{{- if not (has $authMode (list "jwt" "trusted_proxy")) -}}
+{{- fail "env.ADMIN_AUTH_MODE must be one of: jwt, trusted_proxy" -}}
+{{- end -}}
+{{- if eq $authMode "jwt" -}}
+{{- range $name := list "ADMIN_OIDC_ISSUER" "ADMIN_OIDC_AUDIENCE" "ADMIN_OIDC_JWKS_URL" -}}
+{{- if eq (printf "%v" (get $env $name)) "" -}}
+{{- fail (printf "env.%s is required when ADMIN_AUTH_MODE=jwt" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- else -}}
+{{- range $name := list "ADMIN_TRUSTED_PROXY_IDENTITY" "ADMIN_TRUSTED_PROXY_CIDRS" -}}
+{{- if eq (printf "%v" (get $env $name)) "" -}}
+{{- fail (printf "env.%s is required when ADMIN_AUTH_MODE=trusted_proxy" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* HTTPS URL discipline, mirroring the binary's parseHTTPSURL: https
+       scheme, no credentials, query or fragment. */ -}}
+{{- $httpsNames := list "KEYCLOAK_TOKEN_URL" "KEYCLOAK_ADMIN_BASE_URL" -}}
+{{- if eq $authMode "jwt" -}}
+{{- $httpsNames = append $httpsNames "ADMIN_OIDC_JWKS_URL" -}}
+{{- end -}}
+{{- range $name := $httpsNames -}}
+{{- $value := printf "%v" (get $env $name) -}}
+{{- if not (hasPrefix "https://" $value) -}}
+{{- fail (printf "env.%s must be an HTTPS URL" $name) -}}
+{{- end -}}
+{{- if or (contains "@" $value) (contains "?" $value) (contains "#" $value) -}}
+{{- fail (printf "env.%s must not carry credentials, query parameters or fragments" $name) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Enrollment rate limit (config.go): positive integer of at most
+       100000; fail-closed like the binary. */ -}}
+{{- $rateLimit := int (get $env "ADMIN_ENROLLMENT_RATE_LIMIT_PER_MINUTE") -}}
+{{- if or (lt $rateLimit 1) (gt $rateLimit 100000) -}}
+{{- fail "env.ADMIN_ENROLLMENT_RATE_LIMIT_PER_MINUTE must be a positive integer of at most 100000" -}}
+{{- end -}}
+
+{{- /* Role/group mapping contract (config.go): every approved onboarding
+       role must have a non-empty Keycloak group mapping. */ -}}
+{{- $roles := list -}}
+{{- range $role := splitList "," (get $env "ONBOARDING_ALLOWED_ROLES") -}}
+{{- $role = trimAll " " $role -}}
+{{- if $role -}}
+{{- $roles = append $roles $role -}}
+{{- end -}}
+{{- end -}}
+{{- if empty $roles -}}
+{{- fail "env.ONBOARDING_ALLOWED_ROLES must contain one or more approved roles" -}}
+{{- end -}}
+{{- $mappingRaw := printf "%v" (get $env "KEYCLOAK_ROLE_GROUP_MAPPING_JSON") -}}
+{{- $mapping := fromJson $mappingRaw -}}
+{{- if not (kindIs "map" $mapping) -}}
+{{- fail "env.KEYCLOAK_ROLE_GROUP_MAPPING_JSON must be a JSON object mapping roles to Keycloak group ids" -}}
+{{- end -}}
+{{- range $role := $roles -}}
+{{- if eq (printf "%v" (get $mapping $role)) "" -}}
+{{- fail (printf "env.KEYCLOAK_ROLE_GROUP_MAPPING_JSON: role %q has no approved Keycloak group mapping" $role) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Every secret the binary consumes arrives via the ExternalSecret:
+       the Postgres DSN, the Keycloak admin client secret and the
+       provenance signing key (legacy `provenance` convention per
+       docs/signing-config.md — the binary's internal/provenance reads
+       exactly PROVENANCE_SIGNING_KEY). */ -}}
+{{- range $key := list "ADMIN_SERVICE_POSTGRES_DSN" "KEYCLOAK_ADMIN_CLIENT_SECRET" "PROVENANCE_SIGNING_KEY" -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $key) -}}
+{{- fail (printf "externalSecrets.keys.%s is required (the binary consumes it as secret-sourced env)" $key) -}}
+{{- end -}}
+{{- end -}}
+{{- $store := required "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore)" .Values.externalSecrets.storeRef.name -}}
+
+{{- /* PBAC policy pack (internal/pbac): at least one .rego module must be
+       mounted or the binary refuses to boot; render fails closed too. */ -}}
+{{- if empty .Values.pbac.policies -}}
+{{- fail "pbac.policies must contain at least one approved .rego module (the binary refuses to boot without a PBAC policy pack)" -}}
+{{- end -}}
+{{- range $name, $_ := .Values.pbac.policies -}}
+{{- if not (hasSuffix ".rego" $name) -}}
+{{- fail (printf "pbac.policies entry %q must be a .rego module" $name) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Resources are mandatory: no administration workload schedules
+       unbounded. */ -}}
+{{- if or (empty .Values.resources.requests.cpu) (empty .Values.resources.requests.memory) (empty .Values.resources.limits.cpu) (empty .Values.resources.limits.memory) -}}
+{{- fail "resources.requests and resources.limits (cpu and memory) are required" -}}
+{{- end -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- $apisixNs := required "networkPolicy.apisixNamespace is required (edge-only ingress)" .Values.networkPolicy.apisixNamespace -}}
+{{- $pgNs := required "networkPolicy.postgisNamespace is required" .Values.networkPolicy.postgisNamespace -}}
+{{- $kcNs := required "networkPolicy.keycloakNamespace is required" .Values.networkPolicy.keycloakNamespace -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for administration-service" -}}
+{{- end -}}

@@ -1,0 +1,20 @@
+# CI render-gate fixture ONLY. NOT deployable: illustrative inventory.
+# Real values live in the authorised environment repo.
+profile: prod
+
+services:
+  - name: geo-service
+    namespace: blueeco-geo-prod
+    severity: critical
+  - name: ferry-api
+    namespace: blueeconomy-ferries
+    severity: critical
+  - name: port-interoperability-api
+    namespace: blueeconomy-ports
+    severity: critical
+  - name: financial-controls
+    namespace: blueeconomy-cvff
+    severity: critical
+  - name: detection-engine
+    namespace: blueeconomy-security
+    severity: warning

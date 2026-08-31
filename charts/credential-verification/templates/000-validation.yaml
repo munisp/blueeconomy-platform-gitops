@@ -1,0 +1,37 @@
+{{- range $name, $component := .Values.components }}
+{{- if $component.enabled }}
+{{- $digest := required (printf "%s.image.digest is required" $name) $component.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail (printf "%s.image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" $name) -}}
+{{- end -}}
+{{- $repository := required (printf "%s.image.repository is required" $name) $component.image.repository -}}
+{{- $env := default dict $component.env -}}
+{{- range $envName := (default (list) $component.requiredEnv) -}}
+{{- if eq (printf "%v" (get $env $envName)) "" -}}
+{{- fail (printf "%s.%s must be set to an approved environment value" $name $envName) -}}
+{{- end -}}
+{{- end -}}
+{{- range $secretName := (default (list) $component.secretEnv) -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $secretName) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because %s consumes it via secretEnv" $secretName $name) -}}
+{{- end -}}
+{{- end -}}
+{{- range $secretKey := (dig "secretMount" "keys" (list) $component) -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $secretKey) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because %s mounts it via secretMount" $secretKey $name) -}}
+{{- end -}}
+{{- end -}}
+{{- /* OIDC discipline: the issuer and JWKS endpoints are HTTPS only. */ -}}
+{{- if hasKey $env "BLUEECONOMY_OIDC_JWKS_URL" -}}
+{{- if and (ne (printf "%v" (get $env "BLUEECONOMY_OIDC_JWKS_URL")) "") (not (hasPrefix "https://" (printf "%v" (get $env "BLUEECONOMY_OIDC_JWKS_URL")))) -}}
+{{- fail (printf "%s.BLUEECONOMY_OIDC_JWKS_URL must be an HTTPS URL" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- if hasKey $env "BLUEECONOMY_OIDC_ISSUER" -}}
+{{- if and (ne (printf "%v" (get $env "BLUEECONOMY_OIDC_ISSUER")) "") (not (hasPrefix "https://" (printf "%v" (get $env "BLUEECONOMY_OIDC_ISSUER")))) -}}
+{{- fail (printf "%s.BLUEECONOMY_OIDC_ISSUER must be an HTTPS URL" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+{{- end }}
+{{- $store := required "externalSecrets.storeRef.name is required" .Values.externalSecrets.storeRef.name -}}

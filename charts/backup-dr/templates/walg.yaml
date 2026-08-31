@@ -1,0 +1,101 @@
+{{- if .Values.walG.enabled }}
+# WAL-G archive-side configuration. The Postgres clusters set
+# archive_command = "wal-g wal-push" with this environment; WAL segments and
+# base backups land in the same immutable store as the Velero backups.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "backup-dr.fullname" . }}-walg-env
+  labels:
+    {{- include "backup-dr.labels" . | nindent 4 }}
+immutable: true
+data:
+  {{- if eq .Values.storage.provider "s3-compatible" }}
+  # Generic S3-compatible target (cloud-agnostic and sovereign-deployable:
+  # any S3 API endpoint, no AWS-only API).
+  WALG_S3_PREFIX: {{ printf "s3://%s/%s/walg" .Values.storage.bucket .Values.storage.prefix | quote }}
+  AWS_ENDPOINT: {{ .Values.storage.endpoint | quote }}
+  AWS_REGION: {{ .Values.storage.region | quote }}
+  AWS_S3_FORCE_PATH_STYLE: "true"
+  {{- else }}
+  # Azure Blob/ADLS target (supported landing-zone option, incl. Azure
+  # Government storage accounts).
+  WALG_AZ_PREFIX: {{ printf "azure://%s/%s/walg" .Values.storage.bucket .Values.storage.prefix | quote }}
+  AZURE_STORAGE_ACCOUNT: {{ .Values.storage.azure.storageAccount | quote }}
+  {{- end }}
+  WALG_COMPRESSION_METHOD: zstd
+  # Retention must outlive the immutability window; deletion before it is
+  # blocked storage-side by the immutability policy.
+  WALG_RETENTION_DAYS: {{ .Values.backup.immutabilityDays | quote }}
+{{- range $c := .Values.walG.clusters }}
+---
+# Base-backup CronJob for Postgres cluster {{ $c.name }} ({{ $c.namespace }}).
+# WAL segments archive continuously via archive_command; this Job takes the
+# periodic full base backup and verifies it (wal-g backup-verify).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ printf "%s-walg-base-%s" (include "backup-dr.fullname" $) $c.name | trunc 52 | trimSuffix "-" }}
+  namespace: {{ $c.namespace }}
+  labels:
+    {{- include "backup-dr.labels" $ | nindent 4 }}
+spec:
+  schedule: {{ $.Values.walG.baseBackupSchedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "backup-dr.labels" $ | nindent 12 }}
+            blueeconomy.platform/backup-cluster: {{ $c.name | quote }}
+        spec:
+          restartPolicy: Never
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: wal-g
+              image: "{{ $.Values.walG.image.repository }}@{{ $.Values.walG.image.digest }}"
+              imagePullPolicy: {{ $.Values.walG.image.pullPolicy }}
+              args:
+                - /bin/sh
+                - -ec
+                - |
+                  wal-g backup-push "$PGDATA" &&
+                  wal-g backup-verify LATEST
+              env:
+                - name: PGHOST
+                  value: {{ $c.service | quote }}
+                - name: PGDATA
+                  value: /pgdata
+                - name: PGUSER
+                  value: postgres
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $.Values.storage.credentialsSecretRef.name }}
+                      key: postgres-password
+              envFrom:
+                - configMapRef:
+                    name: {{ include "backup-dr.fullname" $ }}-walg-env
+                - secretRef:
+                    name: {{ $.Values.storage.credentialsSecretRef.name }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 512Mi
+{{- end }}
+{{- end }}

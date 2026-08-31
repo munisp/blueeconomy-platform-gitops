@@ -1,0 +1,88 @@
+{{- $ws := required "workstream.name is required (ports | ferries | cvff | seafarer | fisheries | isr)" .Values.workstream.name -}}
+{{- if not (has $ws (list "ports" "ferries" "cvff" "seafarer" "fisheries" "isr")) -}}
+{{- fail "workstream.name must be one of: ports, ferries, cvff, seafarer, fisheries, isr" -}}
+{{- end -}}
+{{- if empty .Values.workstream.appIds -}}
+{{- fail "workstream.appIds must list the approved Dapr app-ids for this workstream" -}}
+{{- end -}}
+{{- /* Scope segregation: every workstream release is hard-restricted to its
+       own approved Dapr app-ids, regardless of supplied environment values.
+       cvff: fiduciary segregation. isr: national-security segregation. */ -}}
+{{- $approvedAppIds := dict
+  "ports" (list "port-interoperability-api" "ussd-gateway" "booking-worker" "ports-outbox-publisher")
+  "ferries" (list "ferry-api" "ferry-worker" "ferry-outbox-publisher")
+  "cvff" (list "intent-api" "cvff-worker" "cvff-outbox-publisher" "cvff-api" "declaration-scorer")
+  "seafarer" (list "credential-verification-api" "seafarer-credential-worker")
+  "fisheries" (list "trace-api" "trace-worker" "fisheries-outbox-publisher")
+  "isr" (list "maritime-intelligence-api" "isr-worker" "isr-outbox-publisher")
+-}}
+{{- $allowed := index $approvedAppIds $ws -}}
+{{- $article := ternary "an" "a" (eq $ws "isr") -}}
+{{- range $appId := .Values.workstream.appIds -}}
+{{- if not (has $appId $allowed) -}}
+{{- fail (printf "workstream.appIds entry %q is not %s %s app-id; %s components are restricted to %s" $appId $article $ws $ws (join ", " $allowed)) -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.secretStores.external.enabled -}}
+{{- $ext := required "secretStores.external.storeRef.name is required when secretStores.external.enabled (operator-managed ClusterSecretStore)" .Values.secretStores.external.storeRef.name -}}
+{{- end -}}
+{{- $store := .Values.externalSecrets.storeRef.name | default .Values.secretStores.external.storeRef.name -}}
+{{- if not $store -}}
+{{- fail "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore; or set secretStores.external.storeRef.name)" -}}
+{{- end -}}
+{{- if .Values.pubsub.enabled -}}
+{{- if eq .Values.pubsub.driver "kafka" -}}
+{{- $brokers := required "pubsub.kafka.brokers is required" .Values.pubsub.kafka.brokers -}}
+{{- if eq .Values.pubsub.kafka.authType "sasl" -}}
+{{- $n := required "pubsub.kafka.saslPasswordSecretKeyRef.name is required when authType=sasl" .Values.pubsub.kafka.saslPasswordSecretKeyRef.name -}}
+{{- if not (has .Values.pubsub.kafka.sasl.mechanism (list "plain" "scram-sha-512")) -}}
+{{- fail "pubsub.kafka.sasl.mechanism must be one of: plain, scram-sha-512" -}}
+{{- end -}}
+{{- if and (eq .Values.pubsub.kafka.sasl.mechanism "plain") (not .Values.pubsub.kafka.tls.enabled) -}}
+{{- fail "pubsub.kafka.sasl.mechanism=plain requires pubsub.kafka.tls.enabled=true (SASL/PLAIN may never cross the wire unencrypted)" -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.pubsub.kafka.tls.required -}}
+{{- if not .Values.pubsub.kafka.tls.enabled -}}
+{{- fail "pubsub.kafka.tls.enabled must be true when pubsub.kafka.tls.required=true (prod posture)" -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.pubsub.kafka.tls.enabled -}}
+{{- $caName := required "pubsub.kafka.tls.caCertSecretRef.name is required when pubsub.kafka.tls.enabled=true" .Values.pubsub.kafka.tls.caCertSecretRef.name -}}
+{{- $caKey := required "pubsub.kafka.tls.caCertSecretRef.key is required when pubsub.kafka.tls.enabled=true" .Values.pubsub.kafka.tls.caCertSecretRef.key -}}
+{{- end -}}
+{{- else if eq .Values.pubsub.driver "fluvio" -}}
+{{- $broker := required "pubsub.fluvio.broker is required when pubsub.driver=fluvio" .Values.pubsub.fluvio.broker -}}
+{{- else -}}
+{{- fail "pubsub.driver must be kafka or fluvio" -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.state.hot.enabled -}}
+{{- $host := required "state.hot.redisHost is required" .Values.state.hot.redisHost -}}
+{{- $n := required "state.hot.passwordSecretKeyRef.name is required" .Values.state.hot.passwordSecretKeyRef.name -}}
+{{- $k := required "state.hot.passwordSecretKeyRef.key is required" .Values.state.hot.passwordSecretKeyRef.key -}}
+{{- end -}}
+{{- if .Values.state.durable.enabled -}}
+{{- $n := required "state.durable.connectionStringSecretKeyRef.name is required" .Values.state.durable.connectionStringSecretKeyRef.name -}}
+{{- $k := required "state.durable.connectionStringSecretKeyRef.key is required" .Values.state.durable.connectionStringSecretKeyRef.key -}}
+{{- end -}}
+{{- if .Values.secretStores.azureKeyVault.enabled -}}
+{{- $vault := required "secretStores.azureKeyVault.vaultName is required" .Values.secretStores.azureKeyVault.vaultName -}}
+{{- end -}}
+{{- if .Values.secretStores.hashicorpVault.enabled -}}
+{{- $vserver := required "secretStores.hashicorpVault.server is required (Vault server URL)" .Values.secretStores.hashicorpVault.server -}}
+{{- if not (hasPrefix "https://" $vserver) -}}
+{{- fail "secretStores.hashicorpVault.server must be an HTTPS URL" -}}
+{{- end -}}
+{{- $vn := required "secretStores.hashicorpVault.tokenSecretRef.name is required" .Values.secretStores.hashicorpVault.tokenSecretRef.name -}}
+{{- $vk := required "secretStores.hashicorpVault.tokenSecretRef.key is required" .Values.secretStores.hashicorpVault.tokenSecretRef.key -}}
+{{- end -}}
+
+{{- /* Dapr sidecar native OTel tracing contract. */ -}}
+{{- if .Values.tracing.enabled -}}
+{{- $rate := .Values.tracing.samplingRate | float64 -}}
+{{- if or (lt $rate 0.0) (gt $rate 1.0) -}}
+{{- fail "tracing.samplingRate must be a numeric string in [0, 1]" -}}
+{{- end -}}
+{{- $otel := required "tracing.otelEndpointAddress is required when tracing.enabled=true (OTel collector agent OTLP gRPC endpoint for the sidecar exporter; OTEL_DESIGN.md section 3)" .Values.tracing.otelEndpointAddress -}}
+{{- end -}}

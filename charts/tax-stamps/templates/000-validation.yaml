@@ -1,0 +1,99 @@
+{{- /* Fail-closed approval gates for blueeconomy-tax-stamps. */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+{{- $repo := required "image.repository is required" .Values.image.repository -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+
+{{- /* Prod profile: no test env anywhere (fail-closed doctrine), and the
+       revenue path (payment rail) must be explicitly configured. */ -}}
+{{- if eq .Values.profile "prod" -}}
+{{- range $k, $_ := .Values.env -}}
+{{- if hasPrefix "TAXSTAMPS_TEST_" $k -}}
+{{- fail (printf "env name %s is forbidden when profile=prod (no test configuration in production)" $k) -}}
+{{- end -}}
+{{- end -}}
+{{- range $k := .Values.secretEnv -}}
+{{- if hasPrefix "TAXSTAMPS_TEST_" $k -}}
+{{- fail (printf "secretEnv name %s is forbidden when profile=prod" $k) -}}
+{{- end -}}
+{{- end -}}
+{{- if not (has .Values.env.TAXSTAMPS_PAYMENT_RAIL (list "cvff-tigerbeetle" "mojaloop")) -}}
+{{- fail "env.TAXSTAMPS_PAYMENT_RAIL must be one of: cvff-tigerbeetle, mojaloop when profile=prod (the revenue path never runs unconfigured)" -}}
+{{- end -}}
+{{- if eq (printf "%v" .Values.env.TAXSTAMPS_FINANCIAL_CONTROLS_ENDPOINT) "" -}}
+{{- fail "env.TAXSTAMPS_FINANCIAL_CONTROLS_ENDPOINT must be set when profile=prod" -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Required plain env values are approved environment values. */ -}}
+{{- $env := default dict .Values.env -}}
+{{- range $envName := (default (list) .Values.requiredEnv) -}}
+{{- if eq (printf "%v" (get $env $envName)) "" -}}
+{{- fail (printf "env.%s must be set to an approved environment value" $envName) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Every secretEnv name must be backed by the ExternalSecret. */ -}}
+{{- range $secretName := (default (list) .Values.secretEnv) -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $secretName) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because the deployment consumes it via secretEnv" $secretName) -}}
+{{- end -}}
+{{- end -}}
+{{- /* Boot-fatal binary contract: database DSN, Redis (fail-closed guards)
+       and the file-mounted Ed25519 signing key. */ -}}
+{{- if not (hasKey .Values.externalSecrets.keys "TAXSTAMPS_DATABASE_URL") -}}
+{{- fail "externalSecrets.keys.TAXSTAMPS_DATABASE_URL is required (boot-fatal postgresql+asyncpg DSN)" -}}
+{{- end -}}
+{{- if not (hasKey .Values.externalSecrets.keys "TAXSTAMPS_REDIS_URL") -}}
+{{- fail "externalSecrets.keys.TAXSTAMPS_REDIS_URL is required (nonce/rate-limit/velocity guards are fail-closed on Redis outage)" -}}
+{{- end -}}
+{{- $signingKey := required "signingKey.secretKey is required (ExternalSecrets key holding the Ed25519 PKCS#8 PEM)" .Values.signingKey.secretKey -}}
+{{- if not (hasKey .Values.externalSecrets.keys .Values.signingKey.secretKey) -}}
+{{- fail (printf "externalSecrets.keys.%s is required (the signing key is mounted as a file via TAXSTAMPS_SIGNING_KEY_PATH; the binary refuses placeholder key material at boot)" .Values.signingKey.secretKey) -}}
+{{- end -}}
+{{- if not (hasPrefix "/" .Values.signingKey.mountPath) -}}
+{{- fail "signingKey.mountPath must be an absolute path" -}}
+{{- end -}}
+{{- $store := required "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore)" .Values.externalSecrets.storeRef.name -}}
+
+{{- /* Producer key directory: the declarations consumer verifies inbound
+       envelope provenance signatures; required in every profile. */ -}}
+{{- if not .Values.keyDirectory.enabled -}}
+{{- fail "keyDirectory.enabled must be true (TAXSTAMPS_KEY_DIRECTORY_PATH; inbound envelope verification is mandatory)" -}}
+{{- end -}}
+{{- $kd := required "keyDirectory.configMapName is required when keyDirectory.enabled=true (opa-policies key-directory ConfigMap)" .Values.keyDirectory.configMapName -}}
+{{- if not (hasPrefix "/" .Values.keyDirectory.mountPath) -}}
+{{- fail "keyDirectory.mountPath must be an absolute path" -}}
+{{- end -}}
+
+{{- /* Component gates: resources mandatory; HPA bounds valid. */ -}}
+{{- range $name, $component := .Values.components -}}
+{{- if $component.enabled -}}
+{{- if or (empty $component.resources.requests.cpu) (empty $component.resources.requests.memory) (empty $component.resources.limits.cpu) (empty $component.resources.limits.memory) -}}
+{{- fail (printf "components.%s resources.requests and resources.limits (cpu and memory) are required" $name) -}}
+{{- end -}}
+{{- if and (hasKey $component "hpa") $component.hpa $component.hpa.enabled -}}
+{{- if lt (int $component.hpa.minReplicas) 1 -}}
+{{- fail (printf "components.%s hpa.minReplicas must be at least 1 when hpa.enabled=true" $name) -}}
+{{- end -}}
+{{- if lt (int $component.hpa.maxReplicas) (int $component.hpa.minReplicas) -}}
+{{- fail (printf "components.%s hpa.maxReplicas must be >= hpa.minReplicas" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- $apisixNs := required "networkPolicy.apisixNamespace is required (edge-only ingress)" .Values.networkPolicy.apisixNamespace -}}
+{{- $pgNs := required "networkPolicy.postgresNamespace is required" .Values.networkPolicy.postgresNamespace -}}
+{{- $kafkaNs := required "networkPolicy.kafkaNamespace is required" .Values.networkPolicy.kafkaNamespace -}}
+{{- $redisNs := required "networkPolicy.redisNamespace is required" .Values.networkPolicy.redisNamespace -}}
+{{- $kcNs := required "networkPolicy.keycloakNamespace is required (JWKS egress)" .Values.networkPolicy.keycloakNamespace -}}
+{{- $fcNs := required "networkPolicy.financialControlsNamespace is required (payment-rail egress)" .Values.networkPolicy.financialControlsNamespace -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for tax-stamps" -}}
+{{- end -}}

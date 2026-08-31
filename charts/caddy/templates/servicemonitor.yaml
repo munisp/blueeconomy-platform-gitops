@@ -1,0 +1,22 @@
+{{- if .Values.serviceMonitor.enabled }}
+# Caddy edge Prometheus scrape (PRA-066): per-server metrics from the
+# Caddyfile `servers { metrics }` block, served on the admin endpoint.
+# Render-gated in 000-validation.yaml: the monitor requires
+# metrics.enabled=true (the admin endpoint bound off-loopback and the
+# metrics Service port) — never a phantom scrape target.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: caddy-edge
+  labels:
+    {{- include "caddy.labels" . | nindent 4 }}
+    {{- toYaml .Values.serviceMonitor.labels | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "caddy.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+{{- end }}

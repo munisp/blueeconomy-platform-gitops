@@ -1,0 +1,82 @@
+{{- /* Fail-closed approval gates for the blueeconomy EMQX broker (PRA-088). */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+{{- $repo := required "image.repository is required" .Values.image.repository -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+
+{{- /* Device-plane authn webhook (PRA-088): without it the broker boots
+       with an empty authentication chain (implicit allow-all). Refused. */ -}}
+{{- $authURL := required "mqttAuth.url is required (geo-service /v1/devices/mqtt-auth webhook; an EMQX broker without an authentication chain allows every client)" .Values.mqttAuth.url -}}
+{{- if not (or (hasPrefix "http://" $authURL) (hasPrefix "https://" $authURL)) -}}
+{{- fail "mqttAuth.url must be an http:// or https:// URL" -}}
+{{- end -}}
+
+{{- /* Authorization stance must be stated explicitly (fail-closed gate on
+       posture, see values.yaml): allow (authenticated devices inside the
+       NetworkPolicy perimeter) or deny (requires a future ACL source). */ -}}
+{{- if not (has .Values.authorization.noMatch (list "allow" "deny")) -}}
+{{- fail "authorization.noMatch must be an explicit choice of: allow, deny (see values.yaml — the release must state its topic-ACL posture)" -}}
+{{- end -}}
+
+{{- /* TLS listener gates: prod posture requires the MQTTS listener; the
+       cert chain arrives exclusively via ExternalSecrets keys. */ -}}
+{{- if .Values.tls.required -}}
+{{- if not .Values.tls.enabled -}}
+{{- fail "tls.enabled must be true when tls.required=true (prod posture)" -}}
+{{- end -}}
+{{- end -}}
+{{- if eq .Values.profile "prod" -}}
+{{- if not .Values.tls.enabled -}}
+{{- fail "tls.enabled must be true when profile=prod (plain 1883-only brokers are refused in production)" -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.tls.enabled -}}
+{{- range $k := (list .Values.tls.certSecretKey .Values.tls.keySecretKey .Values.tls.caSecretKey) -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $k) -}}
+{{- fail (printf "externalSecrets.keys.%s is required when tls.enabled=true (MQTTS cert chain is ExternalSecrets-only)" $k) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Dashboard gates: enabling requires the admin password via
+       ExternalSecrets (never an inline/default credential). */ -}}
+{{- if .Values.dashboard.enabled -}}
+{{- if not (hasKey .Values.externalSecrets.keys "EMQX_DASHBOARD_PASSWORD") -}}
+{{- fail "externalSecrets.keys.EMQX_DASHBOARD_PASSWORD is required when dashboard.enabled=true" -}}
+{{- end -}}
+{{- if not (has "EMQX_DASHBOARD_PASSWORD" (default (list) .Values.secretEnv)) -}}
+{{- fail "secretEnv must include EMQX_DASHBOARD_PASSWORD when dashboard.enabled=true" -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Every secretEnv name must be backed by the ExternalSecret. */ -}}
+{{- range $secretName := (default (list) .Values.secretEnv) -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $secretName) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because the deployment consumes it via secretEnv" $secretName) -}}
+{{- end -}}
+{{- end -}}
+{{- $store := required "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore)" .Values.externalSecrets.storeRef.name -}}
+
+{{- /* Broker sizing: never schedules unbounded; clustered broker needs at
+       least one replica. */ -}}
+{{- if lt (int .Values.replicas) 1 -}}
+{{- fail "replicas must be at least 1" -}}
+{{- end -}}
+{{- if or (empty .Values.resources.requests.cpu) (empty .Values.resources.requests.memory) (empty .Values.resources.limits.cpu) (empty .Values.resources.limits.memory) -}}
+{{- fail "resources.requests and resources.limits (cpu and memory) are required" -}}
+{{- end -}}
+
+{{- /* Network posture is mandatory: the webhook egress target and the
+       allowed MQTT ingress namespaces must be declared. */ -}}
+{{- if .Values.networkPolicy.enabled -}}
+{{- $geoNs := required "networkPolicy.geoNamespace is required (the broker calls the geo-service mqtt-auth webhook there)" .Values.networkPolicy.geoNamespace -}}
+{{- if empty .Values.networkPolicy.mqttIngressNamespaces -}}
+{{- fail "networkPolicy.mqttIngressNamespaces must list at least one namespace allowed to open MQTT connections" -}}
+{{- end -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for the EMQX broker" -}}
+{{- end -}}

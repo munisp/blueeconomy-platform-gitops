@@ -1,0 +1,68 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative references. Real values live in the authorised environment
+# repo.
+profile: prod
+
+image:
+  repository: registry.blueeconomy.example.gov.ng/blueeconomy/data-platform
+  digest: sha256:8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    BLUEECONOMY_KAFKA_SASL_USERNAME: dataplatform/render-fixture/kafka-sasl-username
+    BLUEECONOMY_KAFKA_SASL_PASSWORD: dataplatform/render-fixture/kafka-sasl-password
+
+keyDirectory:
+  enabled: true
+  configMapName: render-gate-opa-policies-key-directory
+  mountPath: /etc/blueeconomy/key-directory
+
+storage:
+  backend: s3
+  account: blueeconomylakehouse
+  filesystem: lakehouse
+
+kafka:
+  bootstrapServers: kafka.blueeconomy-platform.svc.cluster.local:9092
+
+kafkaIngest:
+  jobs:
+    - name: cvff-events-bronze
+      schedule: "*/15 * * * *"
+      topic: cvff.disbursement.v1
+      groupId: blueeconomy-data-platform-cvff
+      tableUri: s3://blueeconomylakehouse/bronze/cvff_events
+      schema: schemas/cvff_events_v1.json
+      maxMessages: 50000
+
+retention:
+  enabled: true
+  schedule: "0 1 * * *"
+  tableUri: s3://blueeconomylakehouse/bronze/cvff_events
+  auditTableUri: s3://blueeconomylakehouse/audit/retention_audit
+  archiveUri: s3://blueeconomylakehouse/cold/cvff_events
+  hotDays: 30
+  coldYears: 7
+  operator: data-platform-retention-cron
+
+goldAssembly:
+  enabled: true
+  schedule: "0 3 * * *"
+  scope: cvff
+  scopeRootUri: s3://blueeconomylakehouse/gold/cvff
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+networkPolicy:
+  kafkaNamespace: blueeconomy-platform
+  storageCIDRs:
+    - 10.50.0.0/16

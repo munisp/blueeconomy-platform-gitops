@@ -1,0 +1,16 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+# Singleton gateway: maxUnavailable 0 — voluntary disruption (node drains)
+# requires an approved operator action so the safety telemetry feed never
+# drops silently.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "waterway-safety.fullname" . }}
+  labels:
+    {{- include "waterway-safety.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "waterway-safety.selectorLabels" . | nindent 6 }}
+{{- end }}

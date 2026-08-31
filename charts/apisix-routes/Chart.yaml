@@ -1,0 +1,22 @@
+apiVersion: v2
+name: apisix-routes
+description: >-
+  ApisixRoute CRs for the services currently fronted by plain Ingress
+  (gap #49): geo-service, ministry-portal, cvffapi and admin, matching the
+  approved edge topology (client -> Caddy -> OpenAppSec -> APISIX;
+  docs/edge-topology.md). Every route carries the OPA hook wiring
+  consistent with charts/opa-policies (policy blueeconomy/http/allow).
+  Render-gated to the apisix flag: the chart refuses to render until the
+  pinned upstream APISIX release is approved for the environment.
+type: application
+version: 0.1.0
+appVersion: "3.17.0"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - apisix
+  - edge
+  - gateway
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "edge-routing"
+  blueeconomy.platform/upstream-policy: "Routes apply only against the source-locked apache-apisix release"

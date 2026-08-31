@@ -1,0 +1,129 @@
+# CVFF beneficiary self-service portal (static SPA served by the
+# distroless-style unprivileged nginx image built from
+# blueeconomy-beneficiary-portal/Dockerfile). Non-production-safe baseline
+# only; production requires a separately reviewed environment values file.
+# Fail-closed: no image reference, hostname, OIDC endpoint or API endpoint
+# is defaulted. No secret material exists anywhere in this workload — the
+# portal authenticates as the beneficiary-portal PUBLIC client (PKCE), and
+# the runtime configuration served at /platform-config.json is public
+# discovery metadata only.
+nameOverride: ""
+fullnameOverride: ""
+workstream: cvff
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+image:
+  repository: ""
+  # Pin to an immutable digest after SBOM, vulnerability and compatibility approval.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+replicas: 2
+# The unprivileged nginx image listens on 8080 (deploy/nginx.conf).
+port: 8080
+
+service:
+  type: ClusterIP
+
+ingress:
+  enabled: true
+  # APISIX edge is the permitted ingress controller for the platform.
+  className: ""
+  annotations: {}
+  # Approved public hostname for the portal. Never defaulted; must match
+  # the OIDC redirect-URI allowlist registered on the public client.
+  host: ""
+  tls:
+    # cert-manager/ExternalSecrets-managed TLS secret for the host.
+    secretName: ""
+
+# Runtime configuration rendered into the platform-config.json ConfigMap
+# and served to the browser (schema: src/runtime-config.ts in
+# blueeconomy-beneficiary-portal). Public, non-secret discovery metadata.
+platformConfig:
+  applicationName: CVFF Beneficiary Portal
+  oidc:
+    # HTTPS Keycloak issuer URL of the blueeconomy-cvff realm. The chart
+    # enforces the /realms/blueeconomy-cvff suffix so the portal can never
+    # be pointed at a different realm by environment values.
+    authority: ""
+    # Public client registered in the blueeconomy-cvff realm by
+    # charts/keycloak-realms (publicClients stanza, PKCE S256). Fixed.
+    clientId: beneficiary-portal
+    redirectUri: ""
+    postLogoutRedirectUri: ""
+    scope: openid profile
+  cvffApi:
+    # HTTPS base URL of the CVFF beneficiary API behind the APISIX-approved
+    # route; resource paths are appended by the portal's API client.
+    baseUrl: ""
+    pollIntervalMs: 15000
+    maxDocumentBytes: 10485760
+    documentContentTypes:
+      - application/pdf
+      - image/png
+      - image/jpeg
+
+probes:
+  livenessPath: /healthz
+  readinessPath: /healthz
+
+serviceMonitor:
+  # PRA-066 audited: NO ServiceMonitor is wired for this portal — the
+  # nginx-unprivileged image serves the static SPA and /healthz only; no
+  # Prometheus endpoint exists (deploy/nginx.conf). enabled=true is
+  # refused at render time — never a phantom scrape target. Edge-level RED
+  # metrics come from the APISIX prometheus plugin (apisix-routes
+  # edgeObservability.prometheus); browser RUM flows via the OTLP/HTTP
+  # collector receiver when configured.
+  enabled: false
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 128Mi
+
+# nginxinc/nginx-unprivileged runs as uid 101.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 101
+  runAsGroup: 101
+  fsGroup: 101
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+networkPolicy:
+  enabled: true
+  # Namespaces whose ingress controllers may reach the portal (e.g. APISIX edge).
+  allowedIngressNamespaces: []
+  # Ordered egress allowances outside this namespace. Everything else is denied.
+  allowedEgress:
+    - namespace: kube-system
+      ports: [53]
+      protocols: ["UDP", "TCP"]
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+hpa:
+  # CPU-based horizontal autoscaling (stateless service; GAP-PG-07).
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70

@@ -1,0 +1,131 @@
+# Caddyfile promoted from the umbrella design (blueeconomy/deploy/security/
+# Caddyfile) with every ${VAR} placeholder replaced by render-gated values.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "caddy.fullname" . }}-config
+  labels:
+    {{- include "caddy.labels" . | nindent 4 }}
+data:
+  Caddyfile: |
+    {
+    	{{- if eq .Values.tls.mode "acme" }}
+    	email {{ .Values.tls.acme.email }}
+    	{{- else }}
+    	# Platform-internal CA: Caddy acts as a local issuer for non-public
+    	# endpoints. Trust distribution is handled by the platform base.
+    	local_certs
+    	{{- end }}
+    	servers {
+    		metrics
+    	}
+    	{{- if .Values.metrics.enabled }}
+    	# PRA-066: bind the admin endpoint off-loopback so Prometheus can
+    	# scrape /metrics (per-server metrics from `servers { metrics }`).
+    	# Cluster-internal only — the NetworkPolicy contract and the absence
+    	# of any edge listener on this port keep it off the public path.
+    	admin 0.0.0.0:{{ .Values.metrics.port }}
+    	{{- end }}
+    }
+
+    (platform_security) {
+    	header {
+    		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+    		X-Content-Type-Options "nosniff"
+    		X-Frame-Options "DENY"
+    		Referrer-Policy "no-referrer"
+    		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+    		-Server
+    	}
+    	request_body {
+    		max_size {{ .Values.security.maxBodySizeMB }}MB
+    	}
+    }
+
+    {{ .Values.domains.publicHost }} {
+    	import platform_security
+    	encode zstd gzip
+    	{{- if eq .Values.tls.mode "acme" }}
+    	{{- if has .Values.tls.acme.dnsProvider.name (list "rfc2136" "azuredns" "route53" "cloudflare" "googleclouddns" "digitalocean") }}
+    	tls {
+    		dns {{ .Values.tls.acme.dnsProvider.name }}
+    	}
+    	{{- else }}
+    	# internal-ca / manual issuance: no ACME. The certificate is issued
+    	# by cert-manager (internal-ca) or supplied by the operator (manual)
+    	# and mounted from the edge TLS Secret (see deployment.yaml).
+    	tls /etc/caddy/tls/tls.crt /etc/caddy/tls/tls.key
+    	{{- end }}
+    	{{- end }}
+    	# Edge mTLS is mandatory for authority/partner APIs; the public
+    	# portal is routed separately.
+    	@partner path /partner/* /v1/nsw/*
+    	handle @partner {
+    		tls_client_auth {
+    			mode require_and_verify
+    			trust_pool file /etc/caddy/partner-ca/{{ .Values.tls.partnerMtls.caSecretRef.key }}
+    		}
+    		reverse_proxy {{ .Values.upstreams.apisix.address }} {
+    			transport http {
+    				read_timeout {{ .Values.security.proxy.readTimeoutSeconds }}s
+    				write_timeout {{ .Values.security.proxy.writeTimeoutSeconds }}s
+    			}
+    		}
+    	}
+    	@api path /v1/*
+    	handle @api {
+    		# Coarse edge limit; APISIX applies identity-aware limits and
+    		# quotas below this hop.
+    		rate_limit {
+    			zone api_edge
+    			key {remote_host}
+    			events {{ .Values.security.rateLimit.events }}
+    			window {{ .Values.security.rateLimit.windowSeconds }}s
+    		}
+    		reverse_proxy {{ .Values.upstreams.apisix.address }}
+    	}
+    	respond /healthz 200
+    	respond "not found" 404
+    }
+
+    # Admin consoles: bound on a separate listener reachable only from the
+    # management network. OIDC relying-party authentication is enforced by
+    # the APISIX openid-connect plugin against the render-gated Keycloak
+    # discovery URL (see the edge-oidc-contract ConfigMap).
+    {{ .Values.domains.adminHost }} {
+    	import platform_security
+    	{{- if eq .Values.tls.mode "acme" }}
+    	{{- if has .Values.tls.acme.dnsProvider.name (list "rfc2136" "azuredns" "route53" "cloudflare" "googleclouddns" "digitalocean") }}
+    	tls {
+    		dns {{ .Values.tls.acme.dnsProvider.name }}
+    	}
+    	{{- else }}
+    	# internal-ca / manual issuance: no ACME. The certificate is issued
+    	# by cert-manager (internal-ca) or supplied by the operator (manual)
+    	# and mounted from the edge TLS Secret (see deployment.yaml).
+    	tls /etc/caddy/tls/tls.crt /etc/caddy/tls/tls.key
+    	{{- end }}
+    	{{- end }}
+    	reverse_proxy {{ .Values.upstreams.apisixAdmin.address }}
+    }
+---
+# OIDC relying-party contract for the admin consoles, consumed by the APISIX
+# route configuration (openid-connect plugin) once the pinned upstream
+# APISIX release is approved. Recorded here so the edge authentication
+# wiring is reconciled from git instead of design documents.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "caddy.fullname" . }}-oidc-contract
+  labels:
+    {{- include "caddy.labels" . | nindent 4 }}
+data:
+  oidc-contract.json: |
+    {{- dict
+        "discovery" .Values.keycloak.discoveryUrl
+        "bearerOnlyApis" true
+        "adminConsolesFlow" "authorization-code"
+        "openAppSecAgentRequired" .Values.openappsec.required
+        "apisixUpstream" .Values.upstreams.apisix.address
+        "apisixAdminUpstream" .Values.upstreams.apisixAdmin.address
+    | toPrettyJson | nindent 4 }}

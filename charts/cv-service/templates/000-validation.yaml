@@ -1,0 +1,84 @@
+{{- /* Fail-closed approval gates for blueeconomy-cv-service. */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+{{- $repo := required "image.repository is required" .Values.image.repository -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+
+{{- /* Sink contract (src/cvservice/config.py): kafka | file. The Kafka
+       sink is required in prod — the file spool is store-and-forward
+       fallback, never the production sink. */ -}}
+{{- if not (has .Values.env.CV_SINK (list "kafka" "file")) -}}
+{{- fail "env.CV_SINK must be one of: kafka, file" -}}
+{{- end -}}
+{{- if eq .Values.profile "prod" -}}
+{{- if ne .Values.env.CV_SINK "kafka" -}}
+{{- fail "env.CV_SINK must be kafka when profile=prod (signed envelopes must reach the platform bus; the file spool is fallback only)" -}}
+{{- end -}}
+{{- end -}}
+{{- if eq .Values.env.CV_SINK "kafka" -}}
+{{- if eq (printf "%v" .Values.env.KAFKA_BOOTSTRAP_SERVERS) "" -}}
+{{- fail "env.KAFKA_BOOTSTRAP_SERVERS is required when env.CV_SINK=kafka (binary fail-closed)" -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Required plain env values are approved environment values. */ -}}
+{{- $env := default dict .Values.env -}}
+{{- range $envName := (default (list) .Values.requiredEnv) -}}
+{{- if eq (printf "%v" (get $env $envName)) "" -}}
+{{- fail (printf "env.%s must be set to an approved environment value" $envName) -}}
+{{- end -}}
+{{- end -}}
+{{- /* CV_CAMERAS must be a non-empty JSON array in prod: a production pod
+       with zero cameras is a management-API-only lie. */ -}}
+{{- if eq .Values.profile "prod" -}}
+{{- $cameras := .Values.env.CV_CAMERAS | fromJson -}}
+{{- if or (not $cameras) (empty $cameras) -}}
+{{- fail "env.CV_CAMERAS must be a non-empty JSON camera array when profile=prod" -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Every secretEnv name must be backed by the ExternalSecret. */ -}}
+{{- range $secretName := (default (list) .Values.secretEnv) -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $secretName) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because the service consumes it via secretEnv" $secretName) -}}
+{{- end -}}
+{{- end -}}
+{{- $store := required "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore)" .Values.externalSecrets.storeRef.name -}}
+
+{{- /* AIS fusion key directory (binary fail-closed when CV_AIS_ENABLED). */ -}}
+{{- if eq (printf "%v" .Values.env.CV_AIS_ENABLED) "true" -}}
+{{- if not .Values.keyDirectory.enabled -}}
+{{- fail "keyDirectory.enabled must be true when CV_AIS_ENABLED=true (KEY_DIRECTORY_PATH is binary-required for AIS envelope verification)" -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.keyDirectory.enabled -}}
+{{- $kd := required "keyDirectory.configMapName is required when keyDirectory.enabled=true (opa-policies key-directory ConfigMap)" .Values.keyDirectory.configMapName -}}
+{{- if not (hasPrefix "/" .Values.keyDirectory.mountPath) -}}
+{{- fail "keyDirectory.mountPath must be an absolute path" -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Singleton edge pod. */ -}}
+{{- if ne (int .Values.replicas) 1 -}}
+{{- fail "replicas must remain 1: camera pipelines are a per-pod assignment; scale by sharding camera sets across releases" -}}
+{{- end -}}
+
+{{- /* Resources are mandatory. */ -}}
+{{- if or (empty .Values.resources.requests.cpu) (empty .Values.resources.requests.memory) (empty .Values.resources.limits.cpu) (empty .Values.resources.limits.memory) -}}
+{{- fail "resources.requests and resources.limits (cpu and memory) are required" -}}
+{{- end -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- $kafkaNs := required "networkPolicy.kafkaNamespace is required (signed envelope egress)" .Values.networkPolicy.kafkaNamespace -}}
+{{- if .Values.persistence.enabled -}}
+{{- if empty .Values.networkPolicy.cameraCIDRs -}}
+{{- fail "networkPolicy.cameraCIDRs must list the RTSP camera network CIDRs" -}}
+{{- end -}}
+{{- end -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for cv-service" -}}
+{{- end -}}

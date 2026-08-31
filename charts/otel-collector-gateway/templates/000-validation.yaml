@@ -1,0 +1,55 @@
+{{- /* Fail-closed approval gates for otel-collector-gateway. */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+{{- $repo := required "image.repository is required (contrib distribution: tail_sampling/transform/loki-capable exporters live in contrib)" .Values.image.repository -}}
+{{- if not (hasSuffix "contrib" $repo) -}}
+{{- fail "image.repository must be the contrib distribution (otel/opentelemetry-collector-contrib or an approved mirror); the gateway processors/exporters are contrib-only" -}}
+{{- end -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+{{- $tempo := required "tempo.endpoint is required (traces exporter target, OTLP gRPC)" .Values.tempo.endpoint -}}
+{{- if not (hasPrefix "http://" .Values.loki.otlpHttpEndpoint) -}}
+{{- fail "loki.otlpHttpEndpoint is required and must be an http(s) URL (Loki 3.x native OTLP ingest, e.g. http://loki.blueeconomy-observability.svc.cluster.local:3100/otlp)" -}}
+{{- end -}}
+
+{{- /* Sampling policy sanity. */ -}}
+{{- $rate := .Values.sampling.probabilisticRate | float64 -}}
+{{- if or (le $rate 0.0) (gt $rate 1.0) -}}
+{{- fail "sampling.probabilisticRate must be in (0, 1]" -}}
+{{- end -}}
+{{- if le (int .Values.sampling.slowSpanThresholdMs) 0 -}}
+{{- fail "sampling.slowSpanThresholdMs must be positive" -}}
+{{- end -}}
+{{- if empty .Values.sampling.moneyPathSpanSubstrings -}}
+{{- fail "sampling.moneyPathSpanSubstrings must name the always-kept money-path span substrings (ledger/settlement/payment/...)" -}}
+{{- end -}}
+
+{{- /* Redaction list is mandatory and must carry the approved baseline. */ -}}
+{{- if empty .Values.redaction.attributeKeys -}}
+{{- fail "redaction.attributeKeys must list the sensitive attribute keys deleted before export" -}}
+{{- end -}}
+{{- range $required := list "http.request.header.authorization" -}}
+{{- if not (has $required $.Values.redaction.attributeKeys) -}}
+{{- fail (printf "redaction.attributeKeys must include %q (approved baseline)" $required) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Pipeline guardrails are mandatory. */ -}}
+{{- if or (le (int .Values.memoryLimiter.limitMiB) 0) (le (int .Values.memoryLimiter.spikeLimitMiB) 0) -}}
+{{- fail "memoryLimiter.limitMiB and memoryLimiter.spikeLimitMiB must be positive" -}}
+{{- end -}}
+{{- if ge (int .Values.memoryLimiter.spikeLimitMiB) (int .Values.memoryLimiter.limitMiB) -}}
+{{- fail "memoryLimiter.spikeLimitMiB must be smaller than memoryLimiter.limitMiB" -}}
+{{- end -}}
+
+{{- /* Resources are mandatory. */ -}}
+{{- if or (empty .Values.resources.requests.cpu) (empty .Values.resources.requests.memory) (empty .Values.resources.limits.cpu) (empty .Values.resources.limits.memory) -}}
+{{- fail "resources.requests and resources.limits (cpu and memory) are required" -}}
+{{- end -}}
+
+{{- if not .Values.networkPolicy.enabled -}}
+{{- fail "networkPolicy.enabled must remain true for otel-collector-gateway" -}}
+{{- end -}}

@@ -1,0 +1,143 @@
+# Dapr per-workstream component layer. One Argo CD Application per workstream
+# renders this chart into that workstream's namespace. Fail-closed: no
+# brokers, hosts, vault names or store references are defaulted.
+workstream:
+  # ports | ferries | cvff | seafarer | fisheries | isr
+  name: ""
+  # Dapr app-ids allowed to use every component rendered by this release.
+  # Every workstream is hard-restricted to its own approved app-ids
+  # (enforced fail-closed by the chart):
+  #   ports:     [port-interoperability-api, ussd-gateway, booking-worker,
+  #               ports-outbox-publisher]
+  #   ferries:   [ferry-api, ferry-worker, ferry-outbox-publisher]
+  #   cvff:      [intent-api, cvff-worker, cvff-outbox-publisher,
+  #               cvff-api, declaration-scorer]
+  #   seafarer:  [credential-verification-api, seafarer-credential-worker]
+  #   fisheries: [trace-api, trace-worker, fisheries-outbox-publisher]
+  #   isr:       [maritime-intelligence-api, isr-worker, isr-outbox-publisher]
+  appIds: []
+
+pubsub:
+  enabled: true
+  # kafka is the pinned event-stream backbone (strimzi-kafka-operator in
+  # components/upstream-components.lock.yaml).
+  driver: kafka
+  kafka:
+    # Comma-separated bootstrap brokers, e.g.
+    # kafka-blueeconomy-kafka-bootstrap.blueeconomy-platform.svc:9092
+    brokers: ""
+    # SASL credentials are delivered through the ExternalSecrets-synced
+    # Kubernetes secret below; never inline.
+    authType: none
+    saslPasswordSecretKeyRef:
+      name: ""
+      key: ""
+    # SASL mechanism (gap #7; used when authType=sasl). Render-gated enum:
+    #   plain         -> Dapr saslMechanism PLAINTEXT (only over TLS)
+    #   scram-sha-512 -> Dapr saslMechanism SHA-512 (preferred)
+    sasl:
+      mechanism: plain
+    # Transport TLS (gap #7): additive render-gated option, default off for
+    # dev fixtures. Prod values set tls.required=true, which forces
+    # tls.enabled=true at render time.
+    tls:
+      enabled: false
+      required: false
+      # Cluster CA bundle via an ExternalSecrets-synced Secret; rendered as
+      # the Dapr caCert secretKeyRef metadata.
+      caCertSecretRef:
+        name: ""
+        key: ca.crt
+    consumerGroup: ""
+  # ---------------------------------------------------------------------
+  # Fluvio variant (config-only alternative; NOT currently pinned):
+  # set pubsub.driver: fluvio and pubsub.fluvio.broker once a Fluvio release
+  # has been approved and added to components/upstream-components.lock.yaml.
+  # The template renders pubsub.fluvio with identical scopes, so switching
+  # drivers never widens workstream access.
+  # ---------------------------------------------------------------------
+  fluvio:
+    broker: ""
+    topic: ""
+
+state:
+  hot:
+    # Redis hot state store (locks, short-lived session/idempotency state).
+    enabled: true
+    redisHost: ""
+    passwordSecretKeyRef:
+      name: ""
+      key: ""
+  durable:
+    # PostgreSQL durable state store (CloudNativePG cluster).
+    enabled: true
+    connectionStringSecretKeyRef:
+      name: ""
+      key: ""
+
+# Secret-store selection is sovereign landing-zone deployment policy, not
+# platform law. Every backend below is a fully-supported option; enable the
+# combination the landing zone operates (see docs/cloud-agnosticism.md).
+secretStores:
+  kubernetes:
+    # Kubernetes-native secret store (default; works on any cluster and
+    # pairs with the ExternalSecrets sync below).
+    enabled: true
+  azureKeyVault:
+    # Azure Key Vault option (supported landing zone, incl. Azure
+    # Government). For Azure Government set azureEnvironment to
+    # AzureUSGovernmentCloud (vault.usgovcloudapi.net endpoints); for
+    # commercial Azure use AzurePublicCloud. Never a requirement.
+    enabled: true
+    vaultName: ""
+    azureEnvironment: "AzureUSGovernmentCloud"
+  hashicorpVault:
+    # HashiCorp Vault option (self-hosted or managed; a common sovereign
+    # on-prem choice). Render-gated: server and tokenSecretRef required.
+    enabled: false
+    # Vault server URL (https).
+    server: ""
+    # Secret carrying the Vault token the Dapr sidecar authenticates with,
+    # synced via the ExternalSecrets path below.
+    tokenSecretRef:
+      name: ""
+      key: ""
+  external:
+    # Any operator-managed ClusterSecretStore (any ESO-supported provider).
+    # Declares the store the ExternalSecrets below sync from when
+    # externalSecrets.storeRef.name is not set explicitly.
+    enabled: false
+    storeRef:
+      name: ""
+
+# ExternalSecret syncing the Kubernetes secrets that the Dapr components
+# reference via secretKeyRef (Redis password, PostgreSQL connection string,
+# Kafka SASL password). storeRef.name references the sovereign landing
+# zone's secret backend ClusterSecretStore (any ESO provider: Azure Key
+# Vault, HashiCorp Vault, or another operator-managed store); it defaults
+# to secretStores.external.storeRef.name when that option is enabled.
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  # Map of Kubernetes secret key -> remote key path in the external store.
+  keys: {}
+
+rbac:
+  # Least-privilege: the Dapr sidecars read only the synced component secret.
+  create: true
+
+# Dapr sidecar native OTel tracing (OTEL_DESIGN.md section 3): a
+# dapr.io/v1alpha1 Configuration is rendered per workstream release;
+# apps opt in via the dapr.io/config: "tracing" pod annotation.
+tracing:
+  enabled: true
+  # Trace sampling rate ("0".."1"); render-gated numeric in [0, 1].
+  samplingRate: "1"
+  # OTel collector agent OTLP gRPC endpoint for the sidecar exporter
+  # (render-gated; telemetry export failure never blocks app calls —
+  # Dapr drops spans, not requests).
+  otelEndpointAddress: ""
+  # Is the endpoint TLS-secured (in-cluster plaintext = false).
+  otelIsSecure: false

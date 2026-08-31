@@ -1,0 +1,222 @@
+# OpenTripPlanner 2 (OTP2) multimodal trip planner.
+# Data sources (CITIZEN_SERVICES_ADVISORY.md section 5): the geo-service
+# static GTFS feed (GET /feeds/gtfs.zip) plus GTFS-RT updaters polling the
+# geo-service realtime endpoints. Credentials via ExternalSecrets only.
+# Fail-closed: no deployable defaults ship in this file.
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile (dev | staging | prod).
+profile: ""
+
+# Delivery mode (render-gated enum):
+#   build — render a one-shot graph-build Job that downloads the GTFS
+#           bundle (and optional OSM PBF) and runs OTP `--build --save`
+#           into the shared graph volume, then serve `--load` from it.
+#   serve — serve a prebuilt graph: either downloaded from graph.url at
+#           pod start (per-pod emptyDir), or loaded from the graph
+#           persistence volume (existingClaim or chart-managed PVC).
+mode: ""
+
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+# Serve replicas. >1 requires either graph.url (per-pod emptyDir copies)
+# or a ReadWriteMany graph volume (RWO volumes cannot attach to multiple
+# serve pods).
+replicas: 1
+
+# Downloader image used by the graph-build Job and the graph-fetch init
+# container (curlimages/curl or an approved mirror). Digest-pinned;
+# required whenever a URL fetch is rendered (mode=build, or graph.url).
+downloader:
+  image:
+    repository: ""
+    digest: ""
+
+# Static graph inputs.
+gtfs:
+  # Static GTFS bundle URL (REQUIRED when mode=build). The platform
+  # source is the geo-service feed factory:
+  #   http://<geo-service>.blueeco-geo-prod.svc.cluster.local:8080/feeds/gtfs.zip
+  staticUrl: ""
+  # Optional OSM PBF URL for the street network (walking/cycling legs and
+  # stop linking need streets; without it OTP builds a transit-only graph
+  # and door-to-door itineraries degrade to stop-to-stop). HTTPS-gated in
+  # prod. May be an in-cluster artifact service URL.
+  osmPbfUrl: ""
+
+graph:
+  # Prebuilt graph.obj URL (mode=serve alternative to the persistence
+  # volume; each serve pod downloads its own copy into an emptyDir).
+  # HTTPS-gated in prod.
+  url: ""
+
+# Graph persistence volume (graph.obj + downloaded inputs).
+# NOTE (attach semantics): in mode=build the graph-build Job and the
+# serve pods mount this volume concurrently while the build runs. On
+# multi-node clusters use accessModes [ReadWriteMany] (or an
+# existingClaim backed by an RWX-capable provisioner); a plain RWO
+# volume only works when the builder and serve pods co-schedule.
+persistence:
+  # Bind to an operator-provisioned claim instead of a chart-managed PVC.
+  existingClaim: ""
+  storageClassName: ""
+  # Chart-managed PVC size (REQUIRED when the graph volume is used and
+  # existingClaim is unset).
+  size: ""
+  accessModes:
+    - ReadWriteOnce
+
+# GTFS-RT updaters (router-config.json `updaters`): VehiclePositions,
+# TripUpdates and Alerts polling the geo-service realtime feeds
+# (GET /feeds/gtfs-rt/{vehiclepositions,tripupdates,alerts}.pb). All
+# three URLs are render-gated REQUIRED — a multimodal planner without
+# realtime positions/ETAs/alerts fails the advisory section-5 contract
+# (ETAs computed from positions, never crew-entered).
+gtfsRt:
+  # GTFS feed-id the realtime entities bind to (must match the static
+  # feed factory's feed id).
+  feedId: ""
+  frequencySec: 30
+  vehiclePositionsUrl: ""
+  tripUpdatesUrl: ""
+  alertsUrl: ""
+  # Updater auth: the geo-service feed endpoints are authenticated, so
+  # the updaters send a static Authorization header whose bearer token
+  # arrives via ExternalSecrets (OTP2 router-config supports ${VAR}
+  # environment substitution — the token is never inline).
+  auth:
+    enabled: false
+    headerName: Authorization
+    # ExternalSecrets key carrying the bearer token (must exist in
+    # externalSecrets.keys when auth.enabled=true).
+    tokenSecretKey: OTP_GTFS_RT_TOKEN
+
+# OTP2 otp-config.json feature toggles.
+otpFeatures:
+  # ActuatorAPI (sandbox): exposes /otp/actuators/health (200 only once
+  # the graph is loaded AND all updaters are ready) and
+  # /otp/actuators/prometheus (Micrometer JVM + Jersey + GraphQL timing
+  # metrics). REQUIRED when serviceMonitor.enabled=true — the chart
+  # refuses to wire a scrape target OTP2 would not serve.
+  actuatorApi: true
+  # Legacy (GTFS) GraphQL API consumed by the citizen planner web app
+  # (otp-react-redux). Enabled by default; the API is sandbox-status in
+  # OTP2 but is the documented otp-react-redux contract.
+  legacyGraphQLApi: true
+
+# JVM heap etc. passed via JAVA_TOOL_OPTIONS (the upstream container
+# image honours JAVA_TOOL_OPTIONS; see OTP2 Container-Image docs).
+javaToolOptions: -Xmx2g
+
+# Honest OpenTelemetry (W-FEAT-8): OPT-IN OpenTelemetry javaagent.
+# OTP2 is a Java service with NO native OTel instrumentation; enabling
+# this attaches the upstream OTel javaagent via an init-container shared
+# volume (JAVA_TOOL_OPTIONS -javaagent). What you get: automatic JVM
+# HTTP-server/client spans and runtime metrics exported OTLP to the
+# collector. What you do NOT get: hand-written routing-domain spans —
+# the javaagent cannot see OTP's internal graph/Raptor internals, so
+# routing-algorithm visibility remains metrics/logs only. Default OFF;
+# when enabled the chart render-refuses without an OTLP endpoint and a
+# digest-pinned agent image.
+telemetry:
+  javaagent:
+    enabled: false
+    # OTLP gRPC endpoint of the collector agent/gateway, e.g.
+    # http://otel-collector-gateway.blueeconomy-observability.svc.cluster.local:4317
+    otlpEndpoint: ""
+    serviceName: opentripplanner
+    # Upstream auto-instrumentation image carrying /javaagent.jar
+    # (ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java
+    # or an approved mirror). Digest-pinned, required when enabled.
+    image:
+      repository: ""
+      digest: ""
+
+resources:
+  requests:
+    cpu: ""
+    memory: ""
+  limits:
+    cpu: ""
+    memory: ""
+
+# Graph-build Job resources (builds are far more memory-hungry than
+# serving; required when mode=build).
+buildResources:
+  requests:
+    cpu: ""
+    memory: ""
+  limits:
+    cpu: ""
+    memory: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+hpa:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 75
+
+networkPolicy:
+  enabled: true
+  # Namespace hosting the APISIX gateway (the only approved ingress
+  # source besides Prometheus scraping).
+  apisixNamespace: ""
+  # geo-service namespace: the ONLY approved non-DNS egress target
+  # (static GTFS + GTFS-RT updater polls).
+  geoServiceNamespace: ""
+  geoServicePort: 8080
+  # Egress CIDRs for URL-sourced graph inputs that live outside the
+  # cluster (osmPbfUrl / graph.url / external staticUrl), HTTPS 443.
+  # Render-gated non-empty whenever such an external URL is configured.
+  externalInputCIDRs: []
+  # Namespace Prometheus scrapes from (martin-chart precedent).
+  prometheusNamespace: blueeconomy-platform
+  # Collector namespace for the opt-in javaagent OTLP egress
+  # (observability foundation; only rendered when the javaagent is on).
+  otelCollectorNamespace: blueeconomy-observability
+
+serviceMonitor:
+  enabled: true
+  labels:
+    blueeconomy.platform/workstream: ferries
+
+# Edge route registration (apisix-routes pattern): OTP2's APIs are
+# unauthenticated, so the release may only exist behind its registered
+# APISIX edge route where Keycloak OIDC + OPA enforce access.
+edge:
+  routeRegistration:
+    # Must remain true; setting it false is refused at render time.
+    required: true
+    # Name of the ApisixRoute CR (charts/apisix-routes) registering this
+    # OTP2 release on the edge.
+    apisixRouteRef: ""
+
+# ExternalSecrets contract (any ESO-supported ClusterSecretStore).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}

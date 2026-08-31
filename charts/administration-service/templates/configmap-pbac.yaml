@@ -1,0 +1,14 @@
+# PBAC policy pack consumed by the binary's embedded-OPA gate
+# (internal/pbac: every .rego module in the mounted directory is compiled;
+# an empty or uncompilable pack denies everything and refuses boot).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "administration-service.pbacConfigMapName" . }}
+  labels:
+    {{- include "administration-service.labels" . | nindent 4 }}
+data:
+  {{- range $name, $module := .Values.pbac.policies }}
+  {{ $name | quote }}: |
+    {{- $module | nindent 4 }}
+  {{- end }}

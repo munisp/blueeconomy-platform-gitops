@@ -1,0 +1,12 @@
+apiVersion: v2
+name: keycloak-realms
+description: >-
+  Declarative Keycloak realm configuration for the three BlueEconomy
+  workstreams (ports/eCallUp, ferries, CVFF) with documented roles,
+  short-TTL token policy (access token lifespan <= 300s, enforced fail-closed)
+  and confidential service clients whose secrets exist only in the external
+  secret store and are synced via ExternalSecrets.
+type: application
+version: 0.1.0
+appVersion: "26.7.1"
+kubeVersion: ">=1.28.0-0"

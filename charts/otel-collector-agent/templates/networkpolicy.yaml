@@ -1,0 +1,84 @@
+# Agent network posture: OTLP ingress from the approved workload
+# namespaces only; egress to the collector gateway (same namespace) and
+# the middleware it scrapes (Kafka 9092, PostgreSQL 5432, Redis 6379)
+# plus DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "otel-collector-agent.fullname" . }}
+  labels:
+    {{- include "otel-collector-agent.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "otel-collector-agent.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "otel-collector-agent.selectorLabels" . | nindent 14 }}
+    {{- range .Values.networkPolicy.allowedIngressNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+    {{- end }}
+    # Prometheus scrape of collector self-telemetry (same namespace).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+      ports:
+        - protocol: TCP
+          port: 8888
+  egress:
+    # Collector gateway (OTLP gRPC) — same namespace.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-collector-gateway
+      ports:
+        - protocol: TCP
+          port: 4317
+    {{- if .Values.networkPolicy.kafkaNamespace }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.kafkaNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: 9092
+    {{- end }}
+    {{- range .Values.networkPolicy.postgresNamespaces }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    {{- end }}
+    {{- range .Values.networkPolicy.redisNamespaces }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: 6379
+    {{- end }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

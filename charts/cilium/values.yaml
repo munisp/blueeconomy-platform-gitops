@@ -1,0 +1,151 @@
+# Cilium CNI values wrapper + platform-owned eBPF policy layer.
+#
+# This chart does NOT deploy the Cilium agent DaemonSet directly. It renders:
+#   1. a release-contract ConfigMap carrying the approved values for the
+#      pinned upstream cilium/cilium chart (kube-proxy replacement, Hubble,
+#      Tetragon, standalone XDP LoadBalancer DDoS mitigation);
+#   2. platform-owned CiliumNetworkPolicy / CiliumClusterwideNetworkPolicy
+#      resources mirroring the Dapr per-workstream scope model;
+#   3. Tetragon TracingPolicies for the sensitive pods (tigerbeetle,
+#      financial-controls, keycloak).
+#
+# Kernel requirements (node level, enforced by the AKS landing zone):
+#   - Linux kernel >= 5.4 (kube-proxy replacement, BPF masquerade, XDP).
+#   - io_uring is NOT required by any feature configured here.
+#   - XDP "native" acceleration requires a NIC driver with XDP support
+#     (mlx5/i40e/ixgbe/ena/virtio; Azure accelerated networking qualifies).
+#
+# Fail-closed: no upstream pin, kernel baseline or workstream scope values
+# are defaulted.
+nameOverride: ""
+fullnameOverride: ""
+
+# Approved upstream Cilium chart pin. The artifact is source-locked in
+# components/upstream-components.lock.yaml before any deployment approval.
+upstream:
+  chartName: ""
+  chartVersion: ""
+  repository: ""
+
+kernel:
+  # Cilium kube-proxy replacement and XDP require >= 5.4. The render gate
+  # rejects any minVersion below 5.4 and requires the approved node target.
+  minVersion: "5.4"
+  # Approved node kernel version for the target node pools (e.g. "6.1").
+  # Render-gated: must be present and >= minVersion.
+  targetVersion: ""
+
+cni:
+  # kube-proxy replacement is mandatory: XDP LoadBalancer acceleration and
+  # the standalone north-south LB path both require it.
+  kubeProxyReplacement: true
+  routingMode: tunnel
+  tunnelProtocol: vxlan
+  bpfMasquerade: true
+
+hubble:
+  # Flow observability (relay + UI) is mandatory for the platform: it is the
+  # network-layer evidence feed for security-operations.
+  enabled: true
+  relay:
+    enabled: true
+    replicas: 2
+  ui:
+    enabled: true
+    replicas: 1
+
+tetragon:
+  # Runtime enforcement (process-exec and file-integrity tracing) is
+  # mandatory for the sensitive pods.
+  enabled: true
+
+ddosMitigation:
+  # L3/L4 volumetric / SYN-flood mitigation at the eBPF/XDP layer. The
+  # platform currently has zero in-gitops L3/L4 defense; this block is the
+  # contract that closes it. Must remain enabled.
+  enabled: true
+  loadBalancer:
+    # Standalone north-south LoadBalancer path: dedicated XDP-accelerated
+    # LB nodes (lb-only mode) absorb volumetric traffic before it reaches
+    # application node pools.
+    standalone: true
+    # XDP acceleration mode. "native" (driver-level XDP) is required when
+    # ddosMitigation is enabled; "generic" is only accepted as an explicit
+    # degraded-mode waiver and still drops at the earliest possible hook.
+    acceleration: native
+    mode: dsr
+  algorithm: maglev
+
+# L3/L4 CiliumNetworkPolicies per workstream namespace. The workstream model
+# mirrors charts/dapr-components: each workstream release is hard-restricted
+# to its own approved app-ids and namespace, regardless of supplied values.
+networkPolicies:
+  enabled: true
+  # Shared data-plane endpoints every workstream may reach (plus its own
+  # namespace). Render-gated non-empty.
+  postgres:
+    namespace: ""
+    port: 5432
+  kafka:
+    namespace: ""
+    port: 9092
+  temporal:
+    namespace: ""
+    port: 7233
+  # TigerBeetle sub-ledger: fiduciary segregation means ONLY the cvff
+  # workstream may hold egress access; the render gate rejects any other
+  # workstream declaring tigerbeetleAccess.
+  tigerbeetle:
+    namespace: ""
+    port: 3000
+  # One entry per workstream. name/namespace/appIds are validated against
+  # the approved catalogue at render time (same fail-closed semantics as
+  # charts/dapr-components).
+  workstreams: []
+
+  # Geo stack policies (blueeco-geo-prod; charts/postgis, charts/martin,
+  # charts/geo-service — docs/geo-deployment.md). The geo namespace ships
+  # its own default-deny NetworkPolicy (kubernetes/base/namespaces); these
+  # Cilium policies are the eBPF allow layer:
+  #   geo-service: ingress from the edge (APISIX) only; egress postgis 5432,
+  #                kafka 9092, redis 6379 (+DNS).
+  #   martin:      ingress from APISIX only; egress postgis 5432 only (+DNS).
+  #   postgis:     ingress 5432 from geo-service and martin only.
+  geo:
+    enabled: false
+    namespace: blueeco-geo-prod
+    # Edge (APISIX) namespace — the only approved ingress source for
+    # geo-service and martin.
+    edgeNamespace: ""
+    # Kafka and Redis namespaces geo-service may reach (PostGIS lives in the
+    # geo namespace itself on postgis.port).
+    kafkaNamespace: ""
+    redisNamespace: ""
+    postgisPort: 5432
+    kafkaPort: 9092
+    redisPort: 6379
+
+# L7 HTTP-aware policies for the ingress path
+# (client -> Caddy -> OpenAppSec -> APISIX -> Dapr -> services).
+ingressPath:
+  enabled: true
+  # Namespaces hosting the edge layers (see docs/edge-topology.md).
+  edgeNamespace: ""
+  apisixNamespace: ""
+  # APISIX gateway listener that Caddy proxies to (OpenAppSec agent sits in
+  # the APISIX pod per its contract flag).
+  apisixPort: 9080
+  # Per-workstream L7 rules applied to apisix -> workstream traffic. Every
+  # entry requires an absolute path prefix and an approved HTTP method set.
+  l7ServicePort: 8080
+
+# Tetragon runtime-enforcement policies for sensitive pods: tigerbeetle
+# (blueeco-tigerbeetle-prod), financial-controls (blueeconomy-cvff), keycloak
+# (blueeconomy-security). Each entry:
+#   name: policy name
+#   namespace: owning namespace (annotation; podSelector scopes the pods)
+#   podSelector: matchLabels selecting the sensitive pods
+#   type: process-exec | file-integrity
+#   allowedBinaries (process-exec): exec allowlist; anything else is traced
+#   watchedPaths (file-integrity): absolute paths whose writes are traced
+tetragonPolicies: []

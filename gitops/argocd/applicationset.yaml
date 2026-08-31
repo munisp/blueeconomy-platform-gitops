@@ -1,0 +1,231 @@
+# Argo CD ApplicationSet wiring every shared-platform chart.
+#
+# Each Application renders its chart from THIS repository and layers
+# environment-approved values from the authorised environment repository
+# (multi-source $values ref). Default chart values fail closed, so an
+# Application shows the chart's approval-gate error until the environment
+# repository supplies approved values — that is intentional.
+#
+# Provider-neutral: this chart set deploys to any Kubernetes landing zone
+# (on-prem, sovereign cloud, or commercial cloud). The environment
+# repository supplies the landing zone's container registry names, the
+# secret backend ClusterSecretStore (any ESO-supported provider) and the
+# applicable service endpoints. Azure Government (USGov ACR, Key Vault
+# vault.usgovcloudapi.net) remains one fully-supported landing-zone option.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: blueeconomy-shared-platform
+  namespace: argocd
+  labels:
+    blueeconomy.platform/layer: shared-platform
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - chart: ferry-ticketing
+            namespace: blueeconomy-ferries
+          - chart: port-interoperability
+            namespace: blueeconomy-ports
+          - chart: financial-controls
+            namespace: blueeconomy-cvff
+          - chart: security-operations
+            namespace: blueeconomy-security
+          - chart: credential-verification
+            namespace: blueeconomy-seafarer
+          - chart: fisheries-traceability
+            namespace: blueeconomy-fisheries
+          - chart: maritime-intelligence
+            namespace: blueeconomy-isr
+          - chart: temporal
+            namespace: blueeconomy-platform
+          - chart: keycloak-realms
+            namespace: blueeconomy-security
+          - chart: beneficiary-portal
+            namespace: blueeconomy-cvff
+          # Administration API and ministry portal (GAP-PG-08: previously
+          # orphaned charts — registered with env overlays).
+          - chart: administration-service
+            namespace: blueeconomy-platform
+          - chart: ministry-portal
+            namespace: blueeconomy-cvff
+          # Phase-7 service coverage (GAP-PG-01/GAP-PG-03): the revenue
+          # tax-stamps service, the ML scoring stack + lakehouse batch
+          # jobs, the waterway-safety telemetry gateway and the edge CV
+          # service. Exclusion record for maritime-evidence and mobile
+          # (no server component): docs/service-coverage-exclusions.md.
+          - chart: tax-stamps
+            namespace: blueeconomy-cvff
+          - chart: ml-stack
+            namespace: blueeconomy-platform
+          - chart: data-platform
+            namespace: blueeconomy-platform
+          - chart: waterway-safety
+            namespace: blueeconomy-ferries
+          - chart: cv-service
+            namespace: blueeconomy-ports
+          # Phase-10 service coverage: the marine insurance engine
+          # (VC-based policies, Kafka outbox, fail-closed partner
+          # adapters, digest-pinned ISR evidence).
+          - chart: insurance
+            namespace: blueeconomy-cvff
+          # Agency sandbox (NON-PRODUCTION simulators only; the chart
+          # hard-refuses profile=prod and every resource is labelled
+          # environment: sandbox). Reconciled into the dedicated sandbox
+          # namespace.
+          - chart: agency-sandbox
+            namespace: blueeconomy-sandbox
+          # Observability foundation (phase-7 OTel wave, OTEL_DESIGN.md):
+          # agent/gateway collectors, trace/log/alert backends and the
+          # Novu notification platform; alert rules render alongside.
+          - chart: otel-collector-agent
+            namespace: blueeconomy-observability
+          - chart: otel-collector-gateway
+            namespace: blueeconomy-observability
+          - chart: tempo
+            namespace: blueeconomy-observability
+          - chart: loki
+            namespace: blueeconomy-observability
+          - chart: alertmanager
+            namespace: blueeconomy-observability
+          - chart: novu
+            namespace: blueeconomy-observability
+          - chart: prometheus-rules
+            namespace: blueeconomy-observability
+          # Keycloak server instance CR (operator in security; tracing
+          # exports to the collector gateway).
+          - chart: keycloak
+            namespace: blueeconomy-security
+          # Core platform services (docs/core-services-deployment-guide.md):
+          # TigerBeetle sub-ledger, Mojaloop release-control overlay and
+          # Sedona Spark jobs each render into their approved namespace.
+          - chart: tigerbeetle
+            namespace: blueeco-tigerbeetle-prod
+          - chart: mojaloop-overlay
+            namespace: blueeco-mojaloop-prod
+          - chart: sedona-spark-jobs
+            namespace: blueeco-geo-prod
+          # Geospatial deploy surface (docs/geo-deployment.md): PostGIS hot
+          # path, Martin tile server and the geo-service tracking API, all
+          # reconciled into blueeco-geo-prod (namespace ships default-deny).
+          - chart: postgis
+            namespace: blueeco-geo-prod
+          - chart: martin
+            namespace: blueeco-geo-prod
+          - chart: geo-service
+            namespace: blueeco-geo-prod
+          # Device-plane MQTT ingress (PRA-088): EMQX broker with the
+          # geo-service mqtt-auth webhook, reconciled into the ferries
+          # workstream namespace alongside the waterway-safety gateway.
+          - chart: emqx
+            namespace: blueeconomy-ferries
+          # Citizen multimodal trip planning (W-FEAT-8, advisory
+          # section 5): the OTP2 routing engine (GTFS static + GTFS-RT
+          # from geo-service) and the citizen planner web app
+          # (otp-react-redux, MIT), both reconciled into the ferries
+          # workstream namespace alongside the water-transport services.
+          - chart: opentripplanner
+            namespace: blueeconomy-ferries
+          - chart: trufi-planner
+            namespace: blueeconomy-ferries
+          # Umbrella release for coordinated core-service deployments;
+          # dependencies are disabled by default until production formation
+          # approval lands in the environment values.
+          - chart: core-services
+            namespace: blueeconomy-platform
+          # Regional DR recovery contract (failover approvals, drill
+          # evidence) reconciled into the recovery namespace.
+          - chart: regional-dr
+            namespace: blueeconomy-recovery
+          # Backup/DR machinery fulfilling the regional-dr contract:
+          # Velero schedules, WAL-G archiving, restore-test harness.
+          - chart: backup-dr
+            namespace: blueeconomy-recovery
+          # Battle-hardened edge layer (docs/edge-topology.md): Cilium CNI
+          # wrapper with XDP DDoS mitigation, Hubble and Tetragon (node
+          # level), the Caddy TLS edge in front of APISIX, and the OPA
+          # policy packs + producer-signature key directory.
+          - chart: cilium
+            namespace: kube-system
+          - chart: caddy
+            namespace: blueeconomy-security
+          - chart: opa-policies
+            namespace: blueeconomy-security
+          # APISIX route CRs (gap #49): ApisixRoute registrations for the
+          # services currently fronted by plain Ingress, render-gated to the
+          # apisix flag and annotated with the OPA hook contract.
+          - chart: apisix-routes
+            namespace: blueeconomy-security
+          # Dapr component layer: one release per workstream, rendered into
+          # that workstream's namespace with its exact app-id scopes.
+          - chart: dapr-components
+            name: dapr-components-ports
+            namespace: blueeconomy-ports
+            workstream: ports
+          - chart: dapr-components
+            name: dapr-components-ferries
+            namespace: blueeconomy-ferries
+            workstream: ferries
+          - chart: dapr-components
+            name: dapr-components-cvff
+            namespace: blueeconomy-cvff
+            workstream: cvff
+          - chart: dapr-components
+            name: dapr-components-seafarer
+            namespace: blueeconomy-seafarer
+            workstream: seafarer
+          - chart: dapr-components
+            name: dapr-components-fisheries
+            namespace: blueeconomy-fisheries
+            workstream: fisheries
+          - chart: dapr-components
+            name: dapr-components-isr
+            namespace: blueeconomy-isr
+            workstream: isr
+  template:
+    metadata:
+      name: '{{ .name | default .chart }}'
+      labels:
+        blueeconomy.platform/chart: '{{ .chart }}'
+    spec:
+      project: blueeconomy-platform
+      sources:
+        - repoURL: https://github.com/munisp/blueeconomy-platform-gitops.git
+          targetRevision: main
+          path: 'charts/{{ .chart }}'
+          helm:
+            valueFiles:
+              - values.yaml
+              - '$values/environments/prod/{{ .chart }}.yaml'
+            ignoreMissingValueFiles: true
+            {{- if (index . "workstream") }}
+            parameters:
+              - name: workstream.name
+                value: '{{ index . "workstream" }}'
+            {{- end }}
+        # Authorised environment repository supplying approved values files.
+        # Until it is provisioned, Applications surface the charts'
+        # fail-closed approval gates instead of deploying.
+        - repoURL: https://github.com/munisp/blueeconomy-platform-env.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{ .namespace }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          # Namespaces are managed by the platform-base Application
+          # (kubernetes/base) with their PSA and default-deny policies.
+          - CreateNamespace=false
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 30s
+            factor: 2
+            maxDuration: 5m
+      revisionHistoryLimit: 5

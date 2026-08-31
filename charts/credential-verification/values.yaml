@@ -1,0 +1,170 @@
+# Seafarer CoC credential verification (Workstream D). Non-production-safe
+# baseline only. W3C VC 2.0 issuer/verifier API plus the Temporal lifecycle
+# worker for the SeafarerCredentialWorkflow.
+# Every credential is delivered exclusively through ExternalSecrets; no
+# placeholder or inline credential is permitted anywhere in this chart.
+# Event topics published by this workstream (transactional outbox):
+#   seafarer.credential.v1, seafarer.revocation.v1
+nameOverride: ""
+fullnameOverride: ""
+workstream: seafarer
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# ExternalSecrets contract. storeRef.name references the sovereign landing
+# zone's secret backend ClusterSecretStore (any ESO-supported provider:
+# Azure Key Vault, HashiCorp Vault, or another operator-managed store;
+# selection is deployment policy, not platform law).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  # Map of environment variable name -> remote key path in the external store.
+  # Every entry listed in a component's secretEnv or secretMount.keys must
+  # exist here.
+  keys: {}
+
+dapr:
+  enabled: true
+  appProtocol: http
+  # Dapr sidecar metrics are scraped by the per-workstream PodMonitor.
+  metricsPort: 9090
+
+# Temporal connection shared by the lifecycle worker. Defaults target the
+# platform Temporal frontend rendered by charts/temporal in
+# blueeconomy-platform. The credential-verification service reads
+# BLUEECONOMY_TEMPORAL_ADDRESS / BLUEECONOMY_TEMPORAL_NAMESPACE; the chart
+# wires those keys.
+temporal:
+  address: "temporal-frontend.blueeconomy-platform.svc.cluster.local:7233"
+  namespace: seafarer
+
+components:
+  credential-api:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    port: 8080
+    service:
+      enabled: true
+      type: ClusterIP
+    daprAppId: credential-verification-api
+    probes:
+      livenessPath: /healthz
+      readinessPath: /readyz
+    env:
+      PORT: "8080"
+      # jwt mode validates Keycloak RS256 tokens against the seafarer realm
+      # JWKS; the authorizer is fail-closed.
+      BLUEECONOMY_ISSUER_DID: ""
+      BLUEECONOMY_ISSUER_ED25519_PKCS8_PEM_PATH: "/run/secrets/blueeconomy/credential-verification/ISSUER_ED25519_PKCS8_PEM"
+      BLUEECONOMY_STATUS_LIST_URL: ""
+      BLUEECONOMY_TIGERBEETLE_ADDRESSES: ""
+      BLUEECONOMY_OIDC_ISSUER: ""
+      BLUEECONOMY_OIDC_AUDIENCE: ""
+      BLUEECONOMY_OIDC_JWKS_URL: ""
+      BLUEECONOMY_EVENT_PRODUCER: "blueeconomy-credential-verification"
+      BLUEECONOMY_KAFKA_BROKERS: ""
+    requiredEnv:
+      - BLUEECONOMY_ISSUER_DID
+      - BLUEECONOMY_STATUS_LIST_URL
+      - BLUEECONOMY_TIGERBEETLE_ADDRESSES
+      - BLUEECONOMY_OIDC_ISSUER
+      - BLUEECONOMY_OIDC_AUDIENCE
+      - BLUEECONOMY_OIDC_JWKS_URL
+      - BLUEECONOMY_KAFKA_BROKERS
+    secretEnv:
+      - BLUEECONOMY_STATUS_DATABASE_URL
+    # Issuer Ed25519 PKCS#8 private key, delivered as a file from the
+    # ExternalSecrets-synced release secret (never inline, never an env var).
+    secretMount:
+      path: /run/secrets/blueeconomy/credential-verification
+      keys:
+        - ISSUER_ED25519_PKCS8_PEM
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  seafarer-credential-worker:
+    enabled: true
+    image:
+      repository: ""
+      digest: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    daprAppId: seafarer-credential-worker
+    temporalEnv:
+      enabled: true
+      addressKey: BLUEECONOMY_TEMPORAL_ADDRESS
+      namespaceKey: BLUEECONOMY_TEMPORAL_NAMESPACE
+    env:
+      BLUEECONOMY_TEMPORAL_TASK_QUEUE: seafarer-credential
+      BLUEECONOMY_TIGERBEETLE_ADDRESSES: ""
+    requiredEnv:
+      - BLUEECONOMY_TEMPORAL_TASK_QUEUE
+      - BLUEECONOMY_TIGERBEETLE_ADDRESSES
+    secretEnv:
+      - BLUEECONOMY_STATUS_DATABASE_URL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+networkPolicy:
+  enabled: true
+  # Namespaces whose ingress controllers may reach credential-api (e.g. APISIX edge).
+  allowedIngressNamespaces: []
+  # Ordered egress allowances outside this namespace. Everything else is denied.
+  allowedEgress:
+    - namespace: kube-system
+      ports: [53]
+      protocols: ["UDP", "TCP"]
+    # PostgreSQL (CloudNativePG), Kafka (Strimzi), Temporal, Keycloak and
+    # TigerBeetle namespaces are appended here by the environment values file.
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    path: /metrics
+    interval: 30s
+    labels:
+      blueeconomy.platform/workstream: seafarer
+  podMonitor:
+    # Scrapes the Dapr sidecar metrics port for every component pod.
+    enabled: true
+    labels:
+      blueeconomy.platform/workstream: seafarer
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1

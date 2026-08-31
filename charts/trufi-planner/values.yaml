@@ -1,0 +1,130 @@
+# Citizen multimodal trip-planner web app ("Trufi" role, advisory §5).
+#
+# FRONTEND CHOICE (justification, W-FEAT-8): the chart packages the
+# OpenTripPlanner React UI — opentripplanner/otp-react-redux (+ otp-ui),
+# MIT-licensed, maintained under the OpenTripPlanner GitHub org by the
+# Arcadis IBI transit routing team, and one of the two web UIs the OTP
+# project itself recommends for production deployments
+# (docs.opentripplanner.org Frontends page). Alternatives considered:
+#   - trufi-association/trufi-core: GPL-3.0 and a Flutter MOBILE app —
+#     strong copyleft on a citizen-facing customisation surface and no
+#     first-class server-rendered web build;
+#   - HSLdevcom/digitransit-ui: dual EUPL-1.2 OR AGPL-3.0 — network
+#     copyleft (AGPL) on the exact component we must re-theme and
+#     re-brand per ministry, plus a heavier platform dependency set
+#     (Pelias geocoder, hsl-map-server) the advisory does not mandate.
+# otp-react-redux is the genuinely open-source (permissive MIT),
+# actively maintained option. It builds to a static bundle served by any
+# static web server; the environment repository supplies the
+# digest-pinned image carrying the ministry-branded build.
+#
+# Fail-closed: no deployable defaults ship in this file.
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile (dev | staging | prod).
+profile: ""
+
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+replicas: 2
+
+# Container port the static bundle server listens on.
+port: 8080
+
+# OTP2 backend wiring (the sibling opentripplanner release). The SPA is
+# a browser app: it calls the OTP2 API through the PUBLIC edge URL, not
+# the in-cluster service.
+otp:
+  # Public OTP2 API base via the APISIX edge, e.g.
+  # https://planner.blueeconomy.example.gov.ng/otp (HTTPS-gated in prod).
+  apiBaseUrl: ""
+
+# Edge route registration (apisix-routes pattern): the SPA is a public
+# citizen surface with no server-side auth of its own; it may only be
+# released behind its registered APISIX edge route.
+edge:
+  routeRegistration:
+    # Must remain true; setting it false is refused at render time.
+    required: true
+    # Name of the ApisixRoute CR (charts/apisix-routes) registering this
+    # planner release on the edge.
+    apisixRouteRef: ""
+  # Approved public origin of the planner SPA (scheme + host, no path),
+  # e.g. https://planner.blueeconomy.example.gov.ng. Used for the RUM
+  # CORS contract below; HTTPS-gated in prod.
+  publicOrigin: ""
+
+# Browser RUM (W-OTEL-RUM values flow): the SPA ships the OTel web SDK
+# and exports OTLP/HTTP traces to the collector agent :4318 via the
+# edge. CORS preflights are answered for exactly the origins in the
+# otel-collector-agent release's rumAllowedOrigins — this release's
+# edge.publicOrigin MUST be registered there (the ci/render-values
+# otel-collector-agent fixtures demonstrate the wiring). The collector
+# chart render-refuses the '*' wildcard in prod; this chart
+# correspondingly refuses a wildcard publicOrigin in every profile.
+rum:
+  enabled: false
+  # Public OTLP/HTTP endpoint, e.g.
+  # https://planner.blueeconomy.example.gov.ng/otel-http (proxied to the
+  # collector agent :4318). REQUIRED when rum.enabled=true; HTTPS-gated
+  # in prod.
+  endpoint: ""
+  serviceName: trufi-planner
+  sampleRatio: 1.0
+
+resources:
+  requests:
+    cpu: ""
+    memory: ""
+  limits:
+    cpu: ""
+    memory: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 75
+
+networkPolicy:
+  enabled: true
+  # Namespace hosting the APISIX gateway (the only approved ingress
+  # source).
+  apisixNamespace: ""
+
+# NOTE (metrics honesty): the SPA is a static-bundle server with no
+# application Prometheus endpoint, so this chart renders NO
+# ServiceMonitor. Availability is measured at the edge (APISIX
+# prometheus plugin per-route RED metrics) and via browser RUM, not by
+# fabricating a scrape target.
+
+# Runtime config mount: the chart renders a config.js ConfigMap
+# (window.TRUFI_CONFIG) holding the OTP2 API base and RUM settings; the
+# environment image must load it (otp-react-redux supports JS_CONFIG
+# overrides of the shipped config). Mount path is values-driven because
+# the serving image is environment-supplied.
+configMount:
+  path: /usr/share/nginx/html/config.js
+  subPath: config.js

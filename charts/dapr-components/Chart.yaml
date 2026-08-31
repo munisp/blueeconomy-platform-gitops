@@ -1,0 +1,13 @@
+apiVersion: v2
+name: dapr-components
+description: >-
+  Per-workstream Dapr component layer: pub/sub (Kafka; Fluvio variant
+  documented), state (Redis hot + PostgreSQL durable) and secret stores
+  (Kubernetes + Azure Key Vault). Rendered once per workstream by Argo CD
+  into the workstream namespace. Component scopes hard-restrict which Dapr
+  app-ids may use each component; the cvff release is scoped exclusively to
+  cvff app-ids (fiduciary segregation at the application layer).
+type: application
+version: 0.1.0
+appVersion: "1.18.2"
+kubeVersion: ">=1.28.0-0"

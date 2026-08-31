@@ -1,0 +1,44 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative hostnames. Real values live in the authorised environment repo.
+# Provider family: azuredns (Azure DNS — a fully-supported landing-zone
+# option, incl. Azure Government; not a platform requirement).
+image:
+  repository: blueeconomy.azurecr.us/blueeconomy/caddy
+  digest: sha256:3a5d4e0b9e6f6f2b1c8a7d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a
+
+domains:
+  publicHost: api.blueeconomy.example.gov.ng
+  adminHost: admin.blueeconomy.example.gov.ng
+
+upstreams:
+  apisix:
+    address: apisix-gateway.blueeconomy-security.svc.cluster.local:9080
+  apisixAdmin:
+    address: apisix-admin.blueeconomy-security.svc.cluster.local:9180
+
+tls:
+  mode: acme
+  acme:
+    email: platform-pki@blueeconomy.example.gov.ng
+    dnsProvider:
+      name: azuredns
+      credentialsSecretRef:
+        name: caddy-acme-azuredns
+  partnerMtls:
+    caSecretRef:
+      name: partner-mtls-ca-bundle
+      key: ca.crt
+
+keycloak:
+  discoveryUrl: https://keycloak.blueeconomy-security.svc.cluster.local:8443/realms/blueeconomy/.well-known/openid-configuration
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    AZURE_TENANT_ID: edge/render-fixture/azure-tenant-id
+    AZURE_CLIENT_ID: edge/render-fixture/azure-client-id
+    AZURE_CLIENT_SECRET: edge/render-fixture/azure-client-secret
+    AZURE_SUBSCRIPTION_ID: edge/render-fixture/azure-subscription-id
+    AZURE_RESOURCE_GROUP: edge/render-fixture/azure-resource-group

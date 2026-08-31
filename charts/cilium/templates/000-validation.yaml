@@ -1,0 +1,127 @@
+{{- /* Fail-closed approval gates for the Cilium CNI wrapper. */ -}}
+{{- $chartName := required "cilium upstream.chartName is required (source-locked cilium/cilium pin)" .Values.upstream.chartName -}}
+{{- $chartVersion := required "cilium upstream.chartVersion is required" .Values.upstream.chartVersion -}}
+{{- $repository := required "cilium upstream.repository is required" .Values.upstream.repository -}}
+{{- if not (hasPrefix "https://" $repository) -}}
+{{- fail "cilium upstream.repository must be an HTTPS Helm repository URL" -}}
+{{- end -}}
+
+{{- /* Kernel baseline: kube-proxy replacement + XDP require >= 5.4;
+       io_uring is not required and is not part of this contract. */ -}}
+{{- $minVersion := required "kernel.minVersion is required (must be >= 5.4)" .Values.kernel.minVersion -}}
+{{- if not (regexMatch "^([5-9]|[1-9][0-9]+)\\.(0|[1-9][0-9]*)(\\.[0-9]+)?$" $minVersion) -}}
+{{- fail "kernel.minVersion must be a kernel version string (e.g. \"5.4\")" -}}
+{{- end -}}
+{{- $minParts := regexFind "^(\\d+)\\.(\\d+)" $minVersion -}}
+{{- $minMajor := int (regexReplaceAll "^(\\d+)\\.(\\d+).*" $minParts "${1}") -}}
+{{- $minMinor := int (regexReplaceAll "^(\\d+)\\.(\\d+).*" $minParts "${2}") -}}
+{{- if or (lt $minMajor 5) (and (eq $minMajor 5) (lt $minMinor 4)) -}}
+{{- fail "kernel.minVersion must be 5.4 or newer (kube-proxy replacement and XDP require it)" -}}
+{{- end -}}
+{{- $targetVersion := required "kernel.targetVersion is required (approved node kernel version)" .Values.kernel.targetVersion -}}
+{{- $targetParts := regexFind "^(\\d+)\\.(\\d+)" $targetVersion -}}
+{{- if empty $targetParts -}}
+{{- fail "kernel.targetVersion must be a kernel version string (e.g. \"6.1\")" -}}
+{{- end -}}
+{{- $tMajor := int (regexReplaceAll "^(\\d+)\\.(\\d+).*" $targetParts "${1}") -}}
+{{- $tMinor := int (regexReplaceAll "^(\\d+)\\.(\\d+).*" $targetParts "${2}") -}}
+{{- if or (lt $tMajor $minMajor) (and (eq $tMajor $minMajor) (lt $tMinor $minMinor)) -}}
+{{- fail "kernel.targetVersion must be >= kernel.minVersion" -}}
+{{- end -}}
+
+{{- if not .Values.cni.kubeProxyReplacement -}}
+{{- fail "cni.kubeProxyReplacement must remain true (XDP LoadBalancer acceleration requires it)" -}}
+{{- end -}}
+{{- if not .Values.hubble.enabled -}}
+{{- fail "hubble.enabled must remain true (flow observability is the network evidence feed)" -}}
+{{- end -}}
+{{- if not (and .Values.hubble.relay.enabled .Values.hubble.ui.enabled) -}}
+{{- fail "hubble relay and ui must both remain enabled" -}}
+{{- end -}}
+{{- if not .Values.tetragon.enabled -}}
+{{- fail "tetragon.enabled must remain true (runtime enforcement for sensitive pods)" -}}
+{{- end -}}
+{{- if not .Values.ddosMitigation.enabled -}}
+{{- fail "ddosMitigation.enabled must remain true (the platform has no other in-gitops L3/L4 defense)" -}}
+{{- end -}}
+{{- if not .Values.ddosMitigation.loadBalancer.standalone -}}
+{{- fail "ddosMitigation.loadBalancer.standalone must remain true (dedicated XDP LB nodes absorb volumetric traffic)" -}}
+{{- end -}}
+{{- if not (has .Values.ddosMitigation.loadBalancer.acceleration (list "native" "generic")) -}}
+{{- fail "ddosMitigation.loadBalancer.acceleration must be native (driver XDP) or generic (degraded waiver)" -}}
+{{- end -}}
+
+{{- /* Workstream scope catalogue: same hard restriction as dapr-components. */ -}}
+{{- $approvedAppIds := include "cilium.approvedAppIds" . | fromJson -}}
+{{- if .Values.networkPolicies.enabled -}}
+{{- $pgNs := required "networkPolicies.postgres.namespace is required" .Values.networkPolicies.postgres.namespace -}}
+{{- $kafkaNs := required "networkPolicies.kafka.namespace is required" .Values.networkPolicies.kafka.namespace -}}
+{{- $temporalNs := required "networkPolicies.temporal.namespace is required" .Values.networkPolicies.temporal.namespace -}}
+{{- $tbNs := required "networkPolicies.tigerbeetle.namespace is required" .Values.networkPolicies.tigerbeetle.namespace -}}
+{{- if empty .Values.networkPolicies.workstreams -}}
+{{- fail "networkPolicies.workstreams must list every approved workstream" -}}
+{{- end -}}
+{{- range $ws := .Values.networkPolicies.workstreams -}}
+{{- if not (hasKey $approvedAppIds $ws.name) -}}
+{{- fail (printf "networkPolicies.workstreams entry %q is not an approved workstream (ports, ferries, cvff, seafarer, fisheries, isr)" ($ws.name | default "<missing>")) -}}
+{{- end -}}
+{{- $expectedNs := printf "blueeconomy-%s" $ws.name -}}
+{{- if ne $ws.namespace $expectedNs -}}
+{{- fail (printf "workstream %s namespace must be %s" $ws.name $expectedNs) -}}
+{{- end -}}
+{{- if empty $ws.appIds -}}
+{{- fail (printf "workstream %s appIds must list the approved app-ids" $ws.name) -}}
+{{- end -}}
+{{- $allowed := index $approvedAppIds $ws.name -}}
+{{- $article := ternary "an" "a" (eq $ws.name "isr") -}}
+{{- range $appId := $ws.appIds -}}
+{{- if not (has $appId $allowed) -}}
+{{- fail (printf "workstream %s appIds entry %q is not %s %s app-id; %s policies are restricted to %s" $ws.name $appId $article $ws.name $ws.name (join ", " $allowed)) -}}
+{{- end -}}
+{{- end -}}
+{{- if and $ws.tigerbeetleAccess (ne $ws.name "cvff") -}}
+{{- fail (printf "fiduciary segregation: tigerbeetleAccess may only be true for the cvff workstream, not %s" $ws.name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- if .Values.ingressPath.enabled -}}
+{{- $edgeNs := required "ingressPath.edgeNamespace is required" .Values.ingressPath.edgeNamespace -}}
+{{- $apisixNs := required "ingressPath.apisixNamespace is required" .Values.ingressPath.apisixNamespace -}}
+{{- end -}}
+
+{{- /* Geo stack policies: every referenced namespace is render-gated. */ -}}
+{{- if .Values.networkPolicies.geo.enabled -}}
+{{- $geoNs := required "networkPolicies.geo.namespace is required when networkPolicies.geo.enabled=true" .Values.networkPolicies.geo.namespace -}}
+{{- $geoEdge := required "networkPolicies.geo.edgeNamespace is required when networkPolicies.geo.enabled=true (edge-only ingress for geo-service and martin)" .Values.networkPolicies.geo.edgeNamespace -}}
+{{- $geoKafka := required "networkPolicies.geo.kafkaNamespace is required when networkPolicies.geo.enabled=true" .Values.networkPolicies.geo.kafkaNamespace -}}
+{{- $geoRedis := required "networkPolicies.geo.redisNamespace is required when networkPolicies.geo.enabled=true" .Values.networkPolicies.geo.redisNamespace -}}
+{{- end -}}
+
+{{- range $p := .Values.tetragonPolicies -}}
+{{- if not $p.name -}}
+{{- fail "every tetragonPolicies entry requires a name" -}}
+{{- end -}}
+{{- if not $p.namespace -}}
+{{- fail (printf "tetragonPolicies.%s requires a namespace" $p.name) -}}
+{{- end -}}
+{{- if empty $p.podSelector -}}
+{{- fail (printf "tetragonPolicies.%s requires a podSelector for the sensitive pods" $p.name) -}}
+{{- end -}}
+{{- if not (has $p.type (list "process-exec" "file-integrity")) -}}
+{{- fail (printf "tetragonPolicies.%s type must be process-exec or file-integrity" $p.name) -}}
+{{- end -}}
+{{- if and (eq $p.type "process-exec") (empty $p.allowedBinaries) -}}
+{{- fail (printf "tetragonPolicies.%s (process-exec) requires an allowedBinaries exec allowlist" $p.name) -}}
+{{- end -}}
+{{- if eq $p.type "file-integrity" -}}
+{{- if empty $p.watchedPaths -}}
+{{- fail (printf "tetragonPolicies.%s (file-integrity) requires watchedPaths" $p.name) -}}
+{{- end -}}
+{{- range $path := $p.watchedPaths -}}
+{{- if not (hasPrefix "/" $path) -}}
+{{- fail (printf "tetragonPolicies.%s watchedPaths entry %q must be an absolute path" $p.name $path) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

@@ -1,0 +1,20 @@
+{{- if and (eq .Values.tls.mode "acme") (eq .Values.tls.acme.dnsProvider.name "internal-ca") }}
+# internal-ca issuance path (no ACME): cert-manager requests the edge
+# certificate from the render-gated internal issuer and writes it to the
+# Secret mounted by deployment.yaml. Provider-neutral: works on any
+# Kubernetes cluster running cert-manager, on-prem or in any cloud.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "caddy.fullname" . }}-edge-tls
+  labels:
+    {{- include "caddy.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "caddy.fullname" . }}-edge-tls
+  dnsNames:
+    - {{ .Values.domains.publicHost | quote }}
+    - {{ .Values.domains.adminHost | quote }}
+  issuerRef:
+    name: {{ .Values.tls.acme.dnsProvider.internalCA.issuerRef.name }}
+    kind: {{ .Values.tls.acme.dnsProvider.internalCA.issuerRef.kind }}
+{{- end }}

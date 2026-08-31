@@ -1,0 +1,91 @@
+{{- $fullName := include "temporal.fullname" . -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullName }}-namespace-bootstrap
+  labels:
+    {{- include "temporal.labels" . | nindent 4 }}
+    app.kubernetes.io/component: namespace-bootstrap
+  annotations:
+    # Re-run on every Argo CD sync is harmless: schema setup and namespace
+    # registration are idempotent (describe-then-register).
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        {{- include "temporal.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: namespace-bootstrap
+    spec:
+      serviceAccountName: {{ include "temporal.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: bootstrap
+          image: {{ printf "%s@%s" .Values.adminTools.repository .Values.adminTools.digest | quote }}
+          imagePullPolicy: {{ .Values.adminTools.pullPolicy }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              # Create/update the PostgreSQL schema (idempotent).
+              temporal-sql-tool --plugin postgres12 \
+                --ep "${POSTGRES_SEEDS}" --port "${DB_PORT}" \
+                --user "${POSTGRES_USER}" --password "${POSTGRES_PWD}" \
+                --database "${DBNAME}" setup-schema -v 0.0 || true
+              temporal-sql-tool --plugin postgres12 \
+                --ep "${POSTGRES_SEEDS}" --port "${DB_PORT}" \
+                --user "${POSTGRES_USER}" --password "${POSTGRES_PWD}" \
+                --database "${DBNAME}" update-schema -d /etc/temporal/schema/postgresql/v12/temporal/versioned
+              temporal-sql-tool --plugin postgres12 \
+                --ep "${POSTGRES_SEEDS}" --port "${DB_PORT}" \
+                --user "${POSTGRES_USER}" --password "${POSTGRES_PWD}" \
+                --database "${VISIBILITY_DBNAME}" setup-schema -v 0.0 || true
+              temporal-sql-tool --plugin postgres12 \
+                --ep "${POSTGRES_SEEDS}" --port "${DB_PORT}" \
+                --user "${POSTGRES_USER}" --password "${POSTGRES_PWD}" \
+                --database "${VISIBILITY_DBNAME}" update-schema -d /etc/temporal/schema/postgresql/v12/visibility/versioned
+              # Wait for the frontend, then register approved namespaces.
+              until tctl --address "${TEMPORAL_CLI_ADDRESS}" cluster health >/dev/null 2>&1; do
+                sleep 3
+              done
+              {{- range .Values.namespaces }}
+              if ! tctl --address "${TEMPORAL_CLI_ADDRESS}" namespace describe {{ .name | quote }} >/dev/null 2>&1; then
+                tctl --address "${TEMPORAL_CLI_ADDRESS}" namespace register \
+                  --retention {{ .retentionDays }} \
+                  --description {{ .description | quote }} {{ .name | quote }}
+              fi
+              {{- end }}
+          env:
+            - name: TEMPORAL_CLI_ADDRESS
+              value: {{ printf "%s-frontend.%s.svc.cluster.local:%d" (include "temporal.name" .) .Release.Namespace (int .Values.server.frontendPort) | quote }}
+            - name: POSTGRES_SEEDS
+              value: {{ .Values.persistence.host | quote }}
+            - name: DB_PORT
+              value: {{ .Values.persistence.port | quote }}
+            - name: DBNAME
+              value: {{ .Values.persistence.database | quote }}
+            - name: VISIBILITY_DBNAME
+              value: {{ .Values.persistence.visibilityDatabase | quote }}
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.persistence.credentialsSecretName | quote }}
+                  key: {{ .Values.persistence.userKey | quote }}
+            - name: POSTGRES_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.persistence.credentialsSecretName | quote }}
+                  key: {{ .Values.persistence.passwordKey | quote }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

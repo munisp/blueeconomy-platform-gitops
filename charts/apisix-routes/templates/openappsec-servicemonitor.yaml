@@ -1,0 +1,20 @@
+{{- if .Values.openappsec.serviceMonitor.enabled }}
+# OpenAppSec WAF agent metrics scrape (vendor limitation: no traces;
+# security events -> Loki via the collector, see values.yaml note).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "apisix-routes.fullname" . }}-openappsec
+  namespace: {{ .Values.apisix.namespace | quote }}
+  labels:
+    {{- include "apisix-routes.labels" . | nindent 4 }}
+    {{- toYaml .Values.openappsec.serviceMonitor.labels | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.openappsec.serviceMonitor.serviceName | quote }}
+  endpoints:
+    - port: metrics
+      path: {{ .Values.openappsec.serviceMonitor.path | quote }}
+      interval: 30s
+{{- end }}

@@ -1,0 +1,22 @@
+apiVersion: v2
+name: cilium
+description: >-
+  Ministry values wrapper and release contract for the pinned upstream Cilium
+  CNI (kube-proxy replacement, Hubble flow observability, Tetragon runtime
+  enforcement) plus platform-owned CiliumNetworkPolicies (L3/L4 default-deny
+  per workstream namespace, L7 HTTP-aware ingress path) and standalone
+  XDP-accelerated LoadBalancer DDoS mitigation. Fail-closed: upstream pin,
+  node kernel baseline and workstream scope values are required.
+type: application
+version: 0.1.0
+appVersion: "1.16.5"
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - cilium
+  - ebpf
+  - xdp
+  - network-policy
+  - blue-economy
+annotations:
+  blueeconomy.platform/criticality: "node-level-network-security"
+  blueeconomy.platform/upstream-policy: "Pin verified upstream chart/image digests; do not deploy unreviewed defaults"

@@ -1,0 +1,22 @@
+{{- if and .Values.monitoring.serviceMonitor.enabled .Values.dashboard.enabled }}
+# EMQX exposes /api/v5/prometheus on the dashboard listener (18083); the
+# ServiceMonitor is therefore rendered only when the dashboard listener is
+# enabled (no metrics endpoint exists on the MQTT listeners).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "emqx.fullname" . }}
+  labels:
+    {{- include "emqx.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "emqx.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: dashboard
+      path: /api/v5/prometheus
+      interval: {{ .Values.monitoring.serviceMonitor.interval }}
+{{- end }}

@@ -1,0 +1,29 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative references. Real values live in the authorised environment
+# repo.
+profile: prod
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+  digest: sha256:0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9
+
+tempo:
+  endpoint: render-gate-tempo.blueeconomy-observability.svc.cluster.local:4317
+loki:
+  otlpHttpEndpoint: http://render-gate-loki.blueeconomy-observability.svc.cluster.local:3100/otlp
+
+redaction:
+  attributeKeys:
+    - http.request.header.authorization
+    - http.request.header.cookie
+    - process.command_args
+    - kafka.message.key
+    - db.statement.parameters
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi

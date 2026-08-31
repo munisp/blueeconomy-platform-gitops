@@ -1,0 +1,51 @@
+# CI render-gate fixture ONLY. These values exist so that `helm template`
+# exercises the full chart during validation. They are NOT deployable: the
+# image digests are synthetic and the environment endpoints are illustrative.
+# Real environment values live in the authorised environment repository.
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    FERRY_DATABASE_URL: ferries/render-fixture/database-url
+    FERRY_MANIFEST_SALT: ferries/render-fixture/manifest-salt
+
+components:
+  ferry-api:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/ferry-api
+      digest: sha256:b32db458e9a51e7b680e566208330957ab1094317789f8d01fa581588b1223c7
+    env:
+      FERRY_OIDC_ISSUER: https://keycloak.blueeconomy-platform.svc.cluster.local/realms/blueeconomy-ferries
+      FERRY_OIDC_AUDIENCE: ferry-api
+      FERRY_OIDC_JWKS_URL: https://keycloak.blueeconomy-platform.svc.cluster.local/realms/blueeconomy-ferries/protocol/openid-connect/certs
+      FERRY_TB_ADDRESS: tigerbeetle.blueeco-tigerbeetle-prod.svc.cluster.local:3000
+      FERRY_TB_CLUSTER_ID: "1"
+      FERRY_TB_LEDGER: "2"
+      FERRY_TB_CODE: "20"
+      FERRY_TB_PASSENGER_CLEARING_ACCOUNT: "00000000000000000000000000000001"
+      FERRY_TB_OPERATOR_REVENUE_ACCOUNT: "00000000000000000000000000000002"
+      FERRY_TB_AGENT_FLOAT_ACCOUNT: "00000000000000000000000000000003"
+  ferry-worker:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/ferry-worker
+      digest: sha256:67103ca58c2a0417db44ff738d79db80ebe65c04016c5fe25b43b2984f6a2244
+  outbox-publisher:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/ferry-outbox-publisher
+      digest: sha256:39eb240733c4cb9719bb6fde32bb7524dd5ce34cfee8126bb92fa5b9e8c86c41
+    env:
+      KAFKA_BROKERS: kafka.blueeconomy-platform.svc.cluster.local:9092
+
+networkPolicy:
+  allowedIngressNamespaces: ["blueeconomy-edge"]
+  allowedEgress:
+    - namespace: kube-system
+      ports: [53]
+      protocols: ["UDP", "TCP"]
+    - namespace: blueeconomy-platform
+      ports: [5432, 9092, 7233, 8080]
+
+monitoring:
+  serviceMonitor:
+    enabled: true

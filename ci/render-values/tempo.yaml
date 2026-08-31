@@ -1,0 +1,40 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative references. Real values live in the authorised environment
+# repo.
+profile: prod
+
+image:
+  repository: grafana/tempo
+  digest: sha256:1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a
+
+retentionHours: 720
+
+storage:
+  bucket: blueeconomy-traces
+  endpoint: https://objectstorage.blueeconomy.example.gov.ng
+  region: local
+  accessKeySecretKey: TEMPO_S3_ACCESS_KEY
+  secretKeySecretKey: TEMPO_S3_SECRET_KEY
+
+persistence:
+  size: 20Gi
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    TEMPO_S3_ACCESS_KEY: observability/render-fixture/tempo-s3-access-key
+    TEMPO_S3_SECRET_KEY: observability/render-fixture/tempo-s3-secret-key
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+networkPolicy:
+  storageCIDRs:
+    - 10.50.0.0/16

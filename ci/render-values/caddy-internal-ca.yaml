@@ -1,0 +1,33 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative hostnames. Real values live in the authorised environment repo.
+# Provider family: internal-ca (no ACME; cert-manager internal issuer).
+image:
+  repository: registry.blueeconomy.example.gov.ng/blueeconomy/caddy
+  digest: sha256:3a5d4e0b9e6f6f2b1c8a7d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a
+
+domains:
+  publicHost: api.blueeconomy.example.gov.ng
+  adminHost: admin.blueeconomy.example.gov.ng
+
+upstreams:
+  apisix:
+    address: apisix-gateway.blueeconomy-security.svc.cluster.local:9080
+  apisixAdmin:
+    address: apisix-admin.blueeconomy-security.svc.cluster.local:9180
+
+tls:
+  mode: acme
+  acme:
+    dnsProvider:
+      name: internal-ca
+      internalCA:
+        issuerRef:
+          name: platform-internal-ca
+          kind: ClusterIssuer
+  partnerMtls:
+    caSecretRef:
+      name: partner-mtls-ca-bundle
+      key: ca.crt
+
+keycloak:
+  discoveryUrl: https://keycloak.blueeconomy-security.svc.cluster.local:8443/realms/blueeconomy/.well-known/openid-configuration

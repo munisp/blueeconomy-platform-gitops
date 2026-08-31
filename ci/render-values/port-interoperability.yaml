@@ -1,0 +1,69 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digests and
+# illustrative endpoints. Real values live in the authorised environment repo.
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    DATABASE_URL: ports/render-fixture/database-url
+    TENANT_GATEWAY_KEY: ports/render-fixture/tenant-gateway-key
+    MOJALOOP_BEARER_TOKEN: ports/render-fixture/mojaloop-bearer-token
+    REDIS_URL: ports/render-fixture/redis-url
+    KEYCLOAK_CLIENT_SECRET: ports/render-fixture/keycloak-client-secret
+
+components:
+  api:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/port-interoperability
+      digest: sha256:1fc429a2c39ad29425289e89c1bb12d477313254ca69111cc00d0c80e8f833fc
+    env:
+      MIGRATION_PATH: /app/db/migrations
+      TENANT_GATEWAY_ISS: https://edge.blueeconomy.example.gov.ng
+      TENANT_GATEWAY_AUD: port-interoperability
+      NSW_JWKS_URL: https://nsw.example.gov.ng/.well-known/jwks.json
+      NSW_JWKS_PIN_SHA256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+      NSW_ALLOWED_KIDS: nsw-2026-01
+      NSW_ISSUER: https://nsw.example.gov.ng
+      NSW_AUDIENCE: port-interoperability
+      MOJALOOP_BASE_URL: https://mojaloop-switch.blueeco-mojaloop-prod.svc.cluster.local
+      FGN_SHARE_BASIS_POINTS: "250"
+      # W-RES gRPC declaration scorer (financial-controls release, grpc
+      # Service port 9082) + client_credentials token source coordinates.
+      DECLARATIONS_SCORER_GRPC_ADDR: financial-controls-declaration-scorer.blueeconomy-cvff.svc.cluster.local:9082
+      KEYCLOAK_TOKEN_URL: https://keycloak.blueeconomy.example.gov.ng/realms/blueeconomy-ports-ecallup/protocol/openid-connect/token
+      KEYCLOAK_CLIENT_ID: port-interoperability-api
+  ussd-gateway:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/ussd-gateway
+      digest: sha256:555b021129b19dd737f05c98481a60856bacee2d0aa528609716e8373528daad
+    env:
+      MIGRATION_PATH: /app/db/migrations
+      USSD_TENANT_ID: fgn-ecallup
+  booking-worker:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/booking-worker
+      digest: sha256:3ca74c05c6918f70b82b7befc2fa3e1b76b803983c937184b7799ceb5a1cc70b
+    env:
+      TIGERBEETLE_CLUSTER_ID: "1"
+      TIGERBEETLE_ADDRESSES: tigerbeetle-0.tigerbeetle-headless.blueeco-tigerbeetle-prod.svc.cluster.local:3000
+  outbox-publisher:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/ports-outbox-publisher
+      digest: sha256:8faa49afa0a4ece8ca21c2d1dfb9cbe22cbdda87eca7e7ace3b47ffc30313f2e
+    env:
+      KAFKA_BROKERS: kafka.blueeconomy-platform.svc.cluster.local:9092
+
+networkPolicy:
+  allowedIngressNamespaces: ["blueeconomy-edge"]
+  allowedEgress:
+    - namespace: kube-system
+      ports: [53]
+      protocols: ["UDP", "TCP"]
+    - namespace: blueeconomy-platform
+      ports: [5432, 9092, 7233, 6379]
+    - namespace: blueeco-tigerbeetle-prod
+      ports: [3000]
+
+monitoring:
+  serviceMonitor:
+    enabled: true

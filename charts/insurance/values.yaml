@@ -1,0 +1,183 @@
+# blueeconomy-insurance deploy surface. Environment contract aligned to
+# the service source (src/insurance/config.py, src/insurance/main.py):
+# the binary resolves INSURANCE_* env names only (pydantic-settings
+# env_prefix="INSURANCE_"). Boot is fail-closed without
+# INSURANCE_DATABASE_URL, INSURANCE_SIGNING_KEY_PATH, INSURANCE_ISSUER_DID
+# and INSURANCE_POLICY_DIR; the chart render gates additionally require
+# Kafka (outbox publisher refuses to start unconfigured), OIDC (the API
+# is fail-closed 503 without bearer authn) and the producer key directory
+# so optional integrations can never drift into silent 503 in production.
+# Every credential arrives exclusively through ExternalSecrets; no
+# placeholder or inline credential is permitted. Partner adapter auth
+# tokens are referenced by env name ONLY (config.py partner_adapters);
+# the referenced names must appear in secretEnv. Cloud-agnostic: any
+# conformant Kubernetes, any ESO-supported secret backend.
+nameOverride: ""
+fullnameOverride: ""
+
+# Deployment profile. prod refuses INSURANCE_TEST_* env names at render
+# time (fail-closed doctrine: no test configuration in production).
+profile: ""
+
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+port: 8080
+
+# The two fail-closed processes of the one image (pyproject
+# [project.scripts]); the orchestrator picks the entrypoint by command.
+components:
+  api:
+    enabled: true
+    command: insurance-api
+    replicas: 2
+    # The API serves /healthz (pure liveness) and /v1/capabilities, the
+    # honesty registry that actively probes the database (SELECT 1) and
+    # reports signing/OIDC/Kafka runtime state
+    # (src/insurance/api/routes_ops.py). Readiness exercises the real
+    # dependency path; liveness stays a pure process check.
+    probes:
+      livenessPath: /healthz
+      readinessPath: /v1/capabilities
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 8
+      targetCPUUtilizationPercentage: 70
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 1Gi
+  outbox:
+    # Transactional outbox -> Kafka publisher (insurance-outbox;
+    # src/insurance/events/outbox_publisher.py). Refuses to start without
+    # INSURANCE_KAFKA_BOOTSTRAP_SERVERS and INSURANCE_DATABASE_URL;
+    # at-least-once with idempotent producer — messages are never dropped.
+    enabled: true
+    command: insurance-outbox
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+# ExternalSecrets contract. storeRef.name references the landing zone's
+# secret backend ClusterSecretStore (any ESO-supported provider).
+externalSecrets:
+  storeRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+# Secret-sourced env/keys (names must exist in externalSecrets.keys):
+#   INSURANCE_DATABASE_URL — postgresql+asyncpg:// DSN (boot-fatal; the
+#                            binary also validates the scheme)
+#   <partner token envs>   — every auth_token_env name referenced by
+#                            INSURANCE_PARTNER_ADAPTERS_JSON must be listed
+#                            here; tokens are read from the environment
+#                            only, never inline (config.py doctrine)
+secretEnv:
+  - INSURANCE_DATABASE_URL
+
+signingKey:
+  # ExternalSecrets key holding the Ed25519 PKCS#8 PEM; mounted read-only
+  # at mountPath/signing-key.pem (INSURANCE_SIGNING_KEY_PATH). The binary
+  # refuses placeholder key material at boot (crypto/eddsa.py).
+  secretKey: INSURANCE_SIGNING_KEY
+  mountPath: /etc/insurance/keys
+
+# Producer public-key directory (charts/opa-policies ConfigMap) for
+# inbound envelope verification (INSURANCE_KEY_DIRECTORY_PATH). Required:
+# ISR evidence and any inbound envelope consumers must verify provenance
+# signatures (config.py: isr_evidence_configured requires it).
+keyDirectory:
+  enabled: true
+  configMapName: ""
+  mountPath: /etc/blueeconomy/key-directory
+
+# Non-secret environment. Names are exactly the binary contract
+# (src/insurance/config.py). Values must be approved environment values;
+# names prefixed INSURANCE_TEST_ are refused when profile=prod.
+env:
+  # did:web issuer identity (boot-fatal).
+  INSURANCE_ISSUER_DID: ""
+  # PBAC policy directory (boot-fatal when missing/empty). The image
+  # carries the governance-approved policies at /app/policies (Dockerfile
+  # COPY policies ./policies).
+  INSURANCE_POLICY_DIR: /app/policies
+  # Kafka outbox sink. Required: the outbox publisher refuses to start
+  # unconfigured and the API reports kafka=false on /v1/capabilities.
+  INSURANCE_KAFKA_BOOTSTRAP_SERVERS: ""
+  INSURANCE_KAFKA_TOPIC_PREFIX: insurance
+  INSURANCE_KAFKA_CONSUMER_GROUP: blueeconomy-insurance
+  # OIDC (Keycloak JWKS). The API is fail-closed 503 without bearer authn;
+  # the chart requires the wiring outright.
+  INSURANCE_OIDC_JWKS_URL: ""
+  INSURANCE_OIDC_ISSUER: ""
+  INSURANCE_OIDC_AUDIENCE: ""
+  # Public base URL for status-list credential ids.
+  INSURANCE_STATUS_LIST_BASE_URL: ""
+  # Partner insurer adapters (fail-closed: unconfigured partners return
+  # ADAPTER_UNCONFIGURED before any network I/O). JSON object:
+  #   {"<partner_id>": {"base_url": "https://...", "auth_token_env": "NAME"}}
+  # Render-gated: every base_url must be https:// and every
+  # auth_token_env must be listed in secretEnv.
+  INSURANCE_PARTNER_ADAPTERS_JSON: ""
+  # Maritime-intelligence outcome-ledger premium-delta evidence must be
+  # digest-pinned: comma-separated lower-case sha256 hex digests of the
+  # authorized evidence source set (config.py validator). Render-gated
+  # to the same shape.
+  INSURANCE_ISR_EVIDENCE_SOURCE_DIGESTS: ""
+  INSURANCE_QUOTE_VALIDITY_HOURS: "72"
+  INSURANCE_RATE_LIMIT_PER_MINUTE: "120"
+
+requiredEnv:
+  - INSURANCE_ISSUER_DID
+  - INSURANCE_POLICY_DIR
+  - INSURANCE_KAFKA_BOOTSTRAP_SERVERS
+  - INSURANCE_OIDC_JWKS_URL
+  - INSURANCE_OIDC_ISSUER
+  - INSURANCE_OIDC_AUDIENCE
+  - INSURANCE_STATUS_LIST_BASE_URL
+
+networkPolicy:
+  enabled: true
+  apisixNamespace: ""
+  postgresNamespace: ""
+  kafkaNamespace: ""
+  # Keycloak (JWKS) egress namespace.
+  keycloakNamespace: ""
+  # Partner insurer adapters call external https:// endpoints; egress is
+  # constrained to TCP/443 only (no destination restriction is possible
+  # for internet counterparties — documented posture).
+  partnerAdaptersEnabled: true
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# The service exposes no Prometheus /metrics endpoint; no ServiceMonitor
+# is rendered — adding one would be a scraping lie.

@@ -1,0 +1,71 @@
+# CI render-gate fixture ONLY. These values exist so that `helm template`
+# exercises the full chart during validation. They are NOT deployable: the
+# image digests are synthetic and the environment endpoints are illustrative.
+# Real environment values live in the authorised environment repository.
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    FISHERIES_DATABASE_URL: fisheries/render-fixture/database-url
+    MOJALOOP_SIGNING_JWK: fisheries/render-fixture/mojaloop-signing-jwk
+
+components:
+  trace-api:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/trace-api
+      digest: sha256:fc28cbc787aceac5054afd6be6e2c3b37948ad7ed3a10eb8d7089d72e4854690
+    env:
+      FISHERIES_OIDC_ISSUER: https://keycloak.blueeconomy-platform.svc.cluster.local/realms/blueeconomy-fisheries
+      FISHERIES_OIDC_AUDIENCE: trace-api
+      FISHERIES_OIDC_JWKS_URL: https://keycloak.blueeconomy-platform.svc.cluster.local/realms/blueeconomy-fisheries/protocol/openid-connect/certs
+      FISHERIES_GPS_LAT_MIN: "3.0"
+      FISHERIES_GPS_LAT_MAX: "7.0"
+      FISHERIES_GPS_LON_MIN: "2.5"
+      FISHERIES_GPS_LON_MAX: "9.0"
+      FISHERIES_TB_ADDRESS: tigerbeetle.blueeco-tigerbeetle-prod.svc.cluster.local:3000
+      FISHERIES_TB_CLUSTER_ID: "1"
+      FISHERIES_TB_LEDGER: "3"
+      FISHERIES_TB_CODE: "30"
+      FISHERIES_TB_EXPORTER_CLEARING_ACCOUNT: "00000000000000000000000000000021"
+      FISHERIES_TB_FEE_REVENUE_ACCOUNT: "00000000000000000000000000000022"
+      FISHERIES_TB_EVENT_CLEARING_ACCOUNT: "00000000000000000000000000000023"
+      FISHERIES_TB_EVENT_ATTESTATION_ACCOUNT: "00000000000000000000000000000024"
+      FISHERIES_FEE_NGN_MINOR_PER_TONNE: "250000"
+      FISHERIES_MOJALOOP_BASE_URL: https://mojaloop.blueeconomy-platform.svc.cluster.local
+      FISHERIES_MOJALOOP_SOURCE: blueeconomy-fisheries
+      FISHERIES_MOJALOOP_DESTINATION: fmma-settlement
+      FISHERIES_MOJALOOP_SIGNING_KEY_ID: render-fixture-key-1
+  trace-worker:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/trace-worker
+      digest: sha256:d71a5212694944c5f4adae52ffd017d4de7c17db4373353d169ed69a40ea8cfb
+    env:
+      FISHERIES_TB_ADDRESS: tigerbeetle.blueeco-tigerbeetle-prod.svc.cluster.local:3000
+      FISHERIES_TB_LEDGER: "3"
+      FISHERIES_TB_CODE: "30"
+      FISHERIES_TB_EXPORTER_CLEARING_ACCOUNT: "00000000000000000000000000000021"
+      FISHERIES_TB_FEE_REVENUE_ACCOUNT: "00000000000000000000000000000022"
+      FISHERIES_TB_EVENT_CLEARING_ACCOUNT: "00000000000000000000000000000023"
+      FISHERIES_TB_EVENT_ATTESTATION_ACCOUNT: "00000000000000000000000000000024"
+  outbox-publisher:
+    image:
+      repository: blueeconomy.azurecr.us/blueeconomy/fisheries-outbox-publisher
+      digest: sha256:8b229dae8af29315527ddc7cc27a0b79cfd5a3599999ba15a40e020c6d8f3882
+    env:
+      KAFKA_BROKERS: kafka.blueeconomy-platform.svc.cluster.local:9092
+
+networkPolicy:
+  allowedIngressNamespaces: ["blueeconomy-edge"]
+  allowedEgress:
+    - namespace: kube-system
+      ports: [53]
+      protocols: ["UDP", "TCP"]
+    - namespace: blueeconomy-platform
+      ports: [5432, 9092, 7233, 8080]
+    - namespace: blueeco-tigerbeetle-prod
+      ports: [3000]
+
+monitoring:
+  serviceMonitor:
+    enabled: true

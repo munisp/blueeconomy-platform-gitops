@@ -36,5 +36,13 @@ spec:
       port: {{ .Values.service.client.port }}
       targetPort: tigerbeetle
       protocol: TCP
+    {{- if gt (int .Values.monitoring.metricsPort) 0 }}
+    # Approved exporter/sidecar metrics port (PRA-066; TigerBeetle itself
+    # serves no HTTP metrics).
+    - name: metrics
+      port: {{ .Values.monitoring.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+    {{- end }}
   selector:
     {{- include "tigerbeetle.selectorLabels" . | nindent 4 }}

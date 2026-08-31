@@ -1,0 +1,86 @@
+{{- /* Fail-closed approval gates for the Kafka TLS/SASL templates. */ -}}
+
+{{- /* Explicit opt-in: the chart is disabled by default and must never
+       render silently. */ -}}
+{{- if not .Values.kafkaSecurity.enabled -}}
+{{- fail "kafkaSecurity.enabled=true is required to render the Kafka TLS/SASL templates (explicit opt-in for the source-locked strimzi-kafka-operator release)" -}}
+{{- end -}}
+
+{{- $clusterName := required "cluster.name is required" .Values.cluster.name -}}
+{{- $kafkaVersion := required "cluster.kafkaVersion is required (must be supported by the source-locked strimzi-kafka-operator)" .Values.cluster.kafkaVersion -}}
+
+{{- $replicas := .Values.cluster.replicas | int -}}
+{{- if lt $replicas 3 -}}
+{{- fail (printf "cluster.replicas must be at least 3 for a quorum-safe event bus (got %d)" $replicas) -}}
+{{- end -}}
+
+{{- /* Placeholder tokens are refused anywhere in names that reach the
+       rendered manifests (defence in depth on top of the repo-wide
+       values.yaml placeholder scan). */ -}}
+{{- $placeholderPattern := "(REPLACE_WITH|REQUIRED_APPROVED|REQUIRED_COMPATIBLE|CHANGEME|PLACEHOLDER)" -}}
+{{- if regexFind $placeholderPattern $clusterName -}}
+{{- fail (printf "cluster.name %q is a placeholder value; approved environment values are required" $clusterName) -}}
+{{- end -}}
+
+{{- /* Storage: persistent, retained claims only. */ -}}
+{{- $storageClass := required "cluster.storage.class is required (approved encrypted storage class)" .Values.cluster.storage.class -}}
+{{- if regexFind $placeholderPattern $storageClass -}}
+{{- fail (printf "cluster.storage.class %q is a placeholder value" $storageClass) -}}
+{{- end -}}
+{{- if .Values.cluster.storage.deleteClaim -}}
+{{- fail "cluster.storage.deleteClaim must remain false (broker PVCs must never be auto-deleted with the cluster)" -}}
+{{- end -}}
+
+{{- /* TLS posture: no plaintext listener may be requested, and the TLS
+       listener port must be present. */ -}}
+{{- if (.Values.listeners.plain).enabled -}}
+{{- fail "plaintext Kafka listeners are refused: listeners.tls and listeners.sasl (SCRAM-SHA-512 over TLS) only" -}}
+{{- end -}}
+{{- $_ := required "listeners.tls.port is required (TLS is mandatory)" .Values.listeners.tls.port -}}
+
+{{- /* SASL mechanism enum: SCRAM-SHA-512 only. */ -}}
+{{- $mech := required "listeners.sasl.mechanism is required" .Values.listeners.sasl.mechanism -}}
+{{- if ne $mech "scram-sha-512" -}}
+{{- fail (printf "listeners.sasl.mechanism must be scram-sha-512 (got %q): plain and scram-sha-256 are refused" $mech) -}}
+{{- end -}}
+
+{{- /* Users: names are DNS-safe service slugs; secrets are
+       operator-generated under the user's name — this repository carries
+       names only. */ -}}
+{{- range $u := .Values.users -}}
+{{- if not $u.name -}}
+{{- fail "every users entry requires a name (the KafkaUser and its generated Secret carry this name)" -}}
+{{- end -}}
+{{- if regexFind $placeholderPattern $u.name -}}
+{{- fail (printf "users entry %q is a placeholder value" $u.name) -}}
+{{- end -}}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $u.name) -}}
+{{- fail (printf "users entry %q must be a DNS-safe service slug" $u.name) -}}
+{{- end -}}
+{{- range $acl := (default (list) $u.acls) -}}
+{{- if or (not $acl.resource) (not $acl.resource.type) (not $acl.resource.name) -}}
+{{- fail (printf "users.%s acl entries require resource.type and resource.name" $u.name) -}}
+{{- end -}}
+{{- if not (has $acl.resource.type (list "topic" "group" "cluster" "transactionalId")) -}}
+{{- fail (printf "users.%s acl resource.type must be one of: topic, group, cluster, transactionalId" $u.name) -}}
+{{- end -}}
+{{- if empty $acl.operations -}}
+{{- fail (printf "users.%s acl for %s/%s requires operations" $u.name $acl.resource.type $acl.resource.name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* CA distribution: when consumer namespaces are declared, the
+       external-secrets store reference is mandatory and the target Secret
+       name must not be a placeholder. */ -}}
+{{- if not (empty .Values.caDistribution.namespaces) -}}
+{{- $storeRef := required "externalSecrets.storeRef.name is required when caDistribution.namespaces is non-empty" .Values.externalSecrets.storeRef.name -}}
+{{- if regexFind $placeholderPattern .Values.caDistribution.targetSecretName -}}
+{{- fail "caDistribution.targetSecretName is a placeholder value" -}}
+{{- end -}}
+{{- range $ns := .Values.caDistribution.namespaces -}}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $ns) -}}
+{{- fail (printf "caDistribution.namespaces entry %q must be a DNS-safe namespace name" $ns) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

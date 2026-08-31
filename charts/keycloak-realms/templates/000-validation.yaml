@@ -1,0 +1,92 @@
+{{- $digest := required "keycloakRealms.importJob.image.digest is required" .Values.importJob.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "importJob.digest must be an immutable lower-case sha256 digest" -}}
+{{- end -}}
+{{- $repo := required "importJob.repository is required" .Values.importJob.repository -}}
+{{- $base := required "keycloak.baseUrl is required (HTTPS in-cluster Keycloak service URL)" .Values.keycloak.baseUrl -}}
+{{- if not (hasPrefix "https://" $base) -}}
+{{- fail "keycloak.baseUrl must be an HTTPS URL" -}}
+{{- end -}}
+{{- $store := required "externalSecrets.storeRef.name is required" .Values.externalSecrets.storeRef.name -}}
+{{- if empty .Values.realms -}}
+{{- fail "realms must list the approved workstream realms" -}}
+{{- end -}}
+{{- $maxTTL := int .Values.tokenPolicy.accessTokenLifespan -}}
+{{- if gt $maxTTL 300 -}}
+{{- fail "tokenPolicy.accessTokenLifespan must be 300 seconds or less (short-TTL token policy)" -}}
+{{- end -}}
+{{- range $realm := .Values.realms -}}
+{{- if not $realm.name -}}
+{{- fail "every realms entry requires a name" -}}
+{{- end -}}
+{{- if empty $realm.roles -}}
+{{- fail (printf "realm %s must define its approved realm roles" $realm.name) -}}
+{{- end -}}
+{{- if empty $realm.clients -}}
+{{- fail (printf "realm %s must define its confidential service clients" $realm.name) -}}
+{{- end -}}
+{{- if not $realm.workstreamNamespace -}}
+{{- fail (printf "realm %s requires workstreamNamespace for client-secret ExternalSecrets" $realm.name) -}}
+{{- end -}}
+{{- /* Confidential-client audience mappers: every entry must be a
+       lower-case service slug (it becomes a token aud value verified by
+       the downstream service's KEYCLOAK_EXPECTED_AUDIENCE contract). */ -}}
+{{- range $c := $realm.clients -}}
+{{- range $aud := (default (list) $c.audienceMappers) -}}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9-]*$" ($aud | default "")) -}}
+{{- fail (printf "realm %s client %s audienceMappers entries must be non-empty lower-case service slugs (got %q)" $realm.name ($c.clientId | default "<missing>") $aud) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* Public-client discipline: browser/mobile clients are publicClient=true
+       with PKCE S256 and an exact-match redirect allowlist supplied via the
+       top-level publicClientRedirects map. HTTPS URIs only, plus the
+       code-fixed blueeconomy:// custom scheme registered by the mobile app.
+       No wildcards, no cleartext http, no empty allowlist. The ISR realm is
+       national-security controlled and may never expose public clients. */ -}}
+{{- range $pc := (default (list) $realm.publicClients) -}}
+{{- if not $pc.clientId -}}
+{{- fail (printf "realm %s publicClients entries require a clientId" $realm.name) -}}
+{{- end -}}
+{{- $uris := index $.Values.publicClientRedirects $pc.clientId -}}
+{{- if empty $uris -}}
+{{- fail (printf "realm %s public client %s requires an approved publicClientRedirects.%s allowlist (exact-match HTTPS URIs, or the registered blueeconomy:// mobile scheme); it is intentionally not defaulted" $realm.name $pc.clientId $pc.clientId) -}}
+{{- end -}}
+{{- range $uri := $uris -}}
+{{- if contains "*" $uri -}}
+{{- fail (printf "realm %s public client %s redirect URI %q must be an exact-match allowlist entry (wildcards are prohibited)" $realm.name $pc.clientId $uri) -}}
+{{- end -}}
+{{- if not (or (hasPrefix "https://" $uri) (hasPrefix "blueeconomy://" $uri)) -}}
+{{- fail (printf "realm %s public client %s redirect URI %q must be an HTTPS URI or the registered blueeconomy:// mobile scheme" $realm.name $pc.clientId $uri) -}}
+{{- end -}}
+{{- end -}}
+{{- range $origin := (default (list) $pc.webOrigins) -}}
+{{- if not (hasPrefix "https://" $origin) -}}
+{{- fail (printf "realm %s public client %s webOrigin %q must be an HTTPS origin" $realm.name $pc.clientId $origin) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if and (eq $realm.name "blueeconomy-isr") ($realm.publicClients) -}}
+{{- fail "realm blueeconomy-isr must not declare publicClients (national-security realm: no browser/mobile public clients)" -}}
+{{- end -}}
+{{- /* Classification-clearance gate. The ISR realm must declare the clearance
+       user attribute/client scope; any realm declaring it may only use the
+       approved classification labels. */ -}}
+{{- if $realm.clearanceScope -}}
+{{- if $realm.clearanceScope.enabled -}}
+{{- if empty $realm.clearanceScope.levels -}}
+{{- fail (printf "realm %s clearanceScope.levels must list the approved classification labels" $realm.name) -}}
+{{- end -}}
+{{- range $level := $realm.clearanceScope.levels -}}
+{{- if not (has $level (list "UNCLASSIFIED" "RESTRICTED" "CONFIDENTIAL" "SECRET")) -}}
+{{- fail (printf "realm %s clearanceScope level %q is not an approved classification label (UNCLASSIFIED, RESTRICTED, CONFIDENTIAL, SECRET)" $realm.name $level) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if eq $realm.name "blueeconomy-isr" -}}
+{{- if not (and $realm.clearanceScope $realm.clearanceScope.enabled) -}}
+{{- fail "realm blueeconomy-isr requires clearanceScope.enabled=true (classification clearance user attribute and client scope are mandatory for the ISR realm)" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

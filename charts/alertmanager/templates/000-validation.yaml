@@ -1,0 +1,35 @@
+{{- /* Fail-closed approval gates for alertmanager. */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+{{- $repo := required "image.repository is required" .Values.image.repository -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+
+{{- /* The Novu receiver is mandatory: ALL alerts route to it, so an empty
+       endpoint would be an alert black hole. */ -}}
+{{- if not (hasPrefix "http" .Values.novu.webhookUrl) -}}
+{{- fail "novu.webhookUrl is required and must be an http(s) URL (every alert routes to the Novu receiver; an empty receiver is an alert black hole)" -}}
+{{- end -}}
+{{- if empty .Values.routing.groupBy -}}
+{{- fail "routing.groupBy must list the alert grouping labels" -}}
+{{- end -}}
+{{- $size := required "persistence.size is required (silences/nflog PVC)" .Values.persistence.size -}}
+
+{{- /* Singleton fan-in. */ -}}
+{{- if ne (int .Values.replicas) 1 -}}
+{{- fail "replicas must remain 1 (single fan-in; HA gossip clustering is a separate approved design)" -}}
+{{- end -}}
+
+{{- /* Resources are mandatory. */ -}}
+{{- if or (empty .Values.resources.requests.cpu) (empty .Values.resources.requests.memory) (empty .Values.resources.limits.cpu) (empty .Values.resources.limits.memory) -}}
+{{- fail "resources.requests and resources.limits (cpu and memory) are required" -}}
+{{- end -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- $promNs := required "networkPolicy.prometheusNamespace is required (alert push ingress from the pinned Prometheus release)" .Values.networkPolicy.prometheusNamespace -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for alertmanager" -}}
+{{- end -}}
