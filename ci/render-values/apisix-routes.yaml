@@ -19,6 +19,15 @@ edgeObservability:
       enabled: true
       serviceName: apisix-gateway
 
+# WP-E static route validation (scripts/validate-apisix-routes.sh): the
+# approved edge-reachable services registry ("namespace/name"). Every route
+# upstream must resolve against this list; the gate exits non-zero on an
+# unresolved backend.
+routeValidation:
+  knownServices:
+    - blueeconomy-ports/port-interoperability-port-interoperability-api
+    - blueeconomy-isr/maritime-intelligence-maritime-intelligence-api
+
 routes:
   - name: platform-s1
     host: api.blueeconomy.example.gov.ng
