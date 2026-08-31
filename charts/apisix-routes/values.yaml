@@ -80,6 +80,108 @@ routes:
       rate: 15
       burst: 30
       key: "$consumer_name$remote_addr"
+  # CVFF beneficiary API (audit G2): the ONLY server of
+  # /v1/cvff/applications* consumed by blueeconomy-beneficiary-portal
+  # (financial-controls values, FC-4). Upstream is the cvff-api component
+  # Service of the financial-controls release.
+  - name: cvff-beneficiary
+    host: ""
+    paths:
+      - /v1/cvff/applications
+      - /v1/cvff/applications/*
+    methods: [GET, POST]
+    service:
+      namespace: blueeconomy-cvff
+      name: financial-controls-financial-controls-cvff-api
+      port: 8081
+    scopes:
+      - cvff
+    rateLimit:
+      rate: 20
+      burst: 40
+      key: "$consumer_name$remote_addr"
+  # Ferry ticketing API (audit G2): mobile gate/inspector ticket
+  # verification (POST /v1/tickets/verify) and verification-key refresh
+  # (GET /v1/tickets/verification-keys) on the ferry-api component.
+  - name: ferry-ticketing
+    host: ""
+    paths:
+      - /v1/tickets/*
+    methods: [GET, POST]
+    service:
+      namespace: blueeconomy-ferries
+      name: ferry-ticketing-ferry-ticketing-ferry-api
+      port: 8080
+    scopes:
+      - ferry
+    rateLimit:
+      rate: 20
+      burst: 40
+      key: "$consumer_name$remote_addr"
+  # Credential verification API (audit G2): mobile seafarer wallet reads
+  # (GET /v1/wallet/credentials/*, /v1/issuers/*/key, /v1/status-lists/*)
+  # on the credential-api component.
+  - name: credential-verification
+    host: ""
+    paths:
+      - /v1/wallet/*
+      - /v1/issuers/*
+      - /v1/status-lists/*
+    methods: [GET]
+    service:
+      namespace: blueeconomy-seafarer
+      name: credential-verification-credential-verification-credential-api
+      port: 8080
+    scopes:
+      - seafarer
+    rateLimit:
+      rate: 20
+      burst: 40
+      key: "$consumer_name$remote_addr"
+  # Fisheries traceability API (audit G2): mobile catch sync
+  # (POST /v1/catches/sync) on the trace-api component.
+  - name: fisheries-traceability
+    host: ""
+    paths:
+      - /v1/catches/*
+    methods: [POST]
+    service:
+      namespace: blueeconomy-fisheries
+      name: fisheries-traceability-fisheries-traceability-trace-api
+      port: 8080
+    scopes:
+      - fisheries
+    rateLimit:
+      rate: 10
+      burst: 20
+      key: "$consumer_name$remote_addr"
+  # Mobile eCallUp + push registration on port-interoperability (audit
+  # G2): slot bookings (POST /v1/bookings), queue requests
+  # (POST /v1/queue-requests) and push-token registration
+  # (POST /v1/push-tokens, blueeconomy-mobile pushRegistration.ts).
+  # NOTE: the port-interoperability backend does not yet implement
+  # /v1/push-tokens (verified against blueeconomy-port-interoperability
+  # main) — the route is registered so the edge contract is complete; the
+  # backend handler is tracked as a separate backend gap.
+  - name: mobile-port-interop
+    host: ""
+    paths:
+      - /v1/push-tokens
+      - /v1/bookings
+      - /v1/bookings/*
+      - /v1/queue-requests
+      - /v1/queue-requests/*
+    methods: [GET, POST]
+    service:
+      namespace: blueeconomy-ports
+      name: port-interoperability-port-interoperability-api
+      port: 8080
+    scopes:
+      - s1
+    rateLimit:
+      rate: 20
+      burst: 40
+      key: "$consumer_name$remote_addr"
 
 # Edge-native observability (OTEL_DESIGN.md section 3).
 edgeObservability:

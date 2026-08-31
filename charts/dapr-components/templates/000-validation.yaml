@@ -11,7 +11,7 @@
 {{- $approvedAppIds := dict
   "ports" (list "port-interoperability-api" "ussd-gateway" "booking-worker" "ports-outbox-publisher")
   "ferries" (list "ferry-api" "ferry-worker" "ferry-outbox-publisher")
-  "cvff" (list "intent-api" "cvff-worker" "cvff-outbox-publisher" "cvff-api" "declaration-scorer")
+  "cvff" (list "intent-api" "cvff-worker" "cvff-outbox-publisher" "cvff-api" "declaration-scorer" "stamps-intake")
   "seafarer" (list "credential-verification-api" "seafarer-credential-worker")
   "fisheries" (list "trace-api" "trace-worker" "fisheries-outbox-publisher")
   "isr" (list "maritime-intelligence-api" "isr-worker" "isr-outbox-publisher")

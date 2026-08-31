@@ -11,7 +11,7 @@ workstream:
   #               ports-outbox-publisher]
   #   ferries:   [ferry-api, ferry-worker, ferry-outbox-publisher]
   #   cvff:      [intent-api, cvff-worker, cvff-outbox-publisher,
-  #               cvff-api, declaration-scorer]
+  #               cvff-api, declaration-scorer, stamps-intake]
   #   seafarer:  [credential-verification-api, seafarer-credential-worker]
   #   fisheries: [trace-api, trace-worker, fisheries-outbox-publisher]
   #   isr:       [maritime-intelligence-api, isr-worker, isr-outbox-publisher]

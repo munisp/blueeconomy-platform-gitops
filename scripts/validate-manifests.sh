@@ -1207,7 +1207,10 @@ topic_re = re.compile(r"\b[a-z][a-z0-9]*(?:\.[a-z0-9]+)+\.v\d+\b")
 # Approved prefixes cover the phase-1 workstreams (ports.*, ferries.* —
 # e.g. ports.gate.v1, ferries.telemetry.v1 per the service sources) and
 # the phase-2 scopes.
-approved = ("ports.", "ferries.", "cvff.", "security.", "seafarer.", "fisheries.", "coldchain.", "export.", "maritime.isr.")
+# trade.* is the WP-1 declaration contract prefix: port-interoperability
+# publishes declarations on trade.declarations.v1, consumed by tax-stamps /
+# financial-controls stamps-intake (charts/tax-stamps/values.yaml).
+approved = ("ports.", "ferries.", "cvff.", "security.", "seafarer.", "fisheries.", "coldchain.", "export.", "maritime.isr.", "trade.")
 phase2 = ("seafarer.", "fisheries.", "coldchain.", "export.", "maritime.isr.")
 topics = set()
 for scope in ("charts", "ci", "kubernetes", "gitops"):

@@ -77,6 +77,10 @@ publicClientRedirects:
   blueeconomy-mobile:
     - blueeconomy://
   beneficiary-portal: []
+  # ministry-portal (audit G5): FMMBE ministry oversight SPA; browser
+  # redirect URIs are approved environment hostnames supplied by the
+  # environment repository (intentionally not defaulted).
+  ministry-portal: []
 realms:
   - name: blueeconomy-ports-ecallup
     workstreamNamespace: blueeconomy-ports
@@ -144,9 +148,14 @@ realms:
     # client, oidc-client-ts). Its redirect-URI allowlist is an approved
     # environment hostname supplied via publicClientRedirects.
     # blueeconomy-mobile: beneficiary persona (CVFF application status).
+    # ministry-portal (audit G5): FMMBE ministry oversight SPA
+    # (blueeconomy-ministry-portal; OIDC authorization-code + PKCE public
+    # client, fmmbe-oversight role). Its redirect-URI allowlist is an
+    # approved environment hostname supplied via publicClientRedirects.
     publicClients:
       - clientId: beneficiary-portal
       - clientId: blueeconomy-mobile
+      - clientId: ministry-portal
   # Workstream D: seafarer CoC credentialing (credential-verification).
   - name: blueeconomy-seafarer
     workstreamNamespace: blueeconomy-seafarer

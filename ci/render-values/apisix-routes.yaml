@@ -27,6 +27,10 @@ routeValidation:
   knownServices:
     - blueeconomy-ports/port-interoperability-port-interoperability-api
     - blueeconomy-isr/maritime-intelligence-maritime-intelligence-api
+    - blueeconomy-cvff/financial-controls-financial-controls-cvff-api
+    - blueeconomy-ferries/ferry-ticketing-ferry-ticketing-ferry-api
+    - blueeconomy-seafarer/credential-verification-credential-verification-credential-api
+    - blueeconomy-fisheries/fisheries-traceability-fisheries-traceability-trace-api
 
 routes:
   - name: platform-s1
@@ -73,4 +77,87 @@ routes:
     rateLimit:
       rate: 15
       burst: 30
+      key: "$consumer_name$remote_addr"
+  # Fixture mirrors of the G2 route additions in charts/apisix-routes.
+  - name: cvff-beneficiary
+    host: api.blueeconomy.example.gov.ng
+    paths:
+      - /v1/cvff/applications
+      - /v1/cvff/applications/*
+    methods: [GET, POST]
+    service:
+      namespace: blueeconomy-cvff
+      name: financial-controls-financial-controls-cvff-api
+      port: 8081
+    scopes:
+      - cvff
+    rateLimit:
+      rate: 20
+      burst: 40
+      key: "$consumer_name$remote_addr"
+  - name: ferry-ticketing
+    host: api.blueeconomy.example.gov.ng
+    paths:
+      - /v1/tickets/*
+    methods: [GET, POST]
+    service:
+      namespace: blueeconomy-ferries
+      name: ferry-ticketing-ferry-ticketing-ferry-api
+      port: 8080
+    scopes:
+      - ferry
+    rateLimit:
+      rate: 20
+      burst: 40
+      key: "$consumer_name$remote_addr"
+  - name: credential-verification
+    host: api.blueeconomy.example.gov.ng
+    paths:
+      - /v1/wallet/*
+      - /v1/issuers/*
+      - /v1/status-lists/*
+    methods: [GET]
+    service:
+      namespace: blueeconomy-seafarer
+      name: credential-verification-credential-verification-credential-api
+      port: 8080
+    scopes:
+      - seafarer
+    rateLimit:
+      rate: 20
+      burst: 40
+      key: "$consumer_name$remote_addr"
+  - name: fisheries-traceability
+    host: api.blueeconomy.example.gov.ng
+    paths:
+      - /v1/catches/*
+    methods: [POST]
+    service:
+      namespace: blueeconomy-fisheries
+      name: fisheries-traceability-fisheries-traceability-trace-api
+      port: 8080
+    scopes:
+      - fisheries
+    rateLimit:
+      rate: 10
+      burst: 20
+      key: "$consumer_name$remote_addr"
+  - name: mobile-port-interop
+    host: api.blueeconomy.example.gov.ng
+    paths:
+      - /v1/push-tokens
+      - /v1/bookings
+      - /v1/bookings/*
+      - /v1/queue-requests
+      - /v1/queue-requests/*
+    methods: [GET, POST]
+    service:
+      namespace: blueeconomy-ports
+      name: port-interoperability-port-interoperability-api
+      port: 8080
+    scopes:
+      - s1
+    rateLimit:
+      rate: 20
+      burst: 40
       key: "$consumer_name$remote_addr"

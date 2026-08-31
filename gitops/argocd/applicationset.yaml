@@ -97,6 +97,17 @@ spec:
           # exports to the collector gateway).
           - chart: keycloak
             namespace: blueeconomy-security
+          # Platform event bus (WP-E): Strimzi Kafka cluster CRs with TLS +
+          # SCRAM-SHA-512 and least-privilege KafkaUser ACLs. Security
+          # infrastructure, reconciled early alongside Keycloak into the
+          # security namespace; >=14 deployed charts require its endpoints
+          # (insurance outbox, cv-service, data-platform ingest, geo-service,
+          # tax-stamps, waterway-safety, mojaloop-overlay, otel collectors,
+          # dapr-components, backup-dr, security-operations, sedona-spark-jobs).
+          # Fail-closed: renders nothing until the environment repository
+          # opts in with approved cluster values.
+          - chart: kafka-security
+            namespace: blueeconomy-security
           # Core platform services (docs/core-services-deployment-guide.md):
           # TigerBeetle sub-ledger, Mojaloop release-control overlay and
           # Sedona Spark jobs each render into their approved namespace.
