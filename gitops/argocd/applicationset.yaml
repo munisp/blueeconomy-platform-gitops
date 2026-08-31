@@ -65,6 +65,17 @@ spec:
             namespace: blueeconomy-ferries
           - chart: cv-service
             namespace: blueeconomy-ports
+          # Phase-10 service coverage: the marine insurance engine
+          # (VC-based policies, Kafka outbox, fail-closed partner
+          # adapters, digest-pinned ISR evidence).
+          - chart: insurance
+            namespace: blueeconomy-cvff
+          # Agency sandbox (NON-PRODUCTION simulators only; the chart
+          # hard-refuses profile=prod and every resource is labelled
+          # environment: sandbox). Reconciled into the dedicated sandbox
+          # namespace.
+          - chart: agency-sandbox
+            namespace: blueeconomy-sandbox
           # Observability foundation (phase-7 OTel wave, OTEL_DESIGN.md):
           # agent/gateway collectors, trace/log/alert backends and the
           # Novu notification platform; alert rules render alongside.

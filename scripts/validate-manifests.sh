@@ -60,6 +60,7 @@ for chart in tigerbeetle mojaloop-overlay sedona-spark-jobs core-services region
   cilium caddy opa-policies backup-dr \
   postgis martin geo-service apisix-routes \
   tax-stamps ml-stack data-platform waterway-safety cv-service emqx \
+  insurance agency-sandbox \
   otel-collector-agent otel-collector-gateway tempo loki alertmanager \
   novu prometheus-rules keycloak opentripplanner trufi-planner kafka-security; do
   test -s "$repo_root/charts/$chart/Chart.yaml"
@@ -141,6 +142,9 @@ assert_default_render_fails_closed ml-stack 'profile must be one of: dev, stagin
 assert_default_render_fails_closed data-platform 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed waterway-safety 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed cv-service 'profile must be one of: dev, staging, prod'
+assert_default_render_fails_closed insurance 'profile must be one of: dev, staging, prod'
+# agency-sandbox is a NON-PRODUCTION simulator set: prod is refused outright.
+assert_default_render_fails_closed agency-sandbox 'profile must be one of: dev, staging (agency-sandbox is a NON-PRODUCTION simulator set; profile=prod is refused outright)'
 assert_default_render_fails_closed emqx 'profile must be one of: dev, staging, prod'
 assert_default_render_fails_closed otel-collector-agent 'profile must be one of: dev, staging, prod'
 # Browser RUM CORS gate (W-OTEL-RUM): the prod profile must never render a
@@ -182,6 +186,7 @@ for chart in ferry-ticketing financial-controls port-interoperability security-o
   administration-service \
   cilium opa-policies sedona-spark-jobs martin geo-service apisix-routes \
   tax-stamps ml-stack data-platform waterway-safety cv-service emqx \
+  insurance agency-sandbox \
   otel-collector-agent otel-collector-gateway tempo loki alertmanager \
   novu prometheus-rules keycloak opentripplanner trufi-planner kafka-security; do
   helm template render-gate "$repo_root/charts/$chart" \

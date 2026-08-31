@@ -1,0 +1,128 @@
+{{- /* Fail-closed approval gates for blueeconomy-insurance. */ -}}
+{{- if not (has .Values.profile (list "dev" "staging" "prod")) -}}
+{{- fail "profile must be one of: dev, staging, prod" -}}
+{{- end -}}
+{{- $repo := required "image.repository is required" .Values.image.repository -}}
+{{- $digest := required "image.digest is required" .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail "image.digest must be an immutable lower-case sha256 digest (no tag-only or :latest references)" -}}
+{{- end -}}
+
+{{- /* Prod profile: no test env anywhere (fail-closed doctrine). */ -}}
+{{- if eq .Values.profile "prod" -}}
+{{- range $k, $_ := .Values.env -}}
+{{- if hasPrefix "INSURANCE_TEST_" $k -}}
+{{- fail (printf "env name %s is forbidden when profile=prod (no test configuration in production)" $k) -}}
+{{- end -}}
+{{- end -}}
+{{- range $k := .Values.secretEnv -}}
+{{- if hasPrefix "INSURANCE_TEST_" $k -}}
+{{- fail (printf "secretEnv name %s is forbidden when profile=prod" $k) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Required plain env values are approved environment values. */ -}}
+{{- $env := default dict .Values.env -}}
+{{- range $envName := (default (list) .Values.requiredEnv) -}}
+{{- if eq (printf "%v" (get $env $envName)) "" -}}
+{{- fail (printf "env.%s must be set to an approved environment value" $envName) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Every secretEnv name must be backed by the ExternalSecret. */ -}}
+{{- range $secretName := (default (list) .Values.secretEnv) -}}
+{{- if not (hasKey $.Values.externalSecrets.keys $secretName) -}}
+{{- fail (printf "externalSecrets.keys.%s is required because the deployment consumes it via secretEnv" $secretName) -}}
+{{- end -}}
+{{- end -}}
+{{- /* Boot-fatal binary contract: database DSN (scheme-validated by the
+       binary) and the file-mounted Ed25519 signing key. */ -}}
+{{- if not (hasKey .Values.externalSecrets.keys "INSURANCE_DATABASE_URL") -}}
+{{- fail "externalSecrets.keys.INSURANCE_DATABASE_URL is required (boot-fatal postgresql+asyncpg DSN)" -}}
+{{- end -}}
+{{- $signingKey := required "signingKey.secretKey is required (ExternalSecrets key holding the Ed25519 PKCS#8 PEM)" .Values.signingKey.secretKey -}}
+{{- if not (hasKey .Values.externalSecrets.keys .Values.signingKey.secretKey) -}}
+{{- fail (printf "externalSecrets.keys.%s is required (the signing key is mounted as a file via INSURANCE_SIGNING_KEY_PATH; the binary refuses placeholder key material at boot)" .Values.signingKey.secretKey) -}}
+{{- end -}}
+{{- if not (hasPrefix "/" .Values.signingKey.mountPath) -}}
+{{- fail "signingKey.mountPath must be an absolute path" -}}
+{{- end -}}
+{{- $store := required "externalSecrets.storeRef.name is required (the landing zone's secret backend ClusterSecretStore)" .Values.externalSecrets.storeRef.name -}}
+
+{{- /* Producer key directory: inbound envelope verification and the ISR
+       evidence path both require it (config.py isr_evidence_configured). */ -}}
+{{- if not .Values.keyDirectory.enabled -}}
+{{- fail "keyDirectory.enabled must be true (INSURANCE_KEY_DIRECTORY_PATH; inbound envelope verification is mandatory)" -}}
+{{- end -}}
+{{- $kd := required "keyDirectory.configMapName is required when keyDirectory.enabled=true (opa-policies key-directory ConfigMap)" .Values.keyDirectory.configMapName -}}
+{{- if not (hasPrefix "/" .Values.keyDirectory.mountPath) -}}
+{{- fail "keyDirectory.mountPath must be an absolute path" -}}
+{{- end -}}
+
+{{- /* ISR evidence digest pins: comma-separated lower-case sha256 hex,
+       matching the binary validator exactly (config.py). */ -}}
+{{- $isr := printf "%v" (get $env "INSURANCE_ISR_EVIDENCE_SOURCE_DIGESTS") -}}
+{{- if and (ne $isr "") (ne $isr "<no value>") -}}
+{{- if not (regexMatch "^[0-9a-f]{64}(,[0-9a-f]{64})*$" $isr) -}}
+{{- fail "env.INSURANCE_ISR_EVIDENCE_SOURCE_DIGESTS must be comma-separated lower-case sha256 hex digests (the binary rejects any other shape at boot)" -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Partner adapters: https-only base URLs; every referenced
+       auth_token_env must be secret-sourced via ExternalSecrets — never
+       inline (config.py partner_adapters doctrine). */ -}}
+{{- $adapters := printf "%v" (get $env "INSURANCE_PARTNER_ADAPTERS_JSON") -}}
+{{- if and (ne $adapters "") (ne $adapters "<no value>") -}}
+{{- $parsed := fromJson $adapters -}}
+{{- if not (kindIs "map" $parsed) -}}
+{{- fail "env.INSURANCE_PARTNER_ADAPTERS_JSON must be a JSON object ({<partner_id>: {base_url, auth_token_env}})" -}}
+{{- end -}}
+{{- range $pid, $cfg := $parsed -}}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9._-]{0,63}$" $pid) -}}
+{{- fail (printf "env.INSURANCE_PARTNER_ADAPTERS_JSON: malformed partner id %q" $pid) -}}
+{{- end -}}
+{{- if not (kindIs "map" $cfg) -}}
+{{- fail (printf "env.INSURANCE_PARTNER_ADAPTERS_JSON: partner %s config must be an object" $pid) -}}
+{{- end -}}
+{{- $baseURL := printf "%v" (get $cfg "base_url") -}}
+{{- if not (hasPrefix "https://" $baseURL) -}}
+{{- fail (printf "env.INSURANCE_PARTNER_ADAPTERS_JSON: partner %s base_url must be https://" $pid) -}}
+{{- end -}}
+{{- $tokenEnv := printf "%v" (get $cfg "auth_token_env") -}}
+{{- if and (ne $tokenEnv "") (ne $tokenEnv "<no value>") -}}
+{{- if not (regexMatch "^[A-Z0-9_]{1,128}$" $tokenEnv) -}}
+{{- fail (printf "env.INSURANCE_PARTNER_ADAPTERS_JSON: partner %s auth_token_env must name an env var" $pid) -}}
+{{- end -}}
+{{- if not (has $tokenEnv (default (list) $.Values.secretEnv)) -}}
+{{- fail (printf "env.INSURANCE_PARTNER_ADAPTERS_JSON: partner %s auth_token_env %s must be listed in secretEnv (tokens are env-only, never inline)" $pid $tokenEnv) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Component gates: resources mandatory; HPA bounds valid. */ -}}
+{{- range $name, $component := .Values.components -}}
+{{- if $component.enabled -}}
+{{- if or (empty $component.resources.requests.cpu) (empty $component.resources.requests.memory) (empty $component.resources.limits.cpu) (empty $component.resources.limits.memory) -}}
+{{- fail (printf "components.%s resources.requests and resources.limits (cpu and memory) are required" $name) -}}
+{{- end -}}
+{{- if and (hasKey $component "hpa") $component.hpa $component.hpa.enabled -}}
+{{- if lt (int $component.hpa.minReplicas) 1 -}}
+{{- fail (printf "components.%s hpa.minReplicas must be at least 1 when hpa.enabled=true" $name) -}}
+{{- end -}}
+{{- if lt (int $component.hpa.maxReplicas) (int $component.hpa.minReplicas) -}}
+{{- fail (printf "components.%s hpa.maxReplicas must be >= hpa.minReplicas" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- if .Values.networkPolicy.enabled -}}
+{{- $apisixNs := required "networkPolicy.apisixNamespace is required (edge-only ingress)" .Values.networkPolicy.apisixNamespace -}}
+{{- $pgNs := required "networkPolicy.postgresNamespace is required" .Values.networkPolicy.postgresNamespace -}}
+{{- $kafkaNs := required "networkPolicy.kafkaNamespace is required" .Values.networkPolicy.kafkaNamespace -}}
+{{- $kcNs := required "networkPolicy.keycloakNamespace is required (JWKS egress)" .Values.networkPolicy.keycloakNamespace -}}
+{{- else -}}
+{{- fail "networkPolicy.enabled must remain true for insurance" -}}
+{{- end -}}

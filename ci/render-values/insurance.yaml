@@ -1,0 +1,48 @@
+# CI render-gate fixture ONLY. NOT deployable: synthetic digest and
+# illustrative references. Real values live in the authorised environment
+# repo.
+profile: prod
+
+image:
+  repository: registry.blueeconomy.example.gov.ng/blueeconomy/insurance
+  digest: sha256:3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d
+
+env:
+  INSURANCE_ISSUER_DID: did:web:insurance.blueeconomy.example.gov.ng
+  INSURANCE_POLICY_DIR: /app/policies
+  INSURANCE_KAFKA_BOOTSTRAP_SERVERS: kafka.blueeconomy-platform.svc.cluster.local:9092
+  INSURANCE_KAFKA_TOPIC_PREFIX: insurance
+  INSURANCE_KAFKA_CONSUMER_GROUP: blueeconomy-insurance
+  INSURANCE_OIDC_JWKS_URL: https://keycloak.blueeconomy-security.svc.cluster.local/realms/blueeconomy/protocol/openid-connect/certs
+  INSURANCE_OIDC_ISSUER: https://keycloak.blueeconomy-security.svc.cluster.local/realms/blueeconomy
+  INSURANCE_OIDC_AUDIENCE: insurance-api
+  INSURANCE_STATUS_LIST_BASE_URL: https://insurance.blueeconomy.example.gov.ng/status
+  INSURANCE_PARTNER_ADAPTERS_JSON: '{"acme-marine":{"base_url":"https://api.acme-marine.example.gov.ng","auth_token_env":"INSURANCE_PARTNER_TOKEN_ACME_MARINE"}}'
+  INSURANCE_ISR_EVIDENCE_SOURCE_DIGESTS: 4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e
+  INSURANCE_QUOTE_VALIDITY_HOURS: "72"
+  INSURANCE_RATE_LIMIT_PER_MINUTE: "120"
+
+secretEnv:
+  - INSURANCE_DATABASE_URL
+  - INSURANCE_PARTNER_TOKEN_ACME_MARINE
+
+externalSecrets:
+  storeRef:
+    name: azure-keyvault-usgov
+    kind: ClusterSecretStore
+  keys:
+    INSURANCE_DATABASE_URL: insurance/render-fixture/postgres-dsn
+    INSURANCE_SIGNING_KEY: insurance/render-fixture/signing-key-pem
+    INSURANCE_PARTNER_TOKEN_ACME_MARINE: insurance/render-fixture/partner-acme-marine-token
+
+keyDirectory:
+  enabled: true
+  configMapName: render-gate-opa-policies-key-directory
+  mountPath: /etc/blueeconomy/key-directory
+
+networkPolicy:
+  apisixNamespace: blueeconomy-security
+  postgresNamespace: blueeconomy-platform
+  kafkaNamespace: blueeconomy-platform
+  keycloakNamespace: blueeconomy-security
+  partnerAdaptersEnabled: true
