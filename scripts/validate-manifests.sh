@@ -969,7 +969,7 @@ rm -f "$output"
 # WP-E APISIX route inventory gate: plugin references, declared upstream
 # services, duplicate route URIs and TLS posture are statically validated
 # on the rendered ApisixRoute manifests.
-"$repo_root/scripts/validate-apisix-routes.sh" > /dev/null
+bash "$repo_root/scripts/validate-apisix-routes.sh" > /dev/null
 
 # WP-E Kafka TLS/SASL gates (kafka-security): a non-SCRAM-SHA-512 SASL
 # mechanism is refused at render time.
