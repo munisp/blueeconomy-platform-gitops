@@ -132,6 +132,24 @@ realms:
       - pli-secondary
       - pli-tertiary
       - receiving-bank-officer
+      # Phase-20 GAP-3 catalogue alignment (financial-controls CVFF API,
+      # internal/cvffapi/auth.go and policies/cvff.rego): these realm roles
+      # were enforced in code but existed in no realm, making the routes
+      # permanently unreachable. receiving-bank-officer (above) is the ONE
+      # canonical name; the code side was aligned to it.
+      # PLI underwriter chain party (four-party decision signal).
+      - underwriter
+      # CVFF operations officer binding the four-party role assignments.
+      - cvff-officer
+      # Resolves the fail-closed RECONCILIATION_REQUIRED branch.
+      - reconciliation-officer
+      # Financial-intent money movement: maker/checker pair plus resolver.
+      - intent-maker
+      - intent-checker
+      - financial-controller
+      # Read-only dual-ledger auditor report role (distinct from
+      # independent-auditor, which is the external audit observer below).
+      - auditor
       - beneficiary
       # CVFF beneficiary API (self-service application status/documents).
       - cvff-beneficiary
@@ -216,6 +234,18 @@ realms:
       - marine-police
       - fleet-operator
       - insurer-aggregator-ro
+      # Phase-20 GAP-3: trust-anchor feed administration was enforced by
+      # maritime-intelligence (internal/isr/access.go) but the role existed in
+      # no realm, so the route was permanently unreachable.
+      - feed-source-admin
+      # Phase-20 GAP-3: maritime-evidence clearance-aware roles
+      # (blueeconomy-maritime-evidence internal/api/server.go). Evidence is
+      # national-security adjacent, so these live in the ISR realm under the
+      # same mandatory clearance discipline.
+      - evidence-reader
+      - evidence-writer
+      - evidence-validator
+      - evidence-admin
       - auditor
       - fmmbe-oversight
       - icrc-observer
@@ -231,6 +261,30 @@ realms:
       - clientId: maritime-intelligence-api
       - clientId: isr-worker
       - clientId: isr-outbox-publisher
+  # Workstream G: geo-spatial services (geo-service zones/SOS/transit/ingest)
+  # and MRV (monitoring, reporting, verification). Phase-20 GAP-3: every
+  # geo-* and mrv-* role was code-enforced (blueeconomy-geo-service
+  # internal/api/server.go, internal/mrv/server.go) but existed in no realm —
+  # confirmed by blueeconomy-ministry-portal/src/roles.ts:41-51. This realm
+  # gives them a catalogue home; no public clients (service/operator realm).
+  - name: blueeconomy-geo
+    workstreamNamespace: blueeco-geo-prod
+    roles:
+      - geo-reader
+      - geo-zone-maker
+      - geo-zone-checker
+      - geo-admin
+      - geo-sos-reader
+      - geo-transit-admin
+      - geo-ingest
+      - mrv-reporter
+      - mrv-verifier
+      - mrv-flag-admin
+      - mrv-reader
+      - auditor
+      - fmmbe-oversight
+    clients:
+      - clientId: geo-service-api
 
 networkPolicy:
   enabled: true
