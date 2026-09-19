@@ -83,13 +83,17 @@ real secret material exists only in the external secret store.
 -}}
 {{- $clients = append $clients $client -}}
 {{- end -}}
+{{- /* Credential recovery (phase-20 GAP-13): resetPasswordAllowed is true so
+       provisioned users can use the Keycloak forgot-password flow;
+       self-registration remains disabled and email verification policy is
+       unchanged. */ -}}
 {{- $doc := dict
   "realm" $realm.name
   "enabled" true
   "sslRequired" "external"
   "registrationAllowed" false
   "verifyEmail" false
-  "resetPasswordAllowed" false
+  "resetPasswordAllowed" true
   "bruteForceProtected" true
   "accessTokenLifespan" (int $policy.accessTokenLifespan)
   "accessCodeLifespan" (int $policy.accessCodeLifespan)

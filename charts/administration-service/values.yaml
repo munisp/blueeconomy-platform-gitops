@@ -52,6 +52,10 @@ env:
   # entry in KEYCLOAK_ROLE_GROUP_MAPPING_JSON (enforced at render time,
   # exactly like the binary's fail-closed boot check).
   ONBOARDING_ALLOWED_ROLES: ""
+  # Phase-20 GAP-2: realm role required for the privileged onboarding
+  # transitions (decide/provision/activate). Submit stays open to any
+  # authenticated principal; maker != checker is enforced in the store.
+  ADMIN_ONBOARDING_APPROVER_ROLE: onboarding-approver
   # JSON object mapping each approved role to its Keycloak group id.
   KEYCLOAK_ROLE_GROUP_MAPPING_JSON: ""
   # Public self-service enrollment rate limit (1..100000 per minute; a
@@ -69,6 +73,7 @@ requiredEnv:
   - KEYCLOAK_ADMIN_CLIENT_ID
   - KEYCLOAK_SERVICE_ACTOR_SUBJECT
   - ONBOARDING_ALLOWED_ROLES
+  - ADMIN_ONBOARDING_APPROVER_ROLE
   - KEYCLOAK_ROLE_GROUP_MAPPING_JSON
   - ADMIN_ENROLLMENT_RATE_LIMIT_PER_MINUTE
 
